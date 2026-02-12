@@ -53,7 +53,7 @@ git add -A
 git commit -m "Release v$Version"
 
 # --- 5) tag（annotated） ---
-git tag -a "v$Version" -m "v$Version: $Summary"
+git tag -a "v$Version" -m "v$($Version): $Summary"
 
 # --- 6) push（commit + tag） ---
 git push
