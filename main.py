@@ -234,10 +234,15 @@ def render_header(u: Optional[User]) -> None:
         with ui.row().classes("items-center q-gutter-sm"):
             ui.badge(APP_ENV.upper()).props("outline")
             ui.badge(f"SFTP_BASE_DIR: {SFTP_BASE_DIR}").props("outline")
+
             if u:
                 ui.badge(f"{u.username} ({u.role})").props("outline")
-                ui.button("ログアウト", on_click=logout).props("color=negative flat")
 
+                # 管理者/副管理者だけ操作ログを見れる
+                if u.role in {"admin", "subadmin"}:
+                    ui.button("操作ログ", on_click=lambda: ui.open("/audit")).props("flat")
+
+                ui.button("ログアウト", on_click=logout).props("color=negative flat")
 
 def render_login(root_refresh) -> None:
     ui.label("ログイン").classes("text-h5 q-mb-md")
@@ -402,6 +407,73 @@ def index() -> None:
 
     root_refresh()
 
+@ui.page("/audit")
+def audit_page() -> None:
+    ui.page_title("Audit Logs - CV-HomeBuilder")
+
+    u = current_user()
+    if not u:
+        ui.notify("ログインが必要です", type="warning")
+        ui.open("/")
+        return
+
+    if u.role not in {"admin", "subadmin"}:
+        render_header(u)
+        ui.label("権限がありません（管理者/副管理者のみ）").classes("text-negative q-pa-md")
+        ui.button("戻る", on_click=lambda: ui.open("/")).props("color=primary")
+        return
+
+    render_header(u)
+
+    ui.label("操作ログ（最新200件）").classes("text-h6 q-pa-md")
+
+    limit_input = ui.number("表示件数", value=200, min=10, max=1000).props("outlined").classes("q-mb-sm")
+    action_input = ui.input("actionで絞り込み（例: login_success）").props("outlined").classes("q-mb-sm")
+
+    @ui.refreshable
+    def table_refresh() -> None:
+        limit = int(limit_input.value or 200)
+        action = (action_input.value or "").strip()
+
+        if action:
+            rows = db_fetchall(
+                """
+                SELECT id, created_at, username, role, action, details
+                FROM audit_logs
+                WHERE action = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (action, limit),
+            )
+        else:
+            rows = db_fetchall(
+                """
+                SELECT id, created_at, username, role, action, details
+                FROM audit_logs
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+
+        # datetimeを文字列にして表示しやすくする
+        for r in rows:
+            if r.get("created_at"):
+                r["created_at"] = r["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+
+        columns = [
+            {"name": "created_at", "label": "日時", "field": "created_at", "sortable": True},
+            {"name": "username", "label": "ユーザー", "field": "username", "sortable": True},
+            {"name": "role", "label": "権限", "field": "role", "sortable": True},
+            {"name": "action", "label": "操作", "field": "action", "sortable": True},
+            {"name": "details", "label": "詳細", "field": "details"},
+        ]
+
+        ui.table(columns=columns, rows=rows, row_key="id").classes("w-full")
+
+    ui.button("更新", on_click=table_refresh.refresh).props("color=primary").classes("q-mb-md")
+    table_refresh()
 
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
