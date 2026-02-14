@@ -183,6 +183,15 @@ def log_action(user: Optional[User], action: str, details: str = "{}") -> None:
         )
 
 
+def safe_log_action(user: Optional[User], action: str, details: str = "{}") -> None:
+    """ログ保存が失敗してもUI動作（ログアウト等）を止めないためのラッパー"""
+    try:
+        log_action(user, action, details)
+    except Exception as e:
+        # Heroku logs に出る。ユーザー体験を止めないのが優先。
+        print(f"[audit_log] failed: {e}")
+
+
 def current_user() -> Optional[User]:
     try:
         uid = app.storage.user.get("user_id")
@@ -201,12 +210,37 @@ def set_logged_in(user_row: dict) -> None:
     app.storage.user["role"] = str(user_row["role"])
 
 
+def navigate_to(path: str) -> None:
+    """確実に遷移するための統一関数（navigate → open → JS強制遷移）"""
+    safe_path = (path or "/").replace("'", "\\'")
+
+    # 1) NiceGUIのナビゲーションがあればそれを優先
+    try:
+        ui.navigate.to(path)
+        return
+    except Exception:
+        pass
+
+    # 2) ui.open を試す
+    try:
+        ui.open(path)
+        return
+    except Exception:
+        pass
+
+    # 3) 最後の手段：ブラウザを強制遷移
+    try:
+        ui.run_javascript(f"window.location.href='{safe_path}'")
+    except Exception:
+        pass
+
+
 def logout() -> None:
     u = current_user()
     if u:
-        log_action(u, "logout")
+        safe_log_action(u, "logout")
     app.storage.user.clear()
-    ui.open("/")
+    navigate_to("/")
 
 
 def ensure_stg_test_users() -> tuple[bool, str]:
@@ -238,11 +272,11 @@ def render_header(u: Optional[User]) -> None:
             if u:
                 ui.badge(f"{u.username} ({u.role})").props("outline")
 
-                # 管理者/副管理者だけ操作ログを見れる
                 if u.role in {"admin", "subadmin"}:
-                    ui.button("操作ログ", on_click=lambda: ui.open("/audit")).props("flat")
+                    ui.button("操作ログ", on_click=lambda: navigate_to("/audit")).props("flat")
 
                 ui.button("ログアウト", on_click=logout).props("color=negative flat")
+
 
 def render_login(root_refresh) -> None:
     ui.label("ログイン").classes("text-h5 q-mb-md")
@@ -255,7 +289,6 @@ def render_login(root_refresh) -> None:
             ui.label("stg（検証環境）です").classes("text-subtitle1")
             ui.label("テストアカウントを自動作成するには、Heroku Config Vars に STG_TEST_PASSWORD を追加してください。")
             ui.label(f"理由: {msg}").classes("text-caption text-grey")
-
         else:
             ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered")
             ui.label("stg（検証環境）テストアカウント").classes("text-subtitle1")
@@ -274,15 +307,16 @@ def render_login(root_refresh) -> None:
 
         row = get_user_by_username(un)
         if not row or not verify_password(pw, row["password_hash"]):
-            # 失敗ログ（ユーザー名だけ記録）
-            log_action(None, "login_failed", details=f'{{"username":"{un}"}}')
+            safe_log_action(None, "login_failed", details=f'{{"username":"{un}"}}')
             ui.notify("ユーザー名またはパスワードが違います", type="negative")
             return
 
         set_logged_in(row)
+
         u = current_user()
         if u:
-            log_action(u, "login_success")
+            safe_log_action(u, "login_success")
+
         ui.notify("ログインしました", type="positive")
         root_refresh()
 
@@ -317,7 +351,7 @@ def render_first_admin_setup(root_refresh) -> None:
             set_logged_in(row)
             u = current_user()
             if u:
-                log_action(u, "first_admin_created")
+                safe_log_action(u, "first_admin_created")
             ui.notify("管理者を作成しました。ログインしました。", type="positive")
             root_refresh()
         else:
@@ -392,6 +426,7 @@ def index() -> None:
         root.clear()
         with root:
             u = current_user()
+
             # 本番でユーザーがまだ0人なら、最初の管理者作成画面
             if APP_ENV != "stg" and count_users() == 0:
                 render_header(None)
@@ -407,6 +442,7 @@ def index() -> None:
 
     root_refresh()
 
+
 @ui.page("/audit")
 def audit_page() -> None:
     ui.page_title("Audit Logs - CV-HomeBuilder")
@@ -414,13 +450,13 @@ def audit_page() -> None:
     u = current_user()
     if not u:
         ui.notify("ログインが必要です", type="warning")
-        ui.open("/")
+        navigate_to("/")
         return
 
     if u.role not in {"admin", "subadmin"}:
         render_header(u)
         ui.label("権限がありません（管理者/副管理者のみ）").classes("text-negative q-pa-md")
-        ui.button("戻る", on_click=lambda: ui.open("/")).props("color=primary")
+        ui.button("戻る", on_click=lambda: navigate_to("/")).props("color=primary")
         return
 
     render_header(u)
@@ -474,6 +510,7 @@ def audit_page() -> None:
 
     ui.button("更新", on_click=table_refresh.refresh).props("color=primary").classes("q-mb-md")
     table_refresh()
+
 
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
