@@ -380,8 +380,8 @@ def project_json_path(project_id: str) -> str:
 
 
 def normalize_project(p: dict) -> dict:
-    # v0.3のproject.jsonも壊さず、必要な箱だけ追加する
-    p.setdefault("schema_version", "0.4.0")
+    # ★ ここで必ず0.4.0形式に“寄せる”
+    p["schema_version"] = "0.4.0"
     p.setdefault("project_id", new_project_id())
     p.setdefault("project_name", "(no name)")
     p.setdefault("created_at", now_iso())
@@ -416,13 +416,6 @@ def get_current_project() -> Optional[dict]:
 
 def set_current_project(p: dict) -> None:
     app.storage.user["project"] = normalize_project(p)
-
-
-def clear_current_project() -> None:
-    try:
-        app.storage.user.pop("project", None)
-    except Exception:
-        pass
 
 
 def create_project(name: str, created_by: Optional[User]) -> dict:
@@ -505,7 +498,7 @@ def list_projects_from_sftp() -> list[dict]:
 
 
 # =========================
-# UI
+# UI parts
 # =========================
 
 def render_header(u: Optional[User]) -> None:
@@ -537,15 +530,15 @@ def render_login(root_refresh) -> None:
     if APP_ENV == "stg":
         seeded, msg = ensure_stg_test_users()
         if seeded:
-            ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered")
-            ui.label("stg（検証環境）テストアカウント").classes("text-subtitle1")
-            ui.label("ユーザー名：admin_test / subadmin_test / user01〜user05")
-            ui.label("パスワード：STG_TEST_PASSWORD").classes("text-caption text-grey")
+            with ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered"):
+                ui.label("stg（検証環境）テストアカウント").classes("text-subtitle1")
+                ui.label("ユーザー名：admin_test / subadmin_test / user01〜user05")
+                ui.label("パスワード：STG_TEST_PASSWORD").classes("text-caption text-grey")
         else:
-            ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered")
-            ui.label("stg（検証環境）です").classes("text-subtitle1")
-            ui.label("STG_TEST_PASSWORD が未設定のため、テストアカウントは作成されていません。")
-            ui.label(f"理由: {msg}").classes("text-caption text-grey")
+            with ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered"):
+                ui.label("stg（検証環境）です").classes("text-subtitle1")
+                ui.label("STG_TEST_PASSWORD が未設定のため、テストアカウントは作成されていません。")
+                ui.label(f"理由: {msg}").classes("text-caption text-grey")
 
     username = ui.input("ユーザー名").props("outlined").classes("w-full")
     password = ui.input("パスワード", password=True, password_toggle_button=True).props("outlined").classes("w-full")
@@ -627,9 +620,7 @@ def render_preview(p: dict) -> None:
 
     map_url = google_maps_url(addr)
 
-    # スマホ枠の中身（超簡易の見た目）
     with ui.column().classes("w-full"):
-        # 上部バー
         with ui.element("div").classes(f"w-full q-pa-sm bg-{primary} text-white"):
             ui.label(company).classes("text-subtitle2")
             ui.label(catch).classes("text-caption")
@@ -655,6 +646,14 @@ def render_main(u: User) -> None:
 
     p = get_current_project()
 
+    # ★ プレビュー更新をシンプルに（左から呼べる）
+    preview_ref = {"refresh": (lambda: None)}
+    def refresh_preview() -> None:
+        try:
+            preview_ref["refresh"]()
+        except Exception:
+            pass
+
     with ui.row().classes("w-full q-pa-md q-gutter-md").style("height: calc(100vh - 90px);"):
         # Left
         with ui.card().classes("q-pa-md").style("width: 520px; max-width: 520px;").props("flat bordered"):
@@ -668,11 +667,6 @@ def render_main(u: User) -> None:
             ui.label(f"現在の案件：{p.get('project_name')}").classes("text-body1")
             ui.label(f"ID：{p.get('project_id')}").classes("text-caption text-grey")
             ui.label(f"更新：{p.get('updated_at','')}").classes("text-caption text-grey")
-
-            # 右プレビューを更新するためのrefreshable
-            @ui.refreshable
-            def preview_refresh():
-                pass  # 右側で使う（ここでは何もしない）
 
             def do_save():
                 try:
@@ -698,7 +692,6 @@ def render_main(u: User) -> None:
                 for key, label in steps:
                     ui.tab(key, label=label)
 
-            # ---- Step1/2入力をここで実装 ----
             with ui.tab_panels(tabs, value="s1").props("vertical").classes("w-full q-mt-md"):
                 with ui.tab_panel("s1"):
                     ui.label("業種（テンプレ）").classes("text-subtitle2")
@@ -707,9 +700,9 @@ def render_main(u: User) -> None:
                     def on_industry_change(e):
                         p["data"]["step1"]["industry"] = e.value
                         set_current_project(p)
+                        refresh_preview()
 
-                    industry_radio = ui.radio(INDUSTRY_OPTIONS, value=current_industry, on_change=on_industry_change)
-                    industry_radio.props("dense")
+                    ui.radio(INDUSTRY_OPTIONS, value=current_industry, on_change=on_industry_change).props("dense")
 
                     ui.separator().classes("q-my-md")
 
@@ -721,26 +714,25 @@ def render_main(u: User) -> None:
                     def on_color_change(e):
                         p["data"]["step1"]["primary_color"] = e.value
                         set_current_project(p)
-                        preview_refresh.refresh()
+                        refresh_preview()
 
-                    color_radio = ui.radio(COLOR_OPTIONS, value=current_color, on_change=on_color_change)
-                    color_radio.props("dense")
+                    ui.radio(COLOR_OPTIONS, value=current_color, on_change=on_color_change).props("dense")
 
                 with ui.tab_panel("s2"):
                     ui.label("会社の基本情報").classes("text-subtitle2")
                     ui.label("入力すると右のプレビューに反映されます").classes("text-caption text-grey q-mb-sm")
 
+                    # ★★★ ここが今回の修正ポイント：
+                    # ui.input(...).on("change", ...) をやめて、作成時に on_change= を渡す
                     def bind_input(key: str, label: str):
                         val = p["data"]["step2"].get(key, "")
-                        inp = ui.input(label, value=val).props("outlined").classes("w-full q-mb-sm")
 
                         def _on_change(e):
                             p["data"]["step2"][key] = e.value
                             set_current_project(p)
-                            preview_refresh.refresh()
+                            refresh_preview()
 
-                        inp.on("change", _on_change)
-                        return inp
+                        ui.input(label, value=val, on_change=_on_change).props("outlined").classes("w-full q-mb-sm")
 
                     bind_input("company_name", "会社名")
                     bind_input("catch_copy", "キャッチコピー")
@@ -769,13 +761,7 @@ def render_main(u: User) -> None:
                     render_preview(p)
 
                 preview_panel()
-
-                # 左の入力が変わったら、このrefreshを叩く
-                # → ここを外部から呼ぶために、同名で再代入
-                def _refresh():
-                    preview_panel.refresh()
-                # 左側の preview_refresh.refresh() をこの _refresh に寄せる
-                preview_refresh.refresh = _refresh
+                preview_ref["refresh"] = preview_panel.refresh
 
 
 # =========================
