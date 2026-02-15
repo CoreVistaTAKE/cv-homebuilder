@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, quote_plus
 
 import paramiko
 import psycopg
@@ -63,6 +63,13 @@ def new_project_id() -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     rnd = secrets.token_hex(3)
     return f"p{ts}_{rnd}"
+
+
+def google_maps_url(address: str) -> str:
+    address = (address or "").strip()
+    if not address:
+        return ""
+    return f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
 
 
 # =========================
@@ -275,7 +282,6 @@ def ensure_stg_test_users() -> tuple[bool, str]:
 # =========================
 
 def parse_sftp_url(url: str) -> tuple[str, int, str, str]:
-    # expected: sftp://user:pass@host:port
     u = urlparse(url)
     if u.scheme not in {"sftp"}:
         raise RuntimeError("SFTPTOGO_URL の scheme が sftp ではありません")
@@ -317,7 +323,6 @@ def sftp_mkdirs(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
             try:
                 sftp.mkdir(path)
             except Exception:
-                # 同時作成などで失敗しても次へ
                 pass
 
 
@@ -346,8 +351,25 @@ def sftp_list_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> list[str]:
 
 
 # =========================
-# Projects (v0.3.0)
+# Projects (v0.4.0)
 # =========================
+
+INDUSTRY_OPTIONS = [
+    "会社サイト（企業）",
+    "福祉事業所",
+    "個人事業",
+    "その他",
+]
+
+COLOR_OPTIONS = [
+    "blue",
+    "indigo",
+    "teal",
+    "green",
+    "deep-orange",
+    "purple",
+]
+
 
 def project_dir(project_id: str) -> str:
     return f"{SFTP_PROJECTS_DIR}/{project_id}"
@@ -357,18 +379,43 @@ def project_json_path(project_id: str) -> str:
     return f"{project_dir(project_id)}/project.json"
 
 
+def normalize_project(p: dict) -> dict:
+    # v0.3のproject.jsonも壊さず、必要な箱だけ追加する
+    p.setdefault("schema_version", "0.4.0")
+    p.setdefault("project_id", new_project_id())
+    p.setdefault("project_name", "(no name)")
+    p.setdefault("created_at", now_iso())
+    p.setdefault("updated_at", now_iso())
+
+    data = p.setdefault("data", {})
+    step1 = data.setdefault("step1", {})
+    step2 = data.setdefault("step2", {})
+    data.setdefault("blocks", {})
+
+    step1.setdefault("industry", "会社サイト（企業）")
+    step1.setdefault("primary_color", "blue")
+
+    step2.setdefault("company_name", "")
+    step2.setdefault("catch_copy", "")
+    step2.setdefault("phone", "")
+    step2.setdefault("address", "")
+    step2.setdefault("email", "")
+
+    return p
+
+
 def get_current_project() -> Optional[dict]:
     try:
         p = app.storage.user.get("project")
         if isinstance(p, dict) and p.get("project_id"):
-            return p
+            return normalize_project(p)
         return None
     except Exception:
         return None
 
 
 def set_current_project(p: dict) -> None:
-    app.storage.user["project"] = p
+    app.storage.user["project"] = normalize_project(p)
 
 
 def clear_current_project() -> None:
@@ -381,24 +428,37 @@ def clear_current_project() -> None:
 def create_project(name: str, created_by: Optional[User]) -> dict:
     pid = new_project_id()
     p = {
-        "schema_version": "0.3.0",
+        "schema_version": "0.4.0",
         "project_id": pid,
         "project_name": name,
         "created_at": now_iso(),
         "updated_at": now_iso(),
-        # v0.3.0は枠だけ。v0.4以降で増やす
         "data": {
-            "step1": {},
-            "step2": {},
+            "step1": {
+                "industry": "会社サイト（企業）",
+                "primary_color": "blue",
+            },
+            "step2": {
+                "company_name": "",
+                "catch_copy": "",
+                "phone": "",
+                "address": "",
+                "email": "",
+            },
             "blocks": {},
         },
     }
     if created_by:
-        safe_log_action(created_by, "project_create", details=json.dumps({"project_id": pid, "name": name}, ensure_ascii=False))
+        safe_log_action(
+            created_by,
+            "project_create",
+            details=json.dumps({"project_id": pid, "name": name}, ensure_ascii=False),
+        )
     return p
 
 
 def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
+    p = normalize_project(p)
     p["updated_at"] = now_iso()
     remote = project_json_path(p["project_id"])
     body = json.dumps(p, ensure_ascii=False, indent=2)
@@ -412,7 +472,7 @@ def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
     remote = project_json_path(project_id)
     with sftp_client() as sftp:
         body = sftp_read_text(sftp, remote)
-    p = json.loads(body)
+    p = normalize_project(json.loads(body))
     if user:
         safe_log_action(user, "project_load", details=json.dumps({"project_id": project_id}, ensure_ascii=False))
     return p
@@ -425,7 +485,7 @@ def list_projects_from_sftp() -> list[dict]:
         for d in dirs:
             try:
                 body = sftp_read_text(sftp, project_json_path(d))
-                p = json.loads(body)
+                p = normalize_project(json.loads(body))
                 projects.append({
                     "project_id": p.get("project_id", d),
                     "project_name": p.get("project_name", "(no name)"),
@@ -439,10 +499,8 @@ def list_projects_from_sftp() -> list[dict]:
                     "updated_at": "",
                     "created_at": "",
                 })
-    # updated_at desc
-    def key(x: dict) -> str:
-        return x.get("updated_at", "")
-    projects.sort(key=key, reverse=True)
+
+    projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return projects
 
 
@@ -453,6 +511,7 @@ def list_projects_from_sftp() -> list[dict]:
 def render_header(u: Optional[User]) -> None:
     with ui.row().classes("w-full items-center justify-between q-pa-md"):
         ui.label(f"CV-HomeBuilder  v{VERSION}").classes("text-h6")
+
         with ui.row().classes("items-center q-gutter-sm"):
             ui.badge(APP_ENV.upper()).props("outline")
             ui.badge(f"SFTP_BASE_DIR: {SFTP_BASE_DIR}").props("outline")
@@ -552,6 +611,45 @@ def render_first_admin_setup(root_refresh) -> None:
     ui.button("管理者を作成", on_click=create_admin).props("color=primary").classes("q-mt-md")
 
 
+def render_preview(p: dict) -> None:
+    p = normalize_project(p)
+    step1 = p["data"]["step1"]
+    step2 = p["data"]["step2"]
+
+    industry = step1.get("industry", "会社サイト（企業）")
+    primary = step1.get("primary_color", "blue")
+
+    company = (step2.get("company_name") or "").strip() or "（会社名 未入力）"
+    catch = (step2.get("catch_copy") or "").strip() or "（キャッチコピー 未入力）"
+    phone = (step2.get("phone") or "").strip()
+    addr = (step2.get("address") or "").strip()
+    email = (step2.get("email") or "").strip()
+
+    map_url = google_maps_url(addr)
+
+    # スマホ枠の中身（超簡易の見た目）
+    with ui.column().classes("w-full"):
+        # 上部バー
+        with ui.element("div").classes(f"w-full q-pa-sm bg-{primary} text-white"):
+            ui.label(company).classes("text-subtitle2")
+            ui.label(catch).classes("text-caption")
+
+        with ui.element("div").classes("q-pa-md"):
+            ui.label("テンプレ").classes("text-caption text-grey")
+            ui.label(industry).classes("text-body2 q-mb-sm")
+
+            ui.label("基本情報").classes("text-subtitle2 q-mt-sm")
+            ui.label(f"TEL：{phone if phone else '未入力'}").classes("text-body2")
+            ui.label(f"Email：{email if email else '未入力'}").classes("text-body2")
+            ui.label(f"住所：{addr if addr else '未入力'}").classes("text-body2")
+
+            if map_url:
+                ui.button(
+                    "地図を開く",
+                    on_click=lambda u=map_url: ui.run_javascript(f"window.open('{u}','_blank')")
+                ).props("flat color=primary").classes("q-mt-sm")
+
+
 def render_main(u: User) -> None:
     render_header(u)
 
@@ -560,7 +658,7 @@ def render_main(u: User) -> None:
     with ui.row().classes("w-full q-pa-md q-gutter-md").style("height: calc(100vh - 90px);"):
         # Left
         with ui.card().classes("q-pa-md").style("width: 520px; max-width: 520px;").props("flat bordered"):
-            ui.label("制作ステップ（v0.3.0：案件保存/読込まで）").classes("text-subtitle1 q-mb-sm")
+            ui.label("制作ステップ（v0.4.0：Step1/2入力 + プレビュー反映）").classes("text-subtitle1 q-mb-sm")
 
             if not p:
                 ui.label("案件が未選択です。まず案件を作成/選択してください。").classes("text-body2 q-mb-md")
@@ -571,15 +669,20 @@ def render_main(u: User) -> None:
             ui.label(f"ID：{p.get('project_id')}").classes("text-caption text-grey")
             ui.label(f"更新：{p.get('updated_at','')}").classes("text-caption text-grey")
 
+            # 右プレビューを更新するためのrefreshable
+            @ui.refreshable
+            def preview_refresh():
+                pass  # 右側で使う（ここでは何もしない）
+
             def do_save():
                 try:
                     save_project_to_sftp(p, u)
                     set_current_project(p)
-                    ui.notify("保存しました（SFTP）", type="positive")
+                    ui.notify("保存しました（SFTP / project.json）", type="positive")
                 except Exception as e:
                     ui.notify(f"保存に失敗: {e}", type="negative")
 
-            ui.button("保存（project.json）", on_click=do_save).props("color=primary").classes("q-mt-md")
+            ui.button("保存（PROJECT.JSON）", on_click=do_save).props("color=primary").classes("q-mt-md")
 
             ui.separator().classes("q-my-md")
 
@@ -595,29 +698,84 @@ def render_main(u: User) -> None:
                 for key, label in steps:
                     ui.tab(key, label=label)
 
+            # ---- Step1/2入力をここで実装 ----
             with ui.tab_panels(tabs, value="s1").props("vertical").classes("w-full q-mt-md"):
                 with ui.tab_panel("s1"):
-                    ui.label("v0.4.0で業種・カラー選択を実装").classes("text-body2")
+                    ui.label("業種（テンプレ）").classes("text-subtitle2")
+                    current_industry = p["data"]["step1"].get("industry", "会社サイト（企業）")
+
+                    def on_industry_change(e):
+                        p["data"]["step1"]["industry"] = e.value
+                        set_current_project(p)
+
+                    industry_radio = ui.radio(INDUSTRY_OPTIONS, value=current_industry, on_change=on_industry_change)
+                    industry_radio.props("dense")
+
+                    ui.separator().classes("q-my-md")
+
+                    ui.label("カラー（テーマ色）").classes("text-subtitle2")
+                    ui.label("※右のプレビューの上部バー色が変わります").classes("text-caption text-grey")
+
+                    current_color = p["data"]["step1"].get("primary_color", "blue")
+
+                    def on_color_change(e):
+                        p["data"]["step1"]["primary_color"] = e.value
+                        set_current_project(p)
+                        preview_refresh.refresh()
+
+                    color_radio = ui.radio(COLOR_OPTIONS, value=current_color, on_change=on_color_change)
+                    color_radio.props("dense")
+
                 with ui.tab_panel("s2"):
-                    ui.label("v0.4.0で基本情報入力を実装").classes("text-body2")
+                    ui.label("会社の基本情報").classes("text-subtitle2")
+                    ui.label("入力すると右のプレビューに反映されます").classes("text-caption text-grey q-mb-sm")
+
+                    def bind_input(key: str, label: str):
+                        val = p["data"]["step2"].get(key, "")
+                        inp = ui.input(label, value=val).props("outlined").classes("w-full q-mb-sm")
+
+                        def _on_change(e):
+                            p["data"]["step2"][key] = e.value
+                            set_current_project(p)
+                            preview_refresh.refresh()
+
+                        inp.on("change", _on_change)
+                        return inp
+
+                    bind_input("company_name", "会社名")
+                    bind_input("catch_copy", "キャッチコピー")
+                    bind_input("phone", "電話番号")
+                    bind_input("email", "メール（任意）")
+                    bind_input("address", "住所（地図リンクは自動生成）")
+
                 with ui.tab_panel("s3"):
                     ui.label("v0.5.0でブロック入力を実装").classes("text-body2")
+
                 with ui.tab_panel("s4"):
                     ui.label("v0.7.0で承認フローを実装").classes("text-body2")
+
                 with ui.tab_panel("s5"):
                     ui.label("v0.7.0で公開（アップロード）を実装").classes("text-body2")
 
         # Right (preview)
         with ui.card().classes("q-pa-md").style("flex: 1; min-width: 360px;").props("flat bordered"):
             ui.label("プレビュー（スマホ表示：仮）").classes("text-subtitle1 q-mb-sm")
-            with ui.card().classes("q-pa-md").style(
-                "width: 360px; height: 640px; border-radius: 24px; border: 1px solid #ddd;"
-            ).props("flat"):
-                ui.label("ここに完成イメージが表示されます").classes("text-body2")
-                ui.label("v0.4.0から入力→プレビュー反映を開始").classes("text-caption text-grey")
 
-            ui.separator().classes("q-my-md")
-            ui.label("今後：スマホ/PC切替、リアルタイム反映").classes("text-caption text-grey")
+            with ui.card().classes("q-pa-md").style(
+                "width: 360px; height: 640px; border-radius: 24px; border: 1px solid #ddd; overflow: hidden;"
+            ).props("flat"):
+                @ui.refreshable
+                def preview_panel():
+                    render_preview(p)
+
+                preview_panel()
+
+                # 左の入力が変わったら、このrefreshを叩く
+                # → ここを外部から呼ぶために、同名で再代入
+                def _refresh():
+                    preview_panel.refresh()
+                # 左側の preview_refresh.refresh() をこの _refresh に寄せる
+                preview_refresh.refresh = _refresh
 
 
 # =========================
@@ -666,7 +824,7 @@ def projects_page() -> None:
 
     render_header(u)
 
-    ui.label("案件一覧（v0.3.0）").classes("text-h6 q-pa-md")
+    ui.label("案件一覧（v0.4.0）").classes("text-h6 q-pa-md")
 
     name_input = ui.input("新規案件名（例：アルカーサ株式会社）").props("outlined").classes("q-mb-sm").style("max-width:520px;")
 
