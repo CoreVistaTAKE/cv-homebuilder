@@ -18,7 +18,7 @@ from nicegui import app, ui
 
 
 # =========================
-# Global UI styles (v0.6.0)
+# Global UI styles (v0.6.1)
 # =========================
 
 _STYLES_INJECTED = False
@@ -44,35 +44,33 @@ def inject_global_styles() -> None:
     padding: 16px;
   }
 
-  /* 左右（基本） */
+  /* 左右（入る時は左右 / 入らない時は自動で上下） */
   .cvhb-split {
     display: flex;
-    flex-direction: row;      /* ← デフォルトは左右 */
+    flex-direction: row;
+    flex-wrap: wrap;          /* ← ここがポイント：足りない時だけ下に落ちる */
     gap: 16px;
     align-items: flex-start;
   }
 
-  /* 左：入力 */
+  /* 左：入力（基本は固定 520px） */
   .cvhb-left {
-    width: 100%;
-    flex: 0 0 520px;          /* ← 左は固定幅 */
+    flex: 0 0 520px;
+    width: 520px;
     max-width: 520px;
   }
 
-  /* 右：プレビュー */
+  /* 右：プレビュー（残り全部。最低 360px は欲しい） */
   .cvhb-right {
-    width: 100%;
-    flex: 1 1 auto;           /* ← 右は残り全部 */
+    flex: 1 1 360px;
     min-width: 360px;
   }
 
-  /* 980px以下は上下（スマホ/タブレット想定） */
-  @media (max-width: 980px) {
-    .cvhb-split {
-      flex-direction: column; /* ← ここで上下 */
-    }
+  /* 小さい画面では横スクロールを防ぐ（左も右も100%） */
+  @media (max-width: 640px) {
     .cvhb-left {
       flex: 1 1 auto;
+      width: 100%;
       max-width: none;
     }
     .cvhb-right {
@@ -419,7 +417,7 @@ def sftp_list_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> list[str]:
 
 
 # =========================
-# Projects (v0.6.0)
+# Projects (v0.6.1)
 # =========================
 
 INDUSTRY_OPTIONS = [
@@ -440,7 +438,7 @@ COLOR_OPTIONS = [
 
 
 # =========================
-# Blocks / Template presets (v0.6.0)
+# Blocks / Template presets (v0.6.1)
 # =========================
 
 HERO_IMAGE_PRESET_URLS = {
@@ -460,7 +458,7 @@ def project_json_path(project_id: str) -> str:
 
 
 def normalize_project(p: dict) -> dict:
-    p["schema_version"] = "0.6.0"
+    p["schema_version"] = "0.6.1"
     p.setdefault("project_id", new_project_id())
     p.setdefault("project_name", "(no name)")
     p.setdefault("created_at", now_iso())
@@ -565,7 +563,7 @@ def set_current_project(p: dict) -> None:
 def create_project(name: str, created_by: Optional[User]) -> dict:
     pid = new_project_id()
     p = {
-        "schema_version": "0.6.0",
+        "schema_version": "0.6.1",
         "project_id": pid,
         "project_name": name,
         "created_at": now_iso(),
