@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.5.0] - 2026-02-15
+- feat: step3 blocks inputs + preview reflect + saved in project.json
+
 ## [0.4.0] - 2026-02-15
 - feat: step1/step2 input + live preview + saved in project.json
 
@@ -19,6 +22,7 @@
 - Herokuにデプロイして起動確認
 - 独自ドメイン cvh.visone-ai.jp + SSL(ACM) OK
 - GitHubに最小構成を追加
+
 
 
 
