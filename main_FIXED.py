@@ -17,6 +17,22 @@ from urllib.parse import urlparse, unquote, quote_plus
 import paramiko
 import psycopg
 from psycopg.rows import dict_row
+
+# =========================
+# Heroku runtime guard
+# =========================
+# Heroku Python buildpack may set WEB_CONCURRENCY>1 automatically.
+# NiceGUI (uvicorn) cannot start multiple workers when launched via `python main.py`,
+# because uvicorn requires an import string for multi-worker/reload mode.
+# To avoid dyno crash (H10 / 503), force single worker on Heroku.
+if os.getenv("DYNO"):
+    try:
+        _wc = int(os.getenv("WEB_CONCURRENCY", "1"))
+    except Exception:
+        _wc = 1
+    if _wc > 1:
+        os.environ["WEB_CONCURRENCY"] = "1"
+
 from nicegui import app, ui
 
 
