@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.3.0] - 2026-02-15
+- feat: projects create/save/load to SFTP (project.json)
+
 ## [0.2.1] - 2026-02-15
 - fix: audit/logout navigation + safe audit logging
 
@@ -13,5 +16,6 @@
 - Herokuにデプロイして起動確認
 - 独自ドメイン cvh.visone-ai.jp + SSL(ACM) OK
 - GitHubに最小構成を追加
+
 
 
