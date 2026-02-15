@@ -1,0 +1,89 @@
+/* =========================================================
+   CV-HomeBuilder Styles (v0.6.2)
+   - 画面が広い: 左(固定) + 右(プレビュー)
+   - 画面が狭い: 縦並び
+   - ここを触るだけで「見た目」を整えられるように分離しました
+   ========================================================= */
+
+:root {
+  --cvhb-bg: #f5f5f5;
+  --cvhb-gap: 16px;
+  --cvhb-card-radius: 12px;
+}
+
+/* 全体背景 */
+.cvhb-page {
+  background: var(--cvhb-bg);
+  min-height: calc(100vh - 64px);
+}
+
+.cvhb-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* --- 2カラム（安定のCSS Grid） --- */
+.cvhb-split {
+  display: grid;
+  grid-template-columns: 520px minmax(0, 1fr);
+  gap: var(--cvhb-gap);
+  align-items: start;
+}
+
+.cvhb-left,
+.cvhb-right {
+  min-width: 0;
+}
+
+/* スマホ〜タブレットは縦並び */
+@media (max-width: 900px) {
+  .cvhb-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* プレビューはスクロールしても見えるように（PC幅だけ） */
+@media (min-width: 901px) {
+  .cvhb-preview-sticky {
+    position: sticky;
+    top: 88px; /* ヘッダーの高さ + 余白 */
+  }
+}
+
+/* --- カードの角を統一 --- */
+.cvhb-left .q-card,
+.cvhb-right .q-card {
+  border-radius: var(--cvhb-card-radius);
+}
+
+/* --- 選択肢カード（業種/カラー） --- */
+.cvhb-option-card {
+  border-radius: 12px;
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.cvhb-option-card:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+/* 選択中のカード（目立たせる） */
+.cvhb-option-selected {
+  border-color: rgba(25, 118, 210, 0.55) !important;
+  box-shadow: 0 6px 18px rgba(25, 118, 210, 0.12);
+}
+
+/* 色の四角 */
+.cvhb-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+/* タブの文字が長い時に折り返して見切れを防ぐ */
+.q-tab__label {
+  white-space: normal !important;
+  line-height: 1.2;
+}
