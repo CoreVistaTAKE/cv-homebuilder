@@ -25,7 +25,11 @@ _STYLES_INJECTED = False
 
 
 def inject_global_styles() -> None:
-    """画面幅で「左右 / 上下」を確実に切り替えるためのCSS（Quasarのcol系に依存しない）"""
+    """画面幅で「左右 / 上下」を確実に切り替えるためのCSS（Quasarのcol系に依存しない）
+    v0.6.0では @media(max-width:980px) で上下固定していたため、Windows拡大率/ブラウザズームで
+    980px未満判定になり、広い画面でも縦並びになることがあった。
+    → flex-wrap で「入るなら左右、入らないなら下に落ちる」に変更。
+    """
     global _STYLES_INJECTED
     if _STYLES_INJECTED:
         return
@@ -44,36 +48,38 @@ def inject_global_styles() -> None:
     padding: 16px;
   }
 
-  /* 左右（入る時は左右 / 入らない時は自動で上下） */
+  /* 左右（基本）：入るなら左右、入らないなら自動で下に落ちる */
   .cvhb-split {
     display: flex;
     flex-direction: row;
-    flex-wrap: wrap;          /* ← ここがポイント：足りない時だけ下に落ちる */
+    flex-wrap: wrap;          /* ← ここがポイント */
     gap: 16px;
     align-items: flex-start;
   }
 
-  /* 左：入力（基本は固定 520px） */
+  /* 左：入力（固定幅） */
   .cvhb-left {
     flex: 0 0 520px;
-    width: 520px;
     max-width: 520px;
   }
 
-  /* 右：プレビュー（残り全部。最低 360px は欲しい） */
+  /* 右：プレビュー（残り全部 / 最低幅あり） */
   .cvhb-right {
     flex: 1 1 360px;
     min-width: 360px;
   }
 
-  /* 小さい画面では横スクロールを防ぐ（左も右も100%） */
+  /* スマホ想定（640px以下）：余白を減らして縦並び */
   @media (max-width: 640px) {
+    .cvhb-container {
+      padding: 8px;
+    }
     .cvhb-left {
-      flex: 1 1 auto;
-      width: 100%;
+      flex: 1 1 100%;
       max-width: none;
     }
     .cvhb-right {
+      flex: 1 1 100%;
       min-width: 0;
     }
   }
