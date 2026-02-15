@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.4.0] - 2026-02-15
+- feat: step1/step2 input + live preview + saved in project.json
+
 ## [0.3.0] - 2026-02-15
 - feat: projects create/save/load to SFTP (project.json)
 
@@ -16,6 +19,7 @@
 - Herokuにデプロイして起動確認
 - 独自ドメイン cvh.visone-ai.jp + SSL(ACM) OK
 - GitHubに最小構成を追加
+
 
 
 
