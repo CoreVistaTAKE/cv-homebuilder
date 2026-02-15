@@ -1,12 +1,17 @@
 import base64
 import hashlib
+import json
 import os
 import secrets
+import stat
+from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+from urllib.parse import urlparse, unquote
 
+import paramiko
 import psycopg
 from psycopg.rows import dict_row
 from nicegui import app, ui
@@ -39,6 +44,25 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 SFTP_BASE_DIR = (os.getenv("SFTP_BASE_DIR") or "/cvhb").rstrip("/")
+SFTPTOGO_URL = os.getenv("SFTPTOGO_URL")
+if not SFTPTOGO_URL:
+    raise RuntimeError("SFTPTOGO_URL が未設定です。HerokuのConfig Varsに追加してください。")
+
+SFTP_PROJECTS_DIR = f"{SFTP_BASE_DIR}/projects"
+
+
+# =========================
+# Small utils
+# =========================
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def new_project_id() -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    rnd = secrets.token_hex(3)
+    return f"p{ts}_{rnd}"
 
 
 # =========================
@@ -107,7 +131,6 @@ def init_db_schema() -> None:
 # =========================
 
 def hash_password(password: str) -> str:
-    # 外部ライブラリなしで安全に（PBKDF2）
     salt = secrets.token_bytes(16)
     iterations = 210_000
     dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
@@ -184,11 +207,9 @@ def log_action(user: Optional[User], action: str, details: str = "{}") -> None:
 
 
 def safe_log_action(user: Optional[User], action: str, details: str = "{}") -> None:
-    """ログ保存が失敗してもUI動作（ログアウト等）を止めないためのラッパー"""
     try:
         log_action(user, action, details)
     except Exception as e:
-        # Heroku logs に出る。ユーザー体験を止めないのが優先。
         print(f"[audit_log] failed: {e}")
 
 
@@ -211,24 +232,17 @@ def set_logged_in(user_row: dict) -> None:
 
 
 def navigate_to(path: str) -> None:
-    """確実に遷移するための統一関数（navigate → open → JS強制遷移）"""
     safe_path = (path or "/").replace("'", "\\'")
-
-    # 1) NiceGUIのナビゲーションがあればそれを優先
     try:
         ui.navigate.to(path)
         return
     except Exception:
         pass
-
-    # 2) ui.open を試す
     try:
         ui.open(path)
         return
     except Exception:
         pass
-
-    # 3) 最後の手段：ブラウザを強制遷移
     try:
         ui.run_javascript(f"window.location.href='{safe_path}'")
     except Exception:
@@ -244,18 +258,192 @@ def logout() -> None:
 
 
 def ensure_stg_test_users() -> tuple[bool, str]:
-    """returns: (seeded, message)"""
     if APP_ENV != "stg":
         return (False, "not stg")
     pwd = os.getenv("STG_TEST_PASSWORD")
     if not pwd:
         return (False, "STG_TEST_PASSWORD が未設定です（stgのみ必要）")
-    # create users (idempotent)
     create_user("admin_test", pwd, "admin")
     create_user("subadmin_test", pwd, "subadmin")
     for i in range(1, 6):
         create_user(f"user{i:02d}", pwd, "user")
     return (True, "stg test users seeded")
+
+
+# =========================
+# SFTP (SFTP To Go)
+# =========================
+
+def parse_sftp_url(url: str) -> tuple[str, int, str, str]:
+    # expected: sftp://user:pass@host:port
+    u = urlparse(url)
+    if u.scheme not in {"sftp"}:
+        raise RuntimeError("SFTPTOGO_URL の scheme が sftp ではありません")
+    host = u.hostname or ""
+    port = u.port or 22
+    user = unquote(u.username or "")
+    pwd = unquote(u.password or "")
+    if not host or not user or not pwd:
+        raise RuntimeError("SFTPTOGO_URL から host/user/password を取得できません")
+    return host, port, user, pwd
+
+
+@contextmanager
+def sftp_client():
+    host, port, user, pwd = parse_sftp_url(SFTPTOGO_URL)
+    transport = paramiko.Transport((host, port))
+    try:
+        transport.connect(username=user, password=pwd)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        yield sftp
+    finally:
+        try:
+            transport.close()
+        except Exception:
+            pass
+
+
+def sftp_mkdirs(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
+    remote_dir = remote_dir.rstrip("/")
+    if remote_dir == "":
+        return
+    parts = remote_dir.strip("/").split("/")
+    path = ""
+    for p in parts:
+        path = f"{path}/{p}"
+        try:
+            sftp.stat(path)
+        except Exception:
+            try:
+                sftp.mkdir(path)
+            except Exception:
+                # 同時作成などで失敗しても次へ
+                pass
+
+
+def sftp_write_text(sftp: paramiko.SFTPClient, remote_path: str, text: str) -> None:
+    remote_dir = "/".join(remote_path.split("/")[:-1])
+    sftp_mkdirs(sftp, remote_dir)
+    with sftp.open(remote_path, "w") as f:
+        f.write(text)
+
+
+def sftp_read_text(sftp: paramiko.SFTPClient, remote_path: str) -> str:
+    with sftp.open(remote_path, "r") as f:
+        return f.read()
+
+
+def sftp_list_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> list[str]:
+    try:
+        items = sftp.listdir_attr(remote_dir)
+    except Exception:
+        return []
+    dirs = []
+    for it in items:
+        if stat.S_ISDIR(it.st_mode):
+            dirs.append(it.filename)
+    return sorted(dirs)
+
+
+# =========================
+# Projects (v0.3.0)
+# =========================
+
+def project_dir(project_id: str) -> str:
+    return f"{SFTP_PROJECTS_DIR}/{project_id}"
+
+
+def project_json_path(project_id: str) -> str:
+    return f"{project_dir(project_id)}/project.json"
+
+
+def get_current_project() -> Optional[dict]:
+    try:
+        p = app.storage.user.get("project")
+        if isinstance(p, dict) and p.get("project_id"):
+            return p
+        return None
+    except Exception:
+        return None
+
+
+def set_current_project(p: dict) -> None:
+    app.storage.user["project"] = p
+
+
+def clear_current_project() -> None:
+    try:
+        app.storage.user.pop("project", None)
+    except Exception:
+        pass
+
+
+def create_project(name: str, created_by: Optional[User]) -> dict:
+    pid = new_project_id()
+    p = {
+        "schema_version": "0.3.0",
+        "project_id": pid,
+        "project_name": name,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        # v0.3.0は枠だけ。v0.4以降で増やす
+        "data": {
+            "step1": {},
+            "step2": {},
+            "blocks": {},
+        },
+    }
+    if created_by:
+        safe_log_action(created_by, "project_create", details=json.dumps({"project_id": pid, "name": name}, ensure_ascii=False))
+    return p
+
+
+def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
+    p["updated_at"] = now_iso()
+    remote = project_json_path(p["project_id"])
+    body = json.dumps(p, ensure_ascii=False, indent=2)
+    with sftp_client() as sftp:
+        sftp_write_text(sftp, remote, body)
+    if user:
+        safe_log_action(user, "project_save", details=json.dumps({"project_id": p["project_id"]}, ensure_ascii=False))
+
+
+def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
+    remote = project_json_path(project_id)
+    with sftp_client() as sftp:
+        body = sftp_read_text(sftp, remote)
+    p = json.loads(body)
+    if user:
+        safe_log_action(user, "project_load", details=json.dumps({"project_id": project_id}, ensure_ascii=False))
+    return p
+
+
+def list_projects_from_sftp() -> list[dict]:
+    projects: list[dict] = []
+    with sftp_client() as sftp:
+        dirs = sftp_list_dirs(sftp, SFTP_PROJECTS_DIR)
+        for d in dirs:
+            try:
+                body = sftp_read_text(sftp, project_json_path(d))
+                p = json.loads(body)
+                projects.append({
+                    "project_id": p.get("project_id", d),
+                    "project_name": p.get("project_name", "(no name)"),
+                    "updated_at": p.get("updated_at", ""),
+                    "created_at": p.get("created_at", ""),
+                })
+            except Exception:
+                projects.append({
+                    "project_id": d,
+                    "project_name": "(broken project.json)",
+                    "updated_at": "",
+                    "created_at": "",
+                })
+    # updated_at desc
+    def key(x: dict) -> str:
+        return x.get("updated_at", "")
+    projects.sort(key=key, reverse=True)
+    return projects
 
 
 # =========================
@@ -269,8 +457,14 @@ def render_header(u: Optional[User]) -> None:
             ui.badge(APP_ENV.upper()).props("outline")
             ui.badge(f"SFTP_BASE_DIR: {SFTP_BASE_DIR}").props("outline")
 
+            p = get_current_project()
+            if p:
+                ui.badge(f"案件: {p.get('project_name','')}"[:18]).props("outline")
+
             if u:
                 ui.badge(f"{u.username} ({u.role})").props("outline")
+
+                ui.button("案件", on_click=lambda: navigate_to("/projects")).props("flat")
 
                 if u.role in {"admin", "subadmin"}:
                     ui.button("操作ログ", on_click=lambda: navigate_to("/audit")).props("flat")
@@ -281,19 +475,18 @@ def render_header(u: Optional[User]) -> None:
 def render_login(root_refresh) -> None:
     ui.label("ログイン").classes("text-h5 q-mb-md")
 
-    # stg用メッセージ
     if APP_ENV == "stg":
         seeded, msg = ensure_stg_test_users()
-        if not seeded:
-            ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered")
-            ui.label("stg（検証環境）です").classes("text-subtitle1")
-            ui.label("テストアカウントを自動作成するには、Heroku Config Vars に STG_TEST_PASSWORD を追加してください。")
-            ui.label(f"理由: {msg}").classes("text-caption text-grey")
-        else:
+        if seeded:
             ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered")
             ui.label("stg（検証環境）テストアカウント").classes("text-subtitle1")
             ui.label("ユーザー名：admin_test / subadmin_test / user01〜user05")
-            ui.label("パスワード：STG_TEST_PASSWORD（Herokuに入れた値）").classes("text-caption text-grey")
+            ui.label("パスワード：STG_TEST_PASSWORD").classes("text-caption text-grey")
+        else:
+            ui.card().classes("q-pa-md q-mb-md").style("max-width: 520px;").props("flat bordered")
+            ui.label("stg（検証環境）です").classes("text-subtitle1")
+            ui.label("STG_TEST_PASSWORD が未設定のため、テストアカウントは作成されていません。")
+            ui.label(f"理由: {msg}").classes("text-caption text-grey")
 
     username = ui.input("ユーザー名").props("outlined").classes("w-full")
     password = ui.input("パスワード", password=True, password_toggle_button=True).props("outlined").classes("w-full")
@@ -307,12 +500,11 @@ def render_login(root_refresh) -> None:
 
         row = get_user_by_username(un)
         if not row or not verify_password(pw, row["password_hash"]):
-            safe_log_action(None, "login_failed", details=f'{{"username":"{un}"}}')
+            safe_log_action(None, "login_failed", details=json.dumps({"username": un}, ensure_ascii=False))
             ui.notify("ユーザー名またはパスワードが違います", type="negative")
             return
 
         set_logged_in(row)
-
         u = current_user()
         if u:
             safe_log_action(u, "login_success")
@@ -363,11 +555,33 @@ def render_first_admin_setup(root_refresh) -> None:
 def render_main(u: User) -> None:
     render_header(u)
 
-    # メイン 2カラム（左：入力、右：プレビュー）
+    p = get_current_project()
+
     with ui.row().classes("w-full q-pa-md q-gutter-md").style("height: calc(100vh - 90px);"):
-        # 左
+        # Left
         with ui.card().classes("q-pa-md").style("width: 520px; max-width: 520px;").props("flat bordered"):
-            ui.label("制作ステップ（v0.2.0は枠だけ）").classes("text-subtitle1 q-mb-sm")
+            ui.label("制作ステップ（v0.3.0：案件保存/読込まで）").classes("text-subtitle1 q-mb-sm")
+
+            if not p:
+                ui.label("案件が未選択です。まず案件を作成/選択してください。").classes("text-body2 q-mb-md")
+                ui.button("案件一覧へ", on_click=lambda: navigate_to("/projects")).props("color=primary")
+                return
+
+            ui.label(f"現在の案件：{p.get('project_name')}").classes("text-body1")
+            ui.label(f"ID：{p.get('project_id')}").classes("text-caption text-grey")
+            ui.label(f"更新：{p.get('updated_at','')}").classes("text-caption text-grey")
+
+            def do_save():
+                try:
+                    save_project_to_sftp(p, u)
+                    set_current_project(p)
+                    ui.notify("保存しました（SFTP）", type="positive")
+                except Exception as e:
+                    ui.notify(f"保存に失敗: {e}", type="negative")
+
+            ui.button("保存（project.json）", on_click=do_save).props("color=primary").classes("q-mt-md")
+
+            ui.separator().classes("q-my-md")
 
             steps = [
                 ("s1", "1. 業種・色"),
@@ -383,33 +597,31 @@ def render_main(u: User) -> None:
 
             with ui.tab_panels(tabs, value="s1").props("vertical").classes("w-full q-mt-md"):
                 with ui.tab_panel("s1"):
-                    ui.label("ここに業種選択・色選択を置きます（v0.4.0で実装予定）").classes("text-body2")
+                    ui.label("v0.4.0で業種・カラー選択を実装").classes("text-body2")
                 with ui.tab_panel("s2"):
-                    ui.label("ここに会社名・電話・住所などの入力を置きます（v0.4.0で実装予定）").classes("text-body2")
+                    ui.label("v0.4.0で基本情報入力を実装").classes("text-body2")
                 with ui.tab_panel("s3"):
-                    ui.label("ここにブロック入力（ヒーロー/理念/FAQ…）を置きます（v0.5.0で実装予定）").classes("text-body2")
+                    ui.label("v0.5.0でブロック入力を実装").classes("text-body2")
                 with ui.tab_panel("s4"):
-                    ui.label("ここに管理者承認・最終チェックを置きます（v0.7.0で実装予定）").classes("text-body2")
+                    ui.label("v0.7.0で承認フローを実装").classes("text-body2")
                 with ui.tab_panel("s5"):
-                    ui.label("ここに公開（アップロード）を置きます（v0.7.0で実装予定）").classes("text-body2")
+                    ui.label("v0.7.0で公開（アップロード）を実装").classes("text-body2")
 
-        # 右（プレビュー）
+        # Right (preview)
         with ui.card().classes("q-pa-md").style("flex: 1; min-width: 360px;").props("flat bordered"):
             ui.label("プレビュー（スマホ表示：仮）").classes("text-subtitle1 q-mb-sm")
-
-            # スマホ枠っぽいカード
             with ui.card().classes("q-pa-md").style(
                 "width: 360px; height: 640px; border-radius: 24px; border: 1px solid #ddd;"
             ).props("flat"):
                 ui.label("ここに完成イメージが表示されます").classes("text-body2")
-                ui.label("v0.2.0では枠だけ（ダミー）").classes("text-caption text-grey")
+                ui.label("v0.4.0から入力→プレビュー反映を開始").classes("text-caption text-grey")
 
             ui.separator().classes("q-my-md")
             ui.label("今後：スマホ/PC切替、リアルタイム反映").classes("text-caption text-grey")
 
 
 # =========================
-# Page
+# Pages
 # =========================
 
 init_db_schema()
@@ -427,7 +639,6 @@ def index() -> None:
         with root:
             u = current_user()
 
-            # 本番でユーザーがまだ0人なら、最初の管理者作成画面
             if APP_ENV != "stg" and count_users() == 0:
                 render_header(None)
                 render_first_admin_setup(root_refresh)
@@ -441,6 +652,76 @@ def index() -> None:
             render_main(u)
 
     root_refresh()
+
+
+@ui.page("/projects")
+def projects_page() -> None:
+    ui.page_title("Projects - CV-HomeBuilder")
+
+    u = current_user()
+    if not u:
+        ui.notify("ログインが必要です", type="warning")
+        navigate_to("/")
+        return
+
+    render_header(u)
+
+    ui.label("案件一覧（v0.3.0）").classes("text-h6 q-pa-md")
+
+    name_input = ui.input("新規案件名（例：アルカーサ株式会社）").props("outlined").classes("q-mb-sm").style("max-width:520px;")
+
+    @ui.refreshable
+    def list_refresh() -> None:
+        try:
+            items = list_projects_from_sftp()
+        except Exception as e:
+            ui.notify(f"一覧取得に失敗: {e}", type="negative")
+            items = []
+
+        ui.separator().classes("q-my-sm")
+
+        if not items:
+            ui.label("案件がまだありません。上で新規作成してください。").classes("text-body2")
+            return
+
+        for it in items:
+            with ui.card().classes("q-pa-md q-mb-sm").props("flat bordered"):
+                ui.label(it.get("project_name", "")).classes("text-body1")
+                ui.label(f"ID: {it.get('project_id','')}").classes("text-caption text-grey")
+                ui.label(f"更新: {it.get('updated_at','')}").classes("text-caption text-grey")
+
+                def open_this(pid=it.get("project_id", "")):
+                    try:
+                        p = load_project_from_sftp(pid, u)
+                        set_current_project(p)
+                        ui.notify("案件を開きました", type="positive")
+                        navigate_to("/")
+                    except Exception as e:
+                        ui.notify(f"開けませんでした: {e}", type="negative")
+
+                ui.button("開く", on_click=open_this).props("color=primary")
+
+    def create_new():
+        name = (name_input.value or "").strip()
+        if not name:
+            ui.notify("案件名を入力してください", type="warning")
+            return
+        try:
+            p = create_project(name, u)
+            save_project_to_sftp(p, u)
+            set_current_project(p)
+            ui.notify("新規案件を作成しました", type="positive")
+            name_input.value = ""
+            list_refresh.refresh()
+            navigate_to("/")
+        except Exception as e:
+            ui.notify(f"作成に失敗: {e}", type="negative")
+
+    with ui.row().classes("q-gutter-sm q-pa-md"):
+        ui.button("新規作成", on_click=create_new).props("color=primary")
+        ui.button("更新", on_click=list_refresh.refresh).props("flat")
+
+    list_refresh()
 
 
 @ui.page("/audit")
@@ -493,7 +774,6 @@ def audit_page() -> None:
                 (limit,),
             )
 
-        # datetimeを文字列にして表示しやすくする
         for r in rows:
             if r.get("created_at"):
                 r["created_at"] = r["created_at"].strftime("%Y-%m-%d %H:%M:%S")
