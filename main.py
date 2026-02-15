@@ -25,10 +25,9 @@ _STYLES_INJECTED = False
 
 
 def inject_global_styles() -> None:
-    """画面幅で「左右 / 上下」を確実に切り替えるためのCSS（Quasarのcol系に依存しない）
-    v0.6.0では @media(max-width:980px) で上下固定していたため、Windows拡大率/ブラウザズームで
-    980px未満判定になり、広い画面でも縦並びになることがあった。
-    → flex-wrap で「入るなら左右、入らないなら下に落ちる」に変更。
+    """見た目用のCSS（※左右レイアウトはQuasarのrowで制御して、CSS依存を減らす）
+    - v0.6.0で「広くしても縦並び」になっていた原因は、CSSが効かない/想定外の幅判定が起きるケースがあるため。
+    - ここでは“装飾”だけにCSSを使い、“左右/上下の切替”は ui.row の標準挙動（wrap）を使う。
     """
     global _STYLES_INJECTED
     if _STYLES_INJECTED:
@@ -37,7 +36,6 @@ def inject_global_styles() -> None:
     ui.add_head_html(
         """
 <style>
-  /* 全体 */
   .cvhb-page {
     background: #f5f5f5;
     min-height: calc(100vh - 64px);
@@ -48,39 +46,28 @@ def inject_global_styles() -> None:
     padding: 16px;
   }
 
-  /* 左右（基本）：入るなら左右、入らないなら自動で下に落ちる */
-  .cvhb-split {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;          /* ← ここがポイント */
-    gap: 16px;
-    align-items: flex-start;
+  /* 選択カード（業種/カラー） */
+  .cvhb-option-card {
+    cursor: pointer;
+    transition: background 0.12s ease-in-out, transform 0.12s ease-in-out;
+  }
+  .cvhb-option-card:hover {
+    background: #fafafa;
+  }
+  .cvhb-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(0,0,0,0.22);
+    flex: 0 0 auto;
   }
 
-  /* 左：入力（固定幅） */
-  .cvhb-left {
-    flex: 0 0 520px;
-    max-width: 520px;
-  }
-
-  /* 右：プレビュー（残り全部 / 最低幅あり） */
-  .cvhb-right {
-    flex: 1 1 360px;
-    min-width: 360px;
-  }
-
-  /* スマホ想定（640px以下）：余白を減らして縦並び */
-  @media (max-width: 640px) {
-    .cvhb-container {
-      padding: 8px;
-    }
-    .cvhb-left {
-      flex: 1 1 100%;
-      max-width: none;
-    }
-    .cvhb-right {
-      flex: 1 1 100%;
-      min-width: 0;
+  /* 右プレビューを“できるだけ”上に残す（広い画面だけ） */
+  @media (min-width: 1024px) {
+    .cvhb-preview-sticky {
+      position: sticky;
+      top: 88px; /* ヘッダー + 余白 */
+      align-self: flex-start;
     }
   }
 </style>
@@ -142,6 +129,18 @@ def google_maps_url(address: str) -> str:
     if not address:
         return ""
     return f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
+
+
+def fmt_dt(iso_str: str) -> str:
+    """ISOっぽい日時を、見やすい表示にする（失敗したらそのまま）"""
+    s = (iso_str or "").strip()
+    if not s:
+        return ""
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return s
 
 
 # =========================
@@ -423,24 +422,172 @@ def sftp_list_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> list[str]:
 
 
 # =========================
-# Projects (v0.6.1)
+# Projects / Template presets (v0.6.1)
 # =========================
 
-INDUSTRY_OPTIONS = [
-    "会社サイト（企業）",
-    "福祉事業所",
-    "個人事業",
-    "その他",
+INDUSTRY_PRESETS = [
+    {
+        "value": "会社・企業サイト",
+        "label": "会社・企業サイト",
+        "feature": "会社テンプレ（6ブロック）を使います。まずここを商用ラインまで仕上げます。",
+    },
+    {
+        "value": "福祉事業所",
+        "label": "福祉事業所",
+        "feature": "準備中（後で専用テンプレ追加予定）。今は表示名だけ切替できます。",
+    },
+    {
+        "value": "個人事業",
+        "label": "個人事業",
+        "feature": "準備中（後で専用テンプレ追加予定）。今は表示名だけ切替できます。",
+    },
+    {
+        "value": "その他",
+        "label": "その他",
+        "feature": "準備中（自由テンプレ予定）。今は表示名だけ切替できます。",
+    },
 ]
+INDUSTRY_OPTIONS = [x["value"] for x in INDUSTRY_PRESETS]
 
-COLOR_OPTIONS = [
-    "blue",
-    "indigo",
-    "teal",
-    "green",
-    "deep-orange",
-    "purple",
+THEME_PRESETS = [
+    {
+        "key": "white",
+        "label": "白",
+        "impression": "清潔・シンプル",
+        "header_bg": "white",
+        "header_text": "grey-10",
+        "accent": "indigo",
+        "accent_text": "white",
+        "swatch_bg": "white",
+    },
+    {
+        "key": "black",
+        "label": "黒",
+        "impression": "高級・信頼",
+        "header_bg": "grey-10",
+        "header_text": "white",
+        "accent": "deep-orange",
+        "accent_text": "white",
+        "swatch_bg": "grey-10",
+    },
+    {
+        "key": "red",
+        "label": "赤",
+        "impression": "情熱・行動",
+        "header_bg": "red-6",
+        "header_text": "white",
+        "accent": "red-6",
+        "accent_text": "white",
+        "swatch_bg": "red-6",
+    },
+    {
+        "key": "blue",
+        "label": "青",
+        "impression": "信頼・誠実",
+        "header_bg": "indigo",
+        "header_text": "white",
+        "accent": "indigo",
+        "accent_text": "white",
+        "swatch_bg": "indigo",
+    },
+    {
+        "key": "yellow",
+        "label": "黄",
+        "impression": "明るい・親しみ",
+        "header_bg": "amber-6",
+        "header_text": "grey-10",
+        "accent": "amber-6",
+        "accent_text": "grey-10",
+        "swatch_bg": "amber-6",
+    },
+    {
+        "key": "green",
+        "label": "緑",
+        "impression": "安心・自然",
+        "header_bg": "green",
+        "header_text": "white",
+        "accent": "green",
+        "accent_text": "white",
+        "swatch_bg": "green",
+    },
+    {
+        "key": "purple",
+        "label": "紫",
+        "impression": "上品・落ち着き",
+        "header_bg": "purple",
+        "header_text": "white",
+        "accent": "purple",
+        "accent_text": "white",
+        "swatch_bg": "purple",
+    },
+    {
+        "key": "grey",
+        "label": "灰",
+        "impression": "堅実・中立",
+        "header_bg": "blue-grey",
+        "header_text": "white",
+        "accent": "blue-grey",
+        "accent_text": "white",
+        "swatch_bg": "blue-grey",
+    },
+    {
+        "key": "orange",
+        "label": "オレンジ",
+        "impression": "元気・あたたかい",
+        "header_bg": "deep-orange",
+        "header_text": "white",
+        "accent": "deep-orange",
+        "accent_text": "white",
+        "swatch_bg": "deep-orange",
+    },
 ]
+THEME_KEYS = [x["key"] for x in THEME_PRESETS]
+THEME_BY_KEY = {x["key"]: x for x in THEME_PRESETS}
+
+
+def normalize_industry(value: str) -> str:
+    v = (value or "").strip()
+    mapping = {
+        "会社サイト（企業）": "会社・企業サイト",
+        "会社サイト(企業)": "会社・企業サイト",
+    }
+    v = mapping.get(v, v)
+    if v in INDUSTRY_OPTIONS:
+        return v
+    return "会社・企業サイト"
+
+
+def normalize_theme_key(value: str) -> str:
+    v = (value or "").strip()
+
+    # 新方式（white/black/red/...）ならそのまま
+    if v in THEME_KEYS:
+        return v
+
+    # 旧方式（blue/indigo/teal/deep-orange/purple...）の救済
+    legacy_map = {
+        "blue": "blue",
+        "indigo": "blue",
+        "teal": "green",
+        "green": "green",
+        "deep-orange": "orange",
+        "orange": "orange",
+        "purple": "purple",
+        "grey": "grey",
+        "gray": "grey",
+        "blue-grey": "grey",
+        "black": "black",
+        "white": "white",
+        "red": "red",
+        "yellow": "yellow",
+        "amber": "yellow",
+    }
+    return legacy_map.get(v, "blue")
+
+
+def get_theme(theme_key: str) -> dict:
+    key = normalize_theme_key(theme_key)
+    return THEME_BY_KEY.get(key, THEME_BY_KEY["blue"])
 
 
 # =========================
@@ -470,13 +617,21 @@ def normalize_project(p: dict) -> dict:
     p.setdefault("created_at", now_iso())
     p.setdefault("updated_at", now_iso())
 
+    # 表示用（任意）
+    p.setdefault("created_by", "")
+    p.setdefault("updated_by", "")
+
     data = p.setdefault("data", {})
     step1 = data.setdefault("step1", {})
     step2 = data.setdefault("step2", {})
     blocks = data.setdefault("blocks", {})
 
-    step1.setdefault("industry", "会社サイト（企業）")
-    step1.setdefault("primary_color", "blue")
+    step1.setdefault("industry", "会社・企業サイト")
+    step1.setdefault("primary_color", "blue")  # theme key
+
+    # 旧データ救済
+    step1["industry"] = normalize_industry(step1.get("industry", "会社・企業サイト"))
+    step1["primary_color"] = normalize_theme_key(step1.get("primary_color", "blue"))
 
     step2.setdefault("company_name", "")
     step2.setdefault("catch_copy", "")
@@ -574,8 +729,10 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
         "project_name": name,
         "created_at": now_iso(),
         "updated_at": now_iso(),
+        "created_by": created_by.username if created_by else "",
+        "updated_by": created_by.username if created_by else "",
         "data": {
-            "step1": {"industry": "会社サイト（企業）", "primary_color": "blue"},
+            "step1": {"industry": "会社・企業サイト", "primary_color": "blue"},
             "step2": {"company_name": "", "catch_copy": "", "phone": "", "address": "", "email": ""},
             "blocks": {},
         },
@@ -583,13 +740,20 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
     p = normalize_project(p)
 
     if created_by:
-        safe_log_action(created_by, "project_create", details=json.dumps({"project_id": pid, "name": name}, ensure_ascii=False))
+        safe_log_action(
+            created_by,
+            "project_create",
+            details=json.dumps({"project_id": pid, "name": name}, ensure_ascii=False),
+        )
     return p
 
 
 def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
     p = normalize_project(p)
     p["updated_at"] = now_iso()
+    if user:
+        p["updated_by"] = user.username
+
     remote = project_json_path(p["project_id"])
     body = json.dumps(p, ensure_ascii=False, indent=2)
     with sftp_client() as sftp:
@@ -616,12 +780,14 @@ def list_projects_from_sftp() -> list[dict]:
             try:
                 body = sftp_read_text(sftp, project_json_path(d))
                 p = normalize_project(json.loads(body))
-                projects.append({
-                    "project_id": p.get("project_id", d),
-                    "project_name": p.get("project_name", "(no name)"),
-                    "updated_at": p.get("updated_at", ""),
-                    "created_at": p.get("created_at", ""),
-                })
+                projects.append(
+                    {
+                        "project_id": p.get("project_id", d),
+                        "project_name": p.get("project_name", "(no name)"),
+                        "updated_at": p.get("updated_at", ""),
+                        "created_at": p.get("created_at", ""),
+                    }
+                )
             except Exception:
                 projects.append({"project_id": d, "project_name": "(broken project.json)", "updated_at": "", "created_at": ""})
 
@@ -691,9 +857,9 @@ def render_login(root_refresh) -> None:
                         return
 
                     set_logged_in(row)
-                    u = current_user()
-                    if u:
-                        safe_log_action(u, "login_success")
+                    u2 = current_user()
+                    if u2:
+                        safe_log_action(u2, "login_success")
 
                     ui.notify("ログインしました", type="positive")
                     root_refresh()
@@ -730,9 +896,9 @@ def render_first_admin_setup(root_refresh) -> None:
                     row = get_user_by_username(un)
                     if row:
                         set_logged_in(row)
-                        u = current_user()
-                        if u:
-                            safe_log_action(u, "first_admin_created")
+                        u2 = current_user()
+                        if u2:
+                            safe_log_action(u2, "first_admin_created")
                         ui.notify("管理者を作成しました。ログインしました。", type="positive")
                         root_refresh()
                     else:
@@ -747,8 +913,12 @@ def render_preview(p: dict) -> None:
     step2 = p["data"]["step2"]
     blocks = p["data"]["blocks"]
 
-    industry = step1.get("industry", "会社サイト（企業）")
-    primary = step1.get("primary_color", "blue")
+    industry = step1.get("industry", "会社・企業サイト")
+    theme = get_theme(step1.get("primary_color", "blue"))
+    header_bg = theme["header_bg"]
+    header_text = theme["header_text"]
+    accent = theme["accent"]
+    accent_text = theme["accent_text"]
 
     company = (step2.get("company_name") or "").strip() or "（会社名 未入力）"
     catch = (step2.get("catch_copy") or "").strip() or "（キャッチコピー 未入力）"
@@ -798,29 +968,33 @@ def render_preview(p: dict) -> None:
 
     def section_title(icon_name: str, title: str) -> None:
         with ui.row().classes("items-center q-gutter-sm q-mb-sm"):
-            ui.icon(icon_name).classes(f"text-{primary}")
+            ui.icon(icon_name).classes(f"text-{accent}")
             ui.label(title).classes("text-subtitle1")
 
     with ui.column().classes("w-full"):
-        with ui.element("div").classes(f"w-full bg-{primary} text-white"):
-            with ui.row().classes("items-center justify-between q-px-md").style("height: 48px;"):
+        # Top bar
+        with ui.element("div").classes(f"w-full bg-{header_bg}").style("border-bottom: 1px solid rgba(0,0,0,0.08);"):
+            with ui.row().classes(f"items-center justify-between q-px-md text-{header_text}").style("height: 52px;"):
                 ui.label(company).classes("text-subtitle2")
-                ui.icon("menu").classes("text-white")
+                ui.icon("menu").classes(f"text-{header_text}")
 
+        # Hero
         with ui.element("div").style(
-            f"height: 230px; background-image: url('{hero_url}'); background-size: cover; background-position: center;"
+            f"height: 260px; background-image: url('{hero_url}'); background-size: cover; background-position: center;"
         ).classes("w-full"):
-            with ui.element("div").style("height:100%; background: rgba(0,0,0,0.45);"):
+            with ui.element("div").style("height:100%; background: rgba(0,0,0,0.48);"):
                 with ui.column().classes("q-pa-md text-white").style("height:100%; justify-content:flex-end;"):
                     ui.label(catch).classes("text-h6").style("line-height: 1.2;")
                     if sub_catch:
                         label_pre(sub_catch, "text-body2")
                     ui.label(industry).classes("text-caption").style("opacity: 0.9;")
-                    with ui.row().classes("q-gutter-sm q-mt-sm"):
-                        ui.button(btn_primary).props(f"color={primary} unelevated")
-                        if btn_secondary:
-                            ui.button(btn_secondary).props(f"outline color={primary}")
 
+                    with ui.row().classes("q-gutter-sm q-mt-sm"):
+                        ui.button(btn_primary).props(f"color={accent} text-color={accent_text} unelevated")
+                        if btn_secondary:
+                            ui.button(btn_secondary).props(f"outline color={accent}")
+
+        # Philosophy
         with ui.element("div").classes("w-full bg-white"):
             with ui.column().classes("q-pa-md"):
                 section_title("favorite", ph_title)
@@ -834,8 +1008,9 @@ def render_preview(p: dict) -> None:
                 if pts:
                     with ui.row().classes("q-gutter-xs q-mt-sm"):
                         for t in pts:
-                            ui.badge(t).props("outline").classes(f"text-{primary}")
+                            ui.badge(t).props("outline").classes(f"text-{accent}")
 
+        # News
         with ui.element("div").classes("w-full bg-grey-1"):
             with ui.column().classes("q-pa-md"):
                 section_title("campaign", "お知らせ")
@@ -851,7 +1026,7 @@ def render_preview(p: dict) -> None:
                         with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                             with ui.row().classes("items-start justify-between q-gutter-sm"):
                                 ui.label(title).classes("text-body1")
-                                ui.badge(cat).props("outline").classes(f"text-{primary}")
+                                ui.badge(cat).props("outline").classes(f"text-{accent}")
                             if date:
                                 ui.label(date).classes("text-caption text-grey")
                             if body:
@@ -860,8 +1035,9 @@ def render_preview(p: dict) -> None:
                                     snippet = snippet[:70] + "…"
                                 ui.label(snippet).classes("text-caption")
 
-                    ui.button("お知らせ一覧（仮）").props(f"flat color={primary}").classes("q-mt-xs")
+                    ui.button("お知らせ一覧（仮）").props(f"flat color={accent}").classes("q-mt-xs")
 
+        # FAQ
         with ui.element("div").classes("w-full bg-white"):
             with ui.column().classes("q-pa-md"):
                 section_title("help", "よくある質問")
@@ -876,6 +1052,7 @@ def render_preview(p: dict) -> None:
                             ui.separator().classes("q-my-sm")
                             label_pre(a, "text-body2")
 
+        # Access
         with ui.element("div").classes("w-full bg-grey-1"):
             with ui.column().classes("q-pa-md"):
                 section_title("place", "アクセス")
@@ -886,10 +1063,11 @@ def render_preview(p: dict) -> None:
                     ui.button(
                         "地図を開く",
                         on_click=lambda u=map_url: ui.run_javascript(f"window.open('{u}','_blank')")
-                    ).props(f"color={primary} unelevated").classes("q-mt-sm")
+                    ).props(f"color={accent} text-color={accent_text} unelevated").classes("q-mt-sm")
                 else:
                     ui.label("住所を入力すると地図ボタンが出ます").classes("text-caption text-grey")
 
+        # Contact
         with ui.element("div").classes("w-full bg-white"):
             with ui.column().classes("q-pa-md"):
                 section_title("call", "お問い合わせ")
@@ -903,8 +1081,9 @@ def render_preview(p: dict) -> None:
                         ui.label(f"受付時間：{hours}").classes("text-caption text-grey")
                     ui.label(f"Email：{email if email else '未入力'}").classes("text-body2")
 
-                    ui.button(btn_primary).props(f"color={primary} unelevated").classes("q-mt-sm")
+                    ui.button(btn_primary).props(f"color={accent} text-color={accent_text} unelevated").classes("q-mt-sm")
 
+        # Footer
         with ui.element("div").classes("w-full bg-grey-9 text-white"):
             with ui.column().classes("q-pa-md"):
                 ui.label(company).classes("text-subtitle2")
@@ -919,34 +1098,51 @@ def render_main(u: User) -> None:
     render_header(u)
 
     p = get_current_project()
-    preview_ref = {"refresh": (lambda: None)}
+
+    # プレビュー更新（スマホ/PC両方）
+    preview_ref = {"mobile": (lambda: None), "desktop": (lambda: None)}
 
     def refresh_preview() -> None:
-        try:
-            preview_ref["refresh"]()
-        except Exception:
-            pass
+        for k in ("mobile", "desktop"):
+            try:
+                preview_ref[k]()
+            except Exception:
+                pass
 
     with ui.element("div").classes("cvhb-page"):
         with ui.element("div").classes("cvhb-container"):
-            with ui.element("div").classes("cvhb-split"):
+            # ★ ここが左右表示の本体：Quasarの row は標準で wrap するので
+            #   「入るなら左右」「入らないなら縦」が確実に動く
+            with ui.row().classes("w-full q-col-gutter-md items-start"):
                 # ---------------------------
-                # Left: Builder
+                # Left: Builder（幅固定）
                 # ---------------------------
-                with ui.card().classes("cvhb-left q-pa-md rounded-borders").props("bordered"):
-                    with ui.row().classes("items-center q-gutter-sm q-mb-sm"):
-                        ui.icon("tune").classes("text-grey-8")
-                        ui.label("制作ステップ（Step1/2/3入力 + プレビュー反映）").classes("text-subtitle1")
-
+                with ui.column().style("width: min(520px, 100%); flex: 0 0 auto;"):
                     if not p:
-                        ui.label("案件が未選択です。まず案件を作成/選択してください。").classes("text-body2 q-mb-md")
-                        ui.button("案件一覧へ", on_click=lambda: navigate_to("/projects")).props("color=primary unelevated")
+                        with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+                            ui.label("案件が未選択です").classes("text-subtitle1 q-mb-sm")
+                            ui.label("まず案件を作成/選択してください。").classes("text-body2 q-mb-md")
+                            ui.button("案件一覧へ", on_click=lambda: navigate_to("/projects")).props("color=primary unelevated").classes("w-full")
                         return
 
-                    with ui.card().classes("q-pa-md q-mb-md bg-white rounded-borders").props("flat bordered"):
-                        ui.label(f"現在の案件：{p.get('project_name')}").classes("text-body1")
-                        ui.label(f"ID：{p.get('project_id')}").classes("text-caption text-grey")
-                        ui.label(f"更新：{p.get('updated_at','')}").classes("text-caption text-grey")
+                    # 1つめ：現在の案件
+                    with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+                        with ui.row().classes("items-center justify-between q-mb-sm"):
+                            with ui.row().classes("items-center q-gutter-sm"):
+                                ui.icon("folder").classes("text-grey-8")
+                                ui.label("現在の案件").classes("text-subtitle1")
+                            ui.button("案件一覧", on_click=lambda: navigate_to("/projects")).props("flat")
+
+                        ui.label(f"現在の案件：{p.get('project_name','')}")
+                        ui.label(f"ID：{p.get('project_id','')}").classes("text-caption text-grey")
+
+                        ui.separator().classes("q-my-sm")
+
+                        ui.label(f"案件開始日：{fmt_dt(p.get('created_at',''))}").classes("text-body2")
+                        ui.label(f"最新更新日：{fmt_dt(p.get('updated_at',''))}").classes("text-body2")
+
+                        updated_by = (p.get("updated_by") or "").strip() or u.username
+                        ui.label(f"更新担当者：{updated_by}").classes("text-body2")
 
                         def do_save():
                             try:
@@ -958,379 +1154,477 @@ def render_main(u: User) -> None:
 
                         ui.button("保存（PROJECT.JSON）", on_click=do_save).props("color=primary unelevated").classes("q-mt-sm w-full")
 
+                    # 2つめ：作成ステップ（選択）
                     steps = [
-                        ("s1", "1. 業種・色"),
-                        ("s2", "2. 基本情報"),
-                        ("s3", "3. ページ内容（ブロック）"),
+                        ("s1", "1. 業種設定・ページカラー設定"),
+                        ("s2", "2. 基本情報設定"),
+                        ("s3", "3. ページ内容詳細設定（ブロックごと）"),
                         ("s4", "4. 承認・最終チェック"),
-                        ("s5", "5. 公開"),
+                        ("s5", "5. 公開（管理者権限のみ）"),
                     ]
 
-                    with ui.tabs().props("vertical dense").classes("w-full") as tabs:
-                        for key, label in steps:
-                            ui.tab(key, label=label)
+                    with ui.card().classes("q-pa-md rounded-borders q-mt-md").props("bordered"):
+                        with ui.row().classes("items-center q-gutter-sm q-mb-sm"):
+                            ui.icon("format_list_bulleted").classes("text-grey-8")
+                            ui.label("作成ステップ").classes("text-subtitle1")
+                        ui.label("ここでステップを選ぶと、下の入力画面が切り替わります。").classes("text-caption text-grey q-mb-sm")
 
-                    with ui.tab_panels(tabs, value="s1").props("vertical").classes("w-full q-mt-md"):
-                        # Step1
-                        with ui.tab_panel("s1"):
-                            ui.label("業種（テンプレ）").classes("text-subtitle2")
-                            current_industry = p["data"]["step1"].get("industry", "会社サイト（企業）")
+                        with ui.tabs().props("vertical dense").classes("w-full") as tabs:
+                            for key, label in steps:
+                                ui.tab(key, label=label)
 
-                            def on_industry_change(e):
-                                p["data"]["step1"]["industry"] = e.value
-                                set_current_project(p)
-                                refresh_preview()
+                    # 3つめ：入力画面（ステップ内容）
+                    with ui.card().classes("q-pa-md rounded-borders q-mt-md").props("bordered"):
+                        with ui.tab_panels(tabs, value="s1").props("vertical").classes("w-full"):
+                            # Step1
+                            with ui.tab_panel("s1"):
+                                ui.label("1. 業種設定・ページカラー設定").classes("text-subtitle1 q-mb-xs")
+                                ui.label("最初にここを決めると、右の完成イメージが一気に整います。").classes("text-caption text-grey q-mb-md")
 
-                            ui.radio(INDUSTRY_OPTIONS, value=current_industry, on_change=on_industry_change).props("dense")
+                                # --- 業種選択（大枠） ---
+                                with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                    ui.label("業種を選んでください").classes("text-subtitle2")
+                                    ui.label("※ v1.0 は「会社・企業サイト」をまず商用ラインまで完成させます。").classes("text-caption text-grey q-mb-sm")
 
-                            ui.separator().classes("q-my-md")
+                                    @ui.refreshable
+                                    def industry_selector() -> None:
+                                        current = normalize_industry(p["data"]["step1"].get("industry", "会社・企業サイト"))
+                                        p["data"]["step1"]["industry"] = current
 
-                            ui.label("カラー（テーマ色）").classes("text-subtitle2")
-                            ui.label("※右のプレビューのボタンや見出し色が変わります").classes("text-caption text-grey")
+                                        theme = get_theme(p["data"]["step1"].get("primary_color", "blue"))
+                                        accent = theme["accent"]
 
-                            current_color = p["data"]["step1"].get("primary_color", "blue")
+                                        for it in INDUSTRY_PRESETS:
+                                            selected = (it["value"] == current)
+                                            with ui.card().classes("q-pa-sm rounded-borders cvhb-option-card q-mb-sm").props("flat bordered") as c:
+                                                if selected:
+                                                    c.classes("bg-grey-2")
 
-                            def on_color_change(e):
-                                p["data"]["step1"]["primary_color"] = e.value
-                                set_current_project(p)
-                                refresh_preview()
+                                                def _pick(v=it["value"]):
+                                                    p["data"]["step1"]["industry"] = v
+                                                    set_current_project(p)
+                                                    refresh_preview()
+                                                    industry_selector.refresh()
 
-                            ui.radio(COLOR_OPTIONS, value=current_color, on_change=on_color_change).props("dense")
+                                                c.on("click", lambda e, v=it["value"]: _pick(v))
 
-                        # Step2
-                        with ui.tab_panel("s2"):
-                            ui.label("会社の基本情報").classes("text-subtitle2")
-                            ui.label("入力すると右のプレビューに反映されます").classes("text-caption text-grey q-mb-sm")
+                                                with ui.row().classes("items-start q-gutter-sm"):
+                                                    ui.icon("check_circle" if selected else "radio_button_unchecked").classes(
+                                                        f"text-{accent}"
+                                                    ).style("margin-top: 2px;")
+                                                    with ui.column().classes("col"):
+                                                        ui.label(it["label"]).classes("text-body1")
+                                                        ui.label(f"特徴：{it['feature']}").classes("text-caption text-grey")
 
-                            def bind_input(key: str, label: str):
-                                val = p["data"]["step2"].get(key, "")
+                                    industry_selector()
 
-                                def _on_change(e):
-                                    p["data"]["step2"][key] = e.value
+                                ui.separator().classes("q-my-md")
+
+                                # --- カラー選択（大枠） ---
+                                with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                    ui.label("ページカラー設定").classes("text-subtitle2")
+                                    ui.label("ボタン・見出しなどの雰囲気を統一できます。").classes("text-body2")
+                                    ui.label("※ページカラーのイメージを選択してください。").classes("text-caption text-grey q-mb-sm")
+
+                                    @ui.refreshable
+                                    def theme_selector() -> None:
+                                        current_key = normalize_theme_key(p["data"]["step1"].get("primary_color", "blue"))
+                                        p["data"]["step1"]["primary_color"] = current_key
+
+                                        for t in THEME_PRESETS:
+                                            selected = (t["key"] == current_key)
+                                            with ui.card().classes("q-pa-sm rounded-borders cvhb-option-card q-mb-sm").props("flat bordered") as c:
+                                                if selected:
+                                                    c.classes("bg-grey-2")
+
+                                                def _pick_theme(k=t["key"]):
+                                                    p["data"]["step1"]["primary_color"] = k
+                                                    set_current_project(p)
+                                                    refresh_preview()
+                                                    theme_selector.refresh()
+                                                    industry_selector.refresh()  # チェック色も追従
+
+                                                c.on("click", lambda e, k=t["key"]: _pick_theme(k))
+
+                                                with ui.row().classes("items-center q-gutter-sm"):
+                                                    ui.icon("check_circle" if selected else "radio_button_unchecked").classes(
+                                                        "text-grey-7" if not selected else "text-primary"
+                                                    )
+                                                    ui.element("div").classes(f"cvhb-swatch bg-{t['swatch_bg']}")
+                                                    ui.label(f"{t['label']}").classes("text-body1")
+                                                    ui.label(f"（{t['impression']}）").classes("text-caption text-grey")
+
+                                    theme_selector()
+
+                            # Step2
+                            with ui.tab_panel("s2"):
+                                ui.label("2. 基本情報設定").classes("text-subtitle1 q-mb-xs")
+                                ui.label("入力すると右のプレビューに反映されます。").classes("text-caption text-grey q-mb-md")
+
+                                with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                    ui.label("会社の基本情報設定").classes("text-subtitle2 q-mb-sm")
+
+                                    def bind_input(key: str, label: str):
+                                        val = p["data"]["step2"].get(key, "")
+
+                                        def _on_change(e):
+                                            p["data"]["step2"][key] = e.value
+                                            set_current_project(p)
+                                            refresh_preview()
+
+                                        ui.input(label, value=val, on_change=_on_change).props("outlined").classes("w-full q-mb-sm")
+
+                                    bind_input("company_name", "会社名")
+                                    bind_input("catch_copy", "キャッチコピー")
+                                    bind_input("phone", "電話番号")
+                                    bind_input("email", "メール（任意）")
+                                    bind_input("address", "住所（地図リンクは自動生成されます）")
+
+                            # Step3
+                            with ui.tab_panel("s3"):
+                                ui.label("3. ページ内容詳細設定（ブロックごと）").classes("text-subtitle1 q-mb-xs")
+                                ui.label("ブロックを切り替えて編集できます。迷わないように整理してあります。").classes("text-caption text-grey q-mb-md")
+
+                                def update_block(block_key: str, field_key: str, value) -> None:
+                                    p["data"]["blocks"].setdefault(block_key, {})[field_key] = value
                                     set_current_project(p)
                                     refresh_preview()
 
-                                ui.input(label, value=val, on_change=_on_change).props("outlined").classes("w-full q-mb-sm")
-
-                            bind_input("company_name", "会社名")
-                            bind_input("catch_copy", "キャッチコピー")
-                            bind_input("phone", "電話番号")
-                            bind_input("email", "メール（任意）")
-                            bind_input("address", "住所（地図リンクは自動生成）")
-
-                        # Step3（ブロック編集：タブ）
-                        with ui.tab_panel("s3"):
-                            ui.label("ページ内容（会社テンプレ：6ブロック）").classes("text-subtitle2")
-                            ui.label("ブロックごとに切り替えて編集できます").classes("text-caption text-grey q-mb-sm")
-
-                            def update_block(block_key: str, field_key: str, value) -> None:
-                                p["data"]["blocks"].setdefault(block_key, {})[field_key] = value
-                                set_current_project(p)
-                                refresh_preview()
-
-                            def update_points(index: int, value) -> None:
-                                ph = p["data"]["blocks"].setdefault("philosophy", {})
-                                pts = ph.setdefault("points", ["", "", ""])
-                                if not isinstance(pts, list):
-                                    pts = ["", "", ""]
-                                while len(pts) < 3:
-                                    pts.append("")
-                                pts[index] = value
-                                ph["points"] = pts[:3]
-                                set_current_project(p)
-                                refresh_preview()
-
-                            def update_list_item(block_key: str, list_key: str, idx: int, field_key: str, value) -> None:
-                                b = p["data"]["blocks"].setdefault(block_key, {})
-                                items = b.setdefault(list_key, [])
-                                if not isinstance(items, list):
-                                    items = []
-                                    b[list_key] = items
-                                if 0 <= idx < len(items) and isinstance(items[idx], dict):
-                                    items[idx][field_key] = value
-                                set_current_project(p)
-                                refresh_preview()
-
-                            news_ref = {"refresh": (lambda: None)}
-                            faq_ref = {"refresh": (lambda: None)}
-
-                            def add_news_item() -> None:
-                                news = p["data"]["blocks"].setdefault("news", {})
-                                items = news.setdefault("items", [])
-                                if not isinstance(items, list):
-                                    items = []
-                                items.append({
-                                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                                    "category": "お知らせ",
-                                    "title": "",
-                                    "body": "",
-                                })
-                                news["items"] = items
-                                set_current_project(p)
-                                refresh_preview()
-                                news_ref["refresh"]()
-
-                            def delete_news_item(idx: int) -> None:
-                                news = p["data"]["blocks"].setdefault("news", {})
-                                items = news.setdefault("items", [])
-                                if isinstance(items, list) and 0 <= idx < len(items):
-                                    del items[idx]
-                                set_current_project(p)
-                                refresh_preview()
-                                news_ref["refresh"]()
-
-                            def add_faq_item() -> None:
-                                faq = p["data"]["blocks"].setdefault("faq", {})
-                                items = faq.setdefault("items", [])
-                                if not isinstance(items, list):
-                                    items = []
-                                items.append({"q": "", "a": ""})
-                                faq["items"] = items
-                                set_current_project(p)
-                                refresh_preview()
-                                faq_ref["refresh"]()
-
-                            def delete_faq_item(idx: int) -> None:
-                                faq = p["data"]["blocks"].setdefault("faq", {})
-                                items = faq.setdefault("items", [])
-                                if isinstance(items, list) and 0 <= idx < len(items):
-                                    del items[idx]
-                                set_current_project(p)
-                                refresh_preview()
-                                faq_ref["refresh"]()
-
-                            with ui.tabs().props("dense").classes("w-full") as block_tabs:
-                                ui.tab("hero", label="ヒーロー")
-                                ui.tab("philosophy", label="理念/概要")
-                                ui.tab("news", label="お知らせ")
-                                ui.tab("faq", label="FAQ")
-                                ui.tab("access", label="アクセス")
-                                ui.tab("contact", label="お問い合わせ")
-
-                            with ui.tab_panels(block_tabs, value="hero").classes("w-full q-mt-md"):
-                                with ui.tab_panel("hero"):
-                                    hero = p["data"]["blocks"].get("hero", {})
-                                    with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                                        ui.label("ヒーロー（ページ最上部）").classes("text-subtitle2")
-                                        ui.label("大きい写真 + キャッチコピーのエリアです").classes("text-caption text-grey q-mb-sm")
-
-                                        current_img = hero.get("hero_image", "A: オフィス")
-
-                                        def on_hero_image_change(e):
-                                            update_block("hero", "hero_image", e.value)
-
-                                        ui.radio(HERO_IMAGE_OPTIONS, value=current_img, on_change=on_hero_image_change).props("dense")
-
-                                        ui.input(
-                                            "画像URL（任意：貼るだけ）",
-                                            value=hero.get("hero_image_url", ""),
-                                            on_change=lambda e: update_block("hero", "hero_image_url", e.value),
-                                        ).props("outlined").classes("w-full q-mt-sm")
-
-                                        ui.input(
-                                            "キャッチの補足（任意）",
-                                            value=hero.get("sub_catch", ""),
-                                            on_change=lambda e: update_block("hero", "sub_catch", e.value),
-                                        ).props("outlined").classes("w-full q-mt-sm")
-
-                                        ui.input(
-                                            "メインボタン文字（例：お問い合わせ）",
-                                            value=hero.get("primary_button_text", ""),
-                                            on_change=lambda e: update_block("hero", "primary_button_text", e.value),
-                                        ).props("outlined").classes("w-full q-mt-sm")
-
-                                        ui.input(
-                                            "サブボタン文字（任意：例：見学・相談）",
-                                            value=hero.get("secondary_button_text", ""),
-                                            on_change=lambda e: update_block("hero", "secondary_button_text", e.value),
-                                        ).props("outlined").classes("w-full q-mt-sm")
-
-                                with ui.tab_panel("philosophy"):
-                                    ph = p["data"]["blocks"].get("philosophy", {})
-                                    pts = ph.get("points") or ["", "", ""]
+                                def update_points(index: int, value) -> None:
+                                    ph = p["data"]["blocks"].setdefault("philosophy", {})
+                                    pts = ph.setdefault("points", ["", "", ""])
                                     if not isinstance(pts, list):
                                         pts = ["", "", ""]
                                     while len(pts) < 3:
                                         pts.append("")
+                                    pts[index] = value
+                                    ph["points"] = pts[:3]
+                                    set_current_project(p)
+                                    refresh_preview()
 
-                                    with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                                        ui.label("理念 / 概要").classes("text-subtitle2")
-                                        ui.label("会社紹介・想いを書きます").classes("text-caption text-grey q-mb-sm")
+                                def update_list_item(block_key: str, list_key: str, idx: int, field_key: str, value) -> None:
+                                    b = p["data"]["blocks"].setdefault(block_key, {})
+                                    items = b.setdefault(list_key, [])
+                                    if not isinstance(items, list):
+                                        items = []
+                                        b[list_key] = items
+                                    if 0 <= idx < len(items) and isinstance(items[idx], dict):
+                                        items[idx][field_key] = value
+                                    set_current_project(p)
+                                    refresh_preview()
 
-                                        ui.input(
-                                            "見出し（例：私たちの想い）",
-                                            value=ph.get("title", ""),
-                                            on_change=lambda e: update_block("philosophy", "title", e.value),
-                                        ).props("outlined").classes("w-full q-mb-sm")
+                                news_ref = {"refresh": (lambda: None)}
+                                faq_ref = {"refresh": (lambda: None)}
 
-                                        ui.input(
-                                            "本文（長文OK）",
-                                            value=ph.get("body", ""),
-                                            on_change=lambda e: update_block("philosophy", "body", e.value),
-                                        ).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
+                                def add_news_item() -> None:
+                                    news = p["data"]["blocks"].setdefault("news", {})
+                                    items = news.setdefault("items", [])
+                                    if not isinstance(items, list):
+                                        items = []
+                                    items.append({
+                                        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                                        "category": "お知らせ",
+                                        "title": "",
+                                        "body": "",
+                                    })
+                                    news["items"] = items
+                                    set_current_project(p)
+                                    refresh_preview()
+                                    news_ref["refresh"]()
 
-                                        for i in range(3):
-                                            ui.input(
-                                                f"ポイント{i+1}（短く）",
-                                                value=str(pts[i] or ""),
-                                                on_change=lambda e, i=i: update_points(i, e.value),
-                                            ).props("outlined").classes("w-full q-mb-sm")
+                                def delete_news_item(idx: int) -> None:
+                                    news = p["data"]["blocks"].setdefault("news", {})
+                                    items = news.setdefault("items", [])
+                                    if isinstance(items, list) and 0 <= idx < len(items):
+                                        del items[idx]
+                                    set_current_project(p)
+                                    refresh_preview()
+                                    news_ref["refresh"]()
 
-                                with ui.tab_panel("news"):
-                                    ui.label("お知らせ").classes("text-subtitle2 q-mb-sm")
+                                def add_faq_item() -> None:
+                                    faq = p["data"]["blocks"].setdefault("faq", {})
+                                    items = faq.setdefault("items", [])
+                                    if not isinstance(items, list):
+                                        items = []
+                                    items.append({"q": "", "a": ""})
+                                    faq["items"] = items
+                                    set_current_project(p)
+                                    refresh_preview()
+                                    faq_ref["refresh"]()
 
-                                    @ui.refreshable
-                                    def news_editor() -> None:
-                                        blocks = p["data"]["blocks"]
-                                        items = (blocks.get("news", {}) or {}).get("items") or []
-                                        if not isinstance(items, list):
-                                            items = []
+                                def delete_faq_item(idx: int) -> None:
+                                    faq = p["data"]["blocks"].setdefault("faq", {})
+                                    items = faq.setdefault("items", [])
+                                    if isinstance(items, list) and 0 <= idx < len(items):
+                                        del items[idx]
+                                    set_current_project(p)
+                                    refresh_preview()
+                                    faq_ref["refresh"]()
 
-                                        if not items:
-                                            ui.label("お知らせがまだありません。下のボタンで追加できます。").classes("text-caption text-grey")
+                                with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                    ui.label("ブロック編集（会社テンプレ：6ブロック）").classes("text-subtitle2")
+                                    ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("text-caption text-grey q-mb-sm")
 
-                                        for idx, it in enumerate(items):
-                                            if not isinstance(it, dict):
-                                                continue
-                                            with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
-                                                with ui.row().classes("items-center justify-between"):
-                                                    ui.label(f"お知らせ {idx+1}").classes("text-body1")
-                                                    ui.button("削除", on_click=lambda idx=idx: delete_news_item(idx)).props("color=negative flat")
+                                    with ui.tabs().props("dense").classes("w-full") as block_tabs:
+                                        ui.tab("hero", label="ヒーロー")
+                                        ui.tab("philosophy", label="理念/概要")
+                                        ui.tab("news", label="お知らせ")
+                                        ui.tab("faq", label="FAQ")
+                                        ui.tab("access", label="アクセス")
+                                        ui.tab("contact", label="お問い合わせ")
+
+                                    with ui.tab_panels(block_tabs, value="hero").classes("w-full q-mt-md"):
+                                        with ui.tab_panel("hero"):
+                                            hero = p["data"]["blocks"].get("hero", {})
+                                            with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                                ui.label("ヒーロー（ページ最上部）").classes("text-subtitle2")
+                                                ui.label("大きい写真 + キャッチコピーのエリアです").classes("text-caption text-grey q-mb-sm")
+
+                                                current_img = hero.get("hero_image", "A: オフィス")
+
+                                                def on_hero_image_change(e):
+                                                    update_block("hero", "hero_image", e.value)
+
+                                                ui.radio(HERO_IMAGE_OPTIONS, value=current_img, on_change=on_hero_image_change).props("dense")
 
                                                 ui.input(
-                                                    "日付",
-                                                    value=it.get("date", ""),
-                                                    on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "date", e.value),
-                                                ).props("outlined type=date").classes("w-full q-mb-sm")
+                                                    "画像URL（任意：貼るだけ）",
+                                                    value=hero.get("hero_image_url", ""),
+                                                    on_change=lambda e: update_block("hero", "hero_image_url", e.value),
+                                                ).props("outlined").classes("w-full q-mt-sm")
 
                                                 ui.input(
-                                                    "カテゴリ（例：お知らせ）",
-                                                    value=it.get("category", ""),
-                                                    on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "category", e.value),
-                                                ).props("outlined").classes("w-full q-mb-sm")
+                                                    "キャッチの補足（任意）",
+                                                    value=hero.get("sub_catch", ""),
+                                                    on_change=lambda e: update_block("hero", "sub_catch", e.value),
+                                                ).props("outlined").classes("w-full q-mt-sm")
 
                                                 ui.input(
-                                                    "タイトル",
-                                                    value=it.get("title", ""),
-                                                    on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "title", e.value),
+                                                    "メインボタン文字（例：お問い合わせ）",
+                                                    value=hero.get("primary_button_text", ""),
+                                                    on_change=lambda e: update_block("hero", "primary_button_text", e.value),
+                                                ).props("outlined").classes("w-full q-mt-sm")
+
+                                                ui.input(
+                                                    "サブボタン文字（任意：例：見学・相談）",
+                                                    value=hero.get("secondary_button_text", ""),
+                                                    on_change=lambda e: update_block("hero", "secondary_button_text", e.value),
+                                                ).props("outlined").classes("w-full q-mt-sm")
+
+                                        with ui.tab_panel("philosophy"):
+                                            ph = p["data"]["blocks"].get("philosophy", {})
+                                            pts = ph.get("points") or ["", "", ""]
+                                            if not isinstance(pts, list):
+                                                pts = ["", "", ""]
+                                            while len(pts) < 3:
+                                                pts.append("")
+
+                                            with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                                ui.label("理念 / 概要").classes("text-subtitle2")
+                                                ui.label("会社紹介・想いを書きます").classes("text-caption text-grey q-mb-sm")
+
+                                                ui.input(
+                                                    "見出し（例：私たちの想い）",
+                                                    value=ph.get("title", ""),
+                                                    on_change=lambda e: update_block("philosophy", "title", e.value),
                                                 ).props("outlined").classes("w-full q-mb-sm")
 
                                                 ui.input(
                                                     "本文（長文OK）",
-                                                    value=it.get("body", ""),
-                                                    on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "body", e.value),
-                                                ).props("outlined type=textarea autogrow").classes("w-full")
+                                                    value=ph.get("body", ""),
+                                                    on_change=lambda e: update_block("philosophy", "body", e.value),
+                                                ).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
 
-                                        ui.button("＋ お知らせを追加", on_click=add_news_item).props("flat color=primary").classes("q-mt-sm")
+                                                for i in range(3):
+                                                    ui.input(
+                                                        f"ポイント{i+1}（短く）",
+                                                        value=str(pts[i] or ""),
+                                                        on_change=lambda e, i=i: update_points(i, e.value),
+                                                    ).props("outlined").classes("w-full q-mb-sm")
 
-                                    news_editor()
-                                    news_ref["refresh"] = news_editor.refresh
+                                        with ui.tab_panel("news"):
+                                            ui.label("お知らせ").classes("text-subtitle2 q-mb-sm")
 
-                                with ui.tab_panel("faq"):
-                                    ui.label("FAQ（よくある質問）").classes("text-subtitle2 q-mb-sm")
+                                            @ui.refreshable
+                                            def news_editor() -> None:
+                                                blocks2 = p["data"]["blocks"]
+                                                items = (blocks2.get("news", {}) or {}).get("items") or []
+                                                if not isinstance(items, list):
+                                                    items = []
 
-                                    @ui.refreshable
-                                    def faq_editor() -> None:
-                                        blocks = p["data"]["blocks"]
-                                        items = (blocks.get("faq", {}) or {}).get("items") or []
-                                        if not isinstance(items, list):
-                                            items = []
+                                                if not items:
+                                                    ui.label("お知らせがまだありません。下のボタンで追加できます。").classes("text-caption text-grey")
 
-                                        if not items:
-                                            ui.label("FAQがまだありません。下のボタンで追加できます。").classes("text-caption text-grey")
+                                                for idx, it in enumerate(items):
+                                                    if not isinstance(it, dict):
+                                                        continue
+                                                    with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                        with ui.row().classes("items-center justify-between"):
+                                                            ui.label(f"お知らせ {idx+1}").classes("text-body1")
+                                                            ui.button("削除", on_click=lambda idx=idx: delete_news_item(idx)).props("color=negative flat")
 
-                                        for idx, it in enumerate(items):
-                                            if not isinstance(it, dict):
-                                                continue
-                                            with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
-                                                with ui.row().classes("items-center justify-between"):
-                                                    ui.label(f"FAQ {idx+1}").classes("text-body1")
-                                                    ui.button("削除", on_click=lambda idx=idx: delete_faq_item(idx)).props("color=negative flat")
+                                                        ui.input(
+                                                            "日付",
+                                                            value=it.get("date", ""),
+                                                            on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "date", e.value),
+                                                        ).props("outlined type=date").classes("w-full q-mb-sm")
+
+                                                        ui.input(
+                                                            "カテゴリ（例：お知らせ）",
+                                                            value=it.get("category", ""),
+                                                            on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "category", e.value),
+                                                        ).props("outlined").classes("w-full q-mb-sm")
+
+                                                        ui.input(
+                                                            "タイトル",
+                                                            value=it.get("title", ""),
+                                                            on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "title", e.value),
+                                                        ).props("outlined").classes("w-full q-mb-sm")
+
+                                                        ui.input(
+                                                            "本文（長文OK）",
+                                                            value=it.get("body", ""),
+                                                            on_change=lambda e, idx=idx: update_list_item("news", "items", idx, "body", e.value),
+                                                        ).props("outlined type=textarea autogrow").classes("w-full")
+
+                                                ui.button("＋ お知らせを追加", on_click=add_news_item).props("flat color=primary").classes("q-mt-sm")
+
+                                            news_editor()
+                                            news_ref["refresh"] = news_editor.refresh
+
+                                        with ui.tab_panel("faq"):
+                                            ui.label("FAQ（よくある質問）").classes("text-subtitle2 q-mb-sm")
+
+                                            @ui.refreshable
+                                            def faq_editor() -> None:
+                                                blocks2 = p["data"]["blocks"]
+                                                items = (blocks2.get("faq", {}) or {}).get("items") or []
+                                                if not isinstance(items, list):
+                                                    items = []
+
+                                                if not items:
+                                                    ui.label("FAQがまだありません。下のボタンで追加できます。").classes("text-caption text-grey")
+
+                                                for idx, it in enumerate(items):
+                                                    if not isinstance(it, dict):
+                                                        continue
+                                                    with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                        with ui.row().classes("items-center justify-between"):
+                                                            ui.label(f"FAQ {idx+1}").classes("text-body1")
+                                                            ui.button("削除", on_click=lambda idx=idx: delete_faq_item(idx)).props("color=negative flat")
+
+                                                        ui.input(
+                                                            "質問",
+                                                            value=it.get("q", ""),
+                                                            on_change=lambda e, idx=idx: update_list_item("faq", "items", idx, "q", e.value),
+                                                        ).props("outlined").classes("w-full q-mb-sm")
+
+                                                        ui.input(
+                                                            "回答（長文OK）",
+                                                            value=it.get("a", ""),
+                                                            on_change=lambda e, idx=idx: update_list_item("faq", "items", idx, "a", e.value),
+                                                        ).props("outlined type=textarea autogrow").classes("w-full")
+
+                                                ui.button("＋ FAQを追加", on_click=add_faq_item).props("flat color=primary").classes("q-mt-sm")
+
+                                            faq_editor()
+                                            faq_ref["refresh"] = faq_editor.refresh
+
+                                        with ui.tab_panel("access"):
+                                            ac = p["data"]["blocks"].get("access", {})
+                                            with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                                ui.label("アクセス").classes("text-subtitle2")
+                                                ui.label("地図URLは空でもOK（住所から自動生成します）").classes("text-caption text-grey q-mb-sm")
 
                                                 ui.input(
-                                                    "質問",
-                                                    value=it.get("q", ""),
-                                                    on_change=lambda e, idx=idx: update_list_item("faq", "items", idx, "q", e.value),
+                                                    "地図URL（任意）",
+                                                    value=ac.get("map_url", ""),
+                                                    on_change=lambda e: update_block("access", "map_url", e.value),
                                                 ).props("outlined").classes("w-full q-mb-sm")
 
                                                 ui.input(
-                                                    "回答（長文OK）",
-                                                    value=it.get("a", ""),
-                                                    on_change=lambda e, idx=idx: update_list_item("faq", "items", idx, "a", e.value),
+                                                    "補足（例：〇〇駅から徒歩5分 / 駐車場あり）",
+                                                    value=ac.get("notes", ""),
+                                                    on_change=lambda e: update_block("access", "notes", e.value),
                                                 ).props("outlined type=textarea autogrow").classes("w-full")
 
-                                        ui.button("＋ FAQを追加", on_click=add_faq_item).props("flat color=primary").classes("q-mt-sm")
+                                        with ui.tab_panel("contact"):
+                                            ct = p["data"]["blocks"].get("contact", {})
+                                            with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
+                                                ui.label("お問い合わせ").classes("text-subtitle2")
+                                                ui.label("まずは電話・メールを目立たせます（フォームはv0.8で強化）").classes("text-caption text-grey q-mb-sm")
 
-                                    faq_editor()
-                                    faq_ref["refresh"] = faq_editor.refresh
+                                                ui.input(
+                                                    "受付時間（例：平日 9:00〜18:00）",
+                                                    value=ct.get("hours", ""),
+                                                    on_change=lambda e: update_block("contact", "hours", e.value),
+                                                ).props("outlined").classes("w-full q-mb-sm")
 
-                                with ui.tab_panel("access"):
-                                    ac = p["data"]["blocks"].get("access", {})
-                                    with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                                        ui.label("アクセス").classes("text-subtitle2")
-                                        ui.label("地図URLは空でもOK（住所から自動生成します）").classes("text-caption text-grey q-mb-sm")
+                                                ui.input(
+                                                    "一言メッセージ（任意）",
+                                                    value=ct.get("message", ""),
+                                                    on_change=lambda e: update_block("contact", "message", e.value),
+                                                ).props("outlined type=textarea autogrow").classes("w-full")
 
-                                        ui.input(
-                                            "地図URL（任意）",
-                                            value=ac.get("map_url", ""),
-                                            on_change=lambda e: update_block("access", "map_url", e.value),
-                                        ).props("outlined").classes("w-full q-mb-sm")
+                            # Step4
+                            with ui.tab_panel("s4"):
+                                ui.label("4. 承認・最終チェック").classes("text-subtitle1 q-mb-xs")
+                                ui.label("v0.7.0で承認フロー（OK/差戻し）を実装します。").classes("text-body2")
 
-                                        ui.input(
-                                            "補足（例：〇〇駅から徒歩5分 / 駐車場あり）",
-                                            value=ac.get("notes", ""),
-                                            on_change=lambda e: update_block("access", "notes", e.value),
-                                        ).props("outlined type=textarea autogrow").classes("w-full")
-
-                                with ui.tab_panel("contact"):
-                                    ct = p["data"]["blocks"].get("contact", {})
-                                    with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                                        ui.label("お問い合わせ").classes("text-subtitle2")
-                                        ui.label("まずは電話・メールを目立たせます（フォームはv0.8で強化）").classes("text-caption text-grey q-mb-sm")
-
-                                        ui.input(
-                                            "受付時間（例：平日 9:00〜18:00）",
-                                            value=ct.get("hours", ""),
-                                            on_change=lambda e: update_block("contact", "hours", e.value),
-                                        ).props("outlined").classes("w-full q-mb-sm")
-
-                                        ui.input(
-                                            "一言メッセージ（任意）",
-                                            value=ct.get("message", ""),
-                                            on_change=lambda e: update_block("contact", "message", e.value),
-                                        ).props("outlined type=textarea autogrow").classes("w-full")
-
-                        with ui.tab_panel("s4"):
-                            ui.label("v0.7.0で承認フローを実装").classes("text-body2")
-
-                        with ui.tab_panel("s5"):
-                            ui.label("v0.7.0で公開（アップロード）を実装").classes("text-body2")
+                            # Step5
+                            with ui.tab_panel("s5"):
+                                ui.label("5. 公開（管理者権限のみ）").classes("text-subtitle1 q-mb-xs")
+                                ui.label("v0.7.0で公開（アップロード）を実装します。").classes("text-body2")
 
                 # ---------------------------
-                # Right: Preview
+                # Right: Preview（スマホ/PC切替）
                 # ---------------------------
-                with ui.card().classes("cvhb-right q-pa-md rounded-borders").props("bordered"):
-                    with ui.row().classes("items-center justify-between q-mb-sm"):
-                        with ui.row().classes("items-center q-gutter-sm"):
-                            ui.icon("smartphone").classes("text-grey-8")
-                            ui.label("プレビュー（スマホ表示）").classes("text-subtitle1")
-                        ui.badge("画面幅に合わせて自動レイアウト").props("outline")
+                with ui.column().classes("cvhb-preview-sticky").style("flex: 1 1 360px; min-width: 0;"):
+                    with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+                        with ui.row().classes("items-center justify-between q-mb-sm"):
+                            with ui.row().classes("items-center q-gutter-sm"):
+                                ui.icon("visibility").classes("text-grey-8")
+                                ui.label("プレビュー").classes("text-subtitle1")
+                            ui.badge("スマホ / PC 切替").props("outline")
 
-                    with ui.column().classes("w-full items-center"):
-                        with ui.card().classes("q-pa-none rounded-borders shadow-1").style(
-                            "width: clamp(320px, 38vw, 420px);"
-                            "height: clamp(560px, 75vh, 740px);"
-                            "border: 1px solid #ddd;"
-                            "overflow: hidden;"
-                            "background: white;"
-                        ).props("flat"):
-                            with ui.element("div").style("height: 100%; overflow-y: auto;"):
-                                @ui.refreshable
-                                def preview_panel():
-                                    render_preview(p)
+                        with ui.tabs().props("dense align=justify").classes("w-full") as preview_tabs:
+                            ui.tab("mobile", icon="smartphone", label="スマホ")
+                            ui.tab("desktop", icon="desktop_windows", label="PC")
 
-                                preview_panel()
-                                preview_ref["refresh"] = preview_panel.refresh
+                        with ui.tab_panels(preview_tabs, value="mobile").classes("w-full q-mt-md"):
+                            with ui.tab_panel("mobile"):
+                                with ui.column().classes("w-full items-center"):
+                                    with ui.card().classes("q-pa-none rounded-borders shadow-1").style(
+                                        "width: clamp(320px, 38vw, 420px);"
+                                        "height: clamp(560px, 75vh, 740px);"
+                                        "border: 1px solid #ddd;"
+                                        "overflow: hidden;"
+                                        "background: white;"
+                                    ).props("flat"):
+                                        with ui.element("div").style("height: 100%; overflow-y: auto;"):
+                                            @ui.refreshable
+                                            def preview_mobile():
+                                                render_preview(p)
+
+                                            preview_mobile()
+                                            preview_ref["mobile"] = preview_mobile.refresh
+
+                            with ui.tab_panel("desktop"):
+                                with ui.column().classes("w-full items-center"):
+                                    with ui.card().classes("q-pa-none rounded-borders shadow-1").style(
+                                        "width: min(1100px, 70vw);"
+                                        "height: clamp(560px, 78vh, 820px);"
+                                        "border: 1px solid #ddd;"
+                                        "overflow: hidden;"
+                                        "background: white;"
+                                    ).props("flat"):
+                                        with ui.element("div").style("height: 100%; overflow-y: auto;"):
+                                            @ui.refreshable
+                                            def preview_desktop():
+                                                render_preview(p)
+
+                                            preview_desktop()
+                                            preview_ref["desktop"] = preview_desktop.refresh
 
 
 # =========================
@@ -1406,12 +1700,12 @@ def projects_page() -> None:
                         with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                             ui.label(it.get("project_name", "")).classes("text-body1")
                             ui.label(f"ID: {it.get('project_id','')}").classes("text-caption text-grey")
-                            ui.label(f"更新: {it.get('updated_at','')}").classes("text-caption text-grey")
+                            ui.label(f"更新: {fmt_dt(it.get('updated_at',''))}").classes("text-caption text-grey")
 
                             def open_this(pid=it.get("project_id", "")):
                                 try:
-                                    p = load_project_from_sftp(pid, u)
-                                    set_current_project(p)
+                                    p2 = load_project_from_sftp(pid, u)
+                                    set_current_project(p2)
                                     ui.notify("案件を開きました", type="positive")
                                     navigate_to("/")
                                 except Exception as e:
@@ -1425,9 +1719,9 @@ def projects_page() -> None:
                         ui.notify("案件名を入力してください", type="warning")
                         return
                     try:
-                        p = create_project(name, u)
-                        save_project_to_sftp(p, u)
-                        set_current_project(p)
+                        p2 = create_project(name, u)
+                        save_project_to_sftp(p2, u)
+                        set_current_project(p2)
                         ui.notify("新規案件を作成しました", type="positive")
                         name_input.value = ""
                         list_refresh.refresh()
