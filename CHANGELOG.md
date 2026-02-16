@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.6.2] - 2026-02-16
+- UI改善（/projectsグリッド化・ステップメニュー視認性UP・Step1/2/3の幅/余白修正・プレビューカード幅統一）
+
 ## [0.5.0] - 2026-02-15
 - feat: step3 blocks inputs + preview reflect + saved in project.json
 
@@ -22,6 +25,7 @@
 - Herokuにデプロイして起動確認
 - 独自ドメイン cvh.visone-ai.jp + SSL(ACM) OK
 - GitHubに最小構成を追加
+
 
 
 
