@@ -18,8 +18,25 @@ import paramiko
 import psycopg
 from psycopg.rows import dict_row
 
+
 # =========================
-# Heroku runtime guard
+# [BLK-INDEX] 検索用ブロック一覧（20以下）
+#   [BLK-01] Runtime / Imports / Utils
+#   [BLK-02] Global CSS
+#   [BLK-03] Config
+#   [BLK-04] DB helpers
+#   [BLK-05] Auth & Sessions
+#   [BLK-06] Storage (SFTP)
+#   [BLK-07] Presets & Templates（業種/福祉分岐/カラー）
+#   [BLK-08] Projects（normalize/load/save）
+#   [BLK-09] UI components
+#   [BLK-10] Preview renderer（スマホ/PC）
+#   [BLK-11] Builder main UI（左：入力 / 右：プレビュー）
+#   [BLK-12] Pages / Routing
+# =========================
+
+# =========================
+# [BLK-01] Heroku runtime guard
 # =========================
 # Heroku Python buildpack may set WEB_CONCURRENCY>1 automatically.
 # NiceGUI (uvicorn) cannot start multiple workers when launched via `python main.py`,
@@ -37,7 +54,7 @@ from nicegui import app, ui
 
 
 # =========================
-# Global (Japan time)
+# [BLK-01] Global (Japan time)
 # =========================
 
 JST = timezone(timedelta(hours=9))
@@ -93,7 +110,7 @@ def sanitize_error_text(text: str) -> str:
 
 
 # =========================
-# Global UI styles (v0.6.1)
+# [BLK-02] Global UI styles (v0.6.4)
 # =========================
 
 def inject_global_styles() -> None:
@@ -407,7 +424,7 @@ def inject_global_styles() -> None:
 """
     )
 # =========================
-# Config
+# [BLK-03] Config
 # =========================
 
 def read_text_file(path: str, default: str = "") -> str:
@@ -441,7 +458,7 @@ SFTP_PROJECTS_DIR = f"{SFTP_BASE_DIR}/projects"
 
 
 # =========================
-# Small utils
+# [BLK-01] Small utils
 # =========================
 
 def google_maps_url(address: str) -> str:
@@ -452,7 +469,7 @@ def google_maps_url(address: str) -> str:
 
 
 # =========================
-# DB helpers
+# [BLK-04] DB helpers
 # =========================
 
 def db_connect() -> psycopg.Connection:
@@ -542,7 +559,7 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 # =========================
-# Users / Auth
+# [BLK-05] Users / Auth
 # =========================
 
 @dataclass
@@ -646,7 +663,7 @@ def navigate_to(path: str) -> None:
 
 
 # =========================
-# Session / Project state (avoid storing big dict in cookie)
+# [BLK-05] Session / Project state (avoid storing big dict in cookie)
 # =========================
 
 PROJECT_CACHE: dict[int, dict] = {}
@@ -686,7 +703,7 @@ def ensure_stg_test_users() -> tuple[bool, str]:
 
 
 # =========================
-# SFTP (SFTP To Go)
+# [BLK-06] SFTP (SFTP To Go)
 # =========================
 
 def parse_sftp_url(url: str) -> tuple[str, int, str, str]:
@@ -759,7 +776,7 @@ def sftp_list_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> list[str]:
 
 
 # =========================
-# Projects (v0.6.1)
+# [BLK-07] Presets & Templates (v0.6.4)
 # =========================
 
 INDUSTRY_PRESETS = [
@@ -785,6 +802,52 @@ INDUSTRY_PRESETS = [
     },
 ]
 INDUSTRY_OPTIONS = [x["value"] for x in INDUSTRY_PRESETS]
+
+# 福祉事業所：追加の分岐（v0.6.4）
+WELFARE_DOMAIN_PRESETS = [
+    {"value": "介護福祉サービス", "label": "介護福祉サービス", "hint": "入所系介護 / 通所系介護（デイサービス等）"},
+    {"value": "障がい福祉サービス", "label": "障がい福祉サービス", "hint": "施設入所支援 / 日中活動系（通所）"},
+    {"value": "児童福祉サービス", "label": "児童福祉サービス", "hint": "障害児通所支援 / 障害児入所支援"},
+]
+WELFARE_DOMAIN_OPTIONS = [x["value"] for x in WELFARE_DOMAIN_PRESETS]
+
+WELFARE_MODE_PRESETS = [
+    {"value": "入所系", "label": "入所系", "hint": "施設サービスなど"},
+    {"value": "通所系", "label": "通所系", "hint": "デイサービスなど"},
+]
+WELFARE_MODE_OPTIONS = [x["value"] for x in WELFARE_MODE_PRESETS]
+
+
+def resolve_template_id(step1: dict) -> str:
+    """Step1設定からテンプレIDを決める（project.jsonに固定保存する用）。
+
+    NOTE:
+    - v0.6.4 時点では、編集UI/プレビューは「会社テンプレ」をベースに動きます。
+    - ただし、template_id を先に保存しておくと、次の版でテンプレ拡張がスムーズです。
+    """
+    step1 = step1 or {}
+    industry = step1.get("industry", "会社サイト（企業）")
+
+    if industry == "福祉事業所":
+        domain = step1.get("welfare_domain") or WELFARE_DOMAIN_PRESETS[0]["value"]
+        mode = step1.get("welfare_mode") or WELFARE_MODE_PRESETS[0]["value"]
+        # ここは「6ブロックの中身」を後で育てるためのID（まずは判別だけを確定）
+        if domain == "介護福祉サービス":
+            return "care_residential_v1" if mode == "入所系" else "care_day_v1"
+        if domain == "障がい福祉サービス":
+            return "disability_residential_v1" if mode == "入所系" else "disability_day_v1"
+        if domain == "児童福祉サービス":
+            return "child_residential_v1" if mode == "入所系" else "child_day_v1"
+        return "welfare_v1"
+
+    if industry == "個人事業":
+        return "personal_v1"
+    if industry == "その他":
+        return "free6_v1"
+
+    # 会社サイト（企業）を既定
+    return "corp_v1"
+
 
 COLOR_PRESETS = [
     {"value": "blue", "label": "青", "impression": "信頼感"},
@@ -882,6 +945,25 @@ def normalize_project(p: dict) -> dict:
     if color not in COLOR_OPTIONS:
         color = "blue"
     step1["primary_color"] = color
+
+    # 福祉事業所だけ追加の分岐（入所/通所/児童など）
+    if industry == "福祉事業所":
+        domain = step1.get("welfare_domain") or WELFARE_DOMAIN_PRESETS[0]["value"]
+        if domain not in WELFARE_DOMAIN_OPTIONS:
+            domain = WELFARE_DOMAIN_PRESETS[0]["value"]
+        step1["welfare_domain"] = domain
+
+        mode = step1.get("welfare_mode") or WELFARE_MODE_PRESETS[0]["value"]
+        if mode not in WELFARE_MODE_OPTIONS:
+            mode = WELFARE_MODE_PRESETS[0]["value"]
+        step1["welfare_mode"] = mode
+    else:
+        # 福祉以外では空にしておく（UI上の混乱を防ぐ）
+        step1["welfare_domain"] = ""
+        step1["welfare_mode"] = ""
+
+    # template_id は project.json に固定保存する（後でテンプレ拡張しやすい）
+    step1["template_id"] = resolve_template_id(step1)
 
     # step2
     step2.setdefault("company_name", "")
@@ -1005,7 +1087,7 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
         "created_by": created_by.username if created_by else "",
         "updated_by": created_by.username if created_by else "",
         "data": {
-            "step1": {"industry": "会社サイト（企業）", "primary_color": "blue"},
+            "step1": {"industry": "会社サイト（企業）", "primary_color": "blue", "welfare_domain": "", "welfare_mode": "", "template_id": "corp_v1"},
             "step2": {"company_name": "", "catch_copy": "", "phone": "", "address": "", "email": ""},
             "blocks": {},
         },
@@ -1065,7 +1147,7 @@ def list_projects_from_sftp() -> list[dict]:
 
 
 # =========================
-# UI parts
+# [BLK-09] UI parts
 # =========================
 
 def render_header(u: Optional[User]) -> None:
@@ -1179,9 +1261,9 @@ def render_first_admin_setup(root_refresh) -> None:
 
 
 # =========================
-# Preview rendering
+# [BLK-10] Preview rendering
 # =========================
-# [BLK-11] Preview: Glassmorphism theme (SP/PC)
+# [BLK-10] Preview: Glassmorphism theme (SP/PC)
 
 def _is_light_color(color_value: str) -> bool:
     return str(color_value) in {"white", "yellow"}
@@ -1260,31 +1342,36 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
     step2 = data["step2"]
     blocks = data["blocks"]
 
-    primary = step1.get("page_color", "blue") or "blue"
+    primary = step1.get("primary_color") or step1.get("page_color") or "blue"
     accent_hex = _preview_accent_hex(primary)
     header_text = _safe_primary_text_class(primary)
 
     company = (step2.get("company_name") or "会社名（未入力）").strip()
     catch = (step2.get("catch_copy") or "キャッチコピー（未入力）").strip()
-    subcatch = (blocks.get("hero", {}).get("subcatch") or "").strip()
+    hero = blocks.get("hero", {}) if isinstance(blocks.get("hero"), dict) else {}
+    subcatch = (hero.get("sub_catch") or hero.get("subcatch") or "").strip()
     phone = (step2.get("phone") or "").strip()
     email = (step2.get("email") or "").strip()
     addr = (step2.get("address") or "").strip()
 
     # 画像（未入力ならテンプレ）
-    hero_img = (blocks.get("hero", {}).get("image_url") or "").strip()
-    hero_preset = blocks.get("hero", {}).get("image_preset", "A")
+    hero_img = (hero.get("hero_image_url") or hero.get("image_url") or "").strip()
+    hero_choice = (hero.get("hero_image") or hero.get("image_preset") or "A: オフィス").strip()
     if not hero_img:
-        hero_img = HERO_IMAGE_PRESET_URLS.get(hero_preset, HERO_IMAGE_PRESET_URLS["A"])
+        hero_img = HERO_IMAGE_PRESET_URLS.get(hero_choice) or HERO_IMAGE_PRESET_URLS.get("A: オフィス") or ""
 
     # ボタン文言
-    btn_primary = (blocks.get("hero", {}).get("button_primary_text") or "お問い合わせ").strip()
-    btn_secondary = (blocks.get("hero", {}).get("button_secondary_text") or "見学・相談").strip()
+    btn_primary = (hero.get("primary_button_text") or hero.get("button_primary_text") or "お問い合わせ").strip()
+    btn_secondary = (hero.get("secondary_button_text") or hero.get("button_secondary_text") or "見学・相談").strip()
 
-    # 理念
-    ph_title = (blocks.get("philosophy", {}).get("title") or "私たちの想い").strip()
-    ph_body = (blocks.get("philosophy", {}).get("body") or "ここに理念や会社の紹介文を書きます。\n（あとで自由に書き換えてできます）").strip()
-    tags = blocks.get("philosophy", {}).get("tags") or ["地域密着", "丁寧な対応", "安心の体制"]
+    # 理念 / 紹介
+    ph = blocks.get("philosophy", {}) if isinstance(blocks.get("philosophy"), dict) else {}
+    ph_title = (ph.get("title") or "私たちの想い").strip()
+    ph_body = (ph.get("body") or "ここに理念や会社の紹介文を書きます。\n（あとで自由に書き換えてできます）").strip()
+    tags = ph.get("points") or ph.get("tags") or ["地域密着", "丁寧な対応", "安心の体制"]
+    if not isinstance(tags, list):
+        tags = [tags]
+    tags = [str(t).strip() for t in tags if str(t).strip()]
 
     # お知らせ
     news_items = blocks.get("news", {}).get("items") or []
@@ -1569,7 +1656,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                     ui.label(company).classes("text-subtitle2")
                     ui.label("© CoreVistaJP").classes("text-caption pv-muted")
 # =========================
-# Builder (Main)
+# [BLK-11] Builder (Main)
 # =========================
 
 def render_main(u: User) -> None:
@@ -1660,6 +1747,8 @@ def render_main(u: User) -> None:
                                 blocks = data["blocks"]
 
                                 def update_and_refresh() -> None:
+                                    # Step1の分岐（テンプレID）を常に同期
+                                    step1["template_id"] = resolve_template_id(step1)
                                     set_current_project(p, u)
                                     refresh_preview()
 
@@ -1709,6 +1798,17 @@ def render_main(u: User) -> None:
 
                                                 def set_industry(value: str) -> None:
                                                     step1["industry"] = value
+
+                                                    # 福祉事業所だけ追加分岐（初期値を入れる）
+                                                    if value == "福祉事業所":
+                                                        step1["welfare_domain"] = step1.get("welfare_domain") or WELFARE_DOMAIN_PRESETS[0]["value"]
+                                                        step1["welfare_mode"] = step1.get("welfare_mode") or WELFARE_MODE_PRESETS[0]["value"]
+                                                    else:
+                                                        # 福祉以外は空にする
+                                                        step1["welfare_domain"] = ""
+                                                        step1["welfare_mode"] = ""
+
+                                                    step1["template_id"] = resolve_template_id(step1)
                                                     update_and_refresh()
                                                     industry_selector.refresh()
 
@@ -1726,7 +1826,45 @@ def render_main(u: User) -> None:
                                                                 ui.icon("check_circle").classes("text-primary")
                                                     card.on("click", lambda e, v=opt["value"]: set_industry(v))
 
+                                                # 福祉事業所の追加分岐（入所/通所/児童など）
+                                                if current_industry == "福祉事業所":
+                                                    ui.separator().classes("q-my-sm")
+                                                    ui.label("福祉事業所のタイプ").classes("text-subtitle2")
+                                                    ui.label("「介護/障がい/児童」と「入所/通所」を選びます。").classes("cvhb-muted q-mb-sm")
+
+                                                    current_domain = step1.get("welfare_domain") or WELFARE_DOMAIN_PRESETS[0]["value"]
+
+                                                    def _on_domain(e):
+                                                        step1["welfare_domain"] = e.value
+                                                        step1["template_id"] = resolve_template_id(step1)
+                                                        update_and_refresh()
+                                                        industry_selector.refresh()
+
+                                                    ui.select(
+                                                        "サービス種別",
+                                                        options=[x["value"] for x in WELFARE_DOMAIN_PRESETS],
+                                                        value=current_domain,
+                                                        on_change=_on_domain,
+                                                    ).props("outlined dense").classes("w-full q-mb-sm")
+
+                                                    current_mode = step1.get("welfare_mode") or WELFARE_MODE_PRESETS[0]["value"]
+
+                                                    def _on_mode(e):
+                                                        step1["welfare_mode"] = e.value
+                                                        step1["template_id"] = resolve_template_id(step1)
+                                                        update_and_refresh()
+                                                        industry_selector.refresh()
+
+                                                    ui.select(
+                                                        "入所 / 通所",
+                                                        options=[x["value"] for x in WELFARE_MODE_PRESETS],
+                                                        value=current_mode,
+                                                        on_change=_on_mode,
+                                                    ).props("outlined dense").classes("w-full q-mb-sm")
+
                                             industry_selector()
+
+
 
                                         # Color
                                         with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
@@ -1973,7 +2111,12 @@ def render_main(u: User) -> None:
                                             if not p:
                                                 ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
                                                 return
-                                            render_preview(p, mode="mobile")
+                                            try:
+                                                render_preview(p, mode="mobile")
+                                            except Exception as e:
+                                                ui.label("プレビューでエラーが発生しました").classes("text-negative")
+                                                ui.label(sanitize_error_text(e)).classes("cvhb-muted")
+                                                traceback.print_exc()
 
                                         preview_ref["refresh_mobile"] = preview_mobile_panel.refresh
                                         preview_mobile_panel()
@@ -1988,14 +2131,19 @@ def render_main(u: User) -> None:
                                             if not p:
                                                 ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
                                                 return
-                                            render_preview(p, mode="pc")
+                                            try:
+                                                render_preview(p, mode="pc")
+                                            except Exception as e:
+                                                ui.label("プレビューでエラーが発生しました").classes("text-negative")
+                                                ui.label(sanitize_error_text(e)).classes("cvhb-muted")
+                                                traceback.print_exc()
 
                                         preview_ref["refresh_pc"] = preview_pc_panel.refresh
                                         preview_pc_panel()
 
 
 # =========================
-# Pages
+# [BLK-12] Pages
 # =========================
 
 @ui.page("/projects")
