@@ -1388,6 +1388,15 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
 
     preview_style = _preview_glass_style(primary)
 
+    def label_pre(text: str, classes: str = "") -> ui.element:
+        """改行を保持して表示するラベル（プレビュー用）"""
+        lb = ui.label(text)
+        if classes:
+            lb.classes(classes)
+        lb.style("white-space: pre-wrap;")
+        return lb
+
+
     def section_title(icon_name: str, title: str) -> None:
         with ui.row().classes("items-center q-gutter-sm"):
             ui.icon(icon_name).classes("text-primary")
