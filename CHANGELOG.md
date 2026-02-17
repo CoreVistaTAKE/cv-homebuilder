@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.6.3] - 2026-02-17
+- UI polish: step menu icons removed, Step3 news/faq full-width, PC preview upgraded (header/spacing/2-column)
+
 ## [0.6.2] - 2026-02-16
 - UI改善（/projectsグリッド化・ステップメニュー視認性UP・Step1/2/3の幅/余白修正・プレビューカード幅統一）
 
@@ -25,6 +28,7 @@
 - Herokuにデプロイして起動確認
 - 独自ドメイン cvh.visone-ai.jp + SSL(ACM) OK
 - GitHubに最小構成を追加
+
 
 
 
