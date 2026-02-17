@@ -120,6 +120,7 @@ def inject_global_styles() -> None:
     """
     ui.add_head_html(
         """
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2360a5fa'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='8' width='48' height='48' rx='14' fill='url(%23g)'/%3E%3Cpath d='M20 36c8 8 16 8 24 0' stroke='rgba(255,255,255,.85)' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   /* ====== Page base ====== */
   .cvhb-page {
@@ -315,7 +316,9 @@ def inject_global_styles() -> None:
    ※ builder側の見た目は変えません（.cvhb-preview-glass の中だけに効くCSSです） */
 
 .cvhb-preview-glass {
-  background: linear-gradient(135deg, var(--pv-bg1, #f8fafc), var(--pv-bg2, #eef2ff));
+  background-image: var(--pv-bg-img, linear-gradient(135deg, var(--pv-bg1, #f8fafc), var(--pv-bg2, #eef2ff)));
+          background-size: cover;
+          background-position: center;
   color: var(--pv-text, #0b1220);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   letter-spacing: 0.01em;
@@ -466,6 +469,120 @@ def inject_global_styles() -> None:
   gap: 8px;
   flex-wrap: wrap;
 }
+
+
+
+        /* ====== Preview: layout rhythm & hero polish (v0.6.6) ====== */
+        .cvhb-preview-glass .pv-scroll {
+          flex: 1;
+          overflow: auto;
+          padding: 0;
+        }
+
+        .cvhb-preview-glass .pv-section {
+          padding: 18px 16px;
+        }
+
+        .cvhb-preview-glass .pv-section.pv-section-tight {
+          padding-top: 12px;
+          padding-bottom: 12px;
+        }
+
+        .cvhb-preview-glass .pv-section.pv-section-alt {
+          background: var(--pv-band, rgba(255,255,255,.22));
+          border-top: 1px solid var(--pv-line, rgba(15,23,42,.10));
+          border-bottom: 1px solid var(--pv-line, rgba(15,23,42,.10));
+        }
+
+        .cvhb-preview-glass .pv-hero-bg {
+          will-change: transform;
+          transition: transform 1400ms ease;
+        }
+
+        .cvhb-preview-glass .pv-hero:hover .pv-hero-bg {
+          transform: scale(1.06);
+        }
+
+        .cvhb-preview-glass .pv-hero.pv-hero-lg {
+          min-height: 420px;
+          border-radius: 24px;
+        }
+
+        .cvhb-preview-glass .pv-hero-inner.pv-hero-inner-lg {
+          padding: 34px;
+        }
+
+        .cvhb-preview-glass .pv-hero-grid {
+          display: grid;
+          gap: 22px;
+          grid-template-columns: 1.15fr 0.85fr;
+          align-items: end;
+        }
+
+        @media (max-width: 900px) {
+          .cvhb-preview-glass .pv-hero-grid { grid-template-columns: 1fr; }
+          .cvhb-preview-glass .pv-hero.pv-hero-lg { min-height: 320px; }
+          .cvhb-preview-glass .pv-hero-inner.pv-hero-inner-lg { padding: 22px; }
+        }
+
+        .cvhb-preview-glass .pv-prefooter {
+          border-radius: 18px;
+          padding: 14px 16px;
+          background: var(--pv-card, rgba(255,255,255,.55));
+          border: 1px solid var(--pv-border, rgba(255,255,255,.45));
+          backdrop-filter: blur(16px);
+          box-shadow: 0 18px 40px rgba(2,6,23,.10);
+        }
+
+        .cvhb-preview-glass .pv-prefooter .pv-prefooter-title {
+          font-weight: 800;
+          letter-spacing: .2px;
+        }
+
+        .cvhb-preview-glass .pv-prefooter .pv-prefooter-meta {
+          font-size: 12px;
+          color: var(--pv-muted, rgba(15,23,42,.62));
+        }
+
+        .cvhb-preview-glass .pv-btn-primary,
+        .cvhb-preview-glass .pv-btn-secondary {
+          transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+        }
+
+        .cvhb-preview-glass .pv-btn-primary:hover,
+        .cvhb-preview-glass .pv-btn-secondary:hover {
+          transform: translateY(-1px);
+          filter: brightness(1.02);
+        }
+
+        
+        
+        .cvhb-preview-glass .pv-newsitem,
+        .cvhb-preview-glass .pv-faqitem {
+          padding: 12px 0;
+          border-top: 1px solid var(--pv-line, rgba(15,23,42,.10));
+        }
+
+        .cvhb-preview-glass .pv-newsitem:first-child,
+        .cvhb-preview-glass .pv-faqitem:first-child {
+          border-top: none;
+          padding-top: 0;
+        }
+
+.cvhb-preview-glass .pv-navbtn {
+          border-radius: 999px;
+          font-weight: 800;
+          letter-spacing: .2px;
+          color: var(--pv-text);
+        }
+
+        .cvhb-preview-glass .pv-navbtn:hover {
+          background: var(--pv-band, rgba(255,255,255,.22));
+        }
+
+@media (min-width: 900px) {
+          .cvhb-preview-glass { background-attachment: fixed; }
+        }
 
 /* ====== Preview: micro interactions (軽い動き) ====== */
 @keyframes pv_fade_up {
@@ -1401,423 +1518,386 @@ def _preview_accent_hex(primary: str) -> str:
     return COLOR_HEX.get(primary, "#1976d2")
 
 
-def _preview_glass_style(primary: str) -> str:
-    """プレビュー（Glass）用のCSS変数を返す。
+def _preview_glass_style(step1: dict) -> str:
+    """Return inline CSS variables for the preview glass theme."""
 
-    - primary == black のときは「ダーク（黒基調）」として見た目を切り替える
-    - primary == white のときは「ライト（白基調）」のまま、アクセントだけ濃くする
-    """
-    accent = _preview_accent_hex(primary)
+    primary_color = (step1.get("primary_color") or "blue").strip() or "blue"
+    theme = "dark" if primary_color in ("black", "grey") else "light"
+    accent = _preview_accent_hex(primary_color)
 
-    is_dark = (primary == "black")
+    def _hex_to_rgb(h: str) -> tuple[int, int, int]:
+        h = (h or "").lstrip("#")
+        if len(h) != 6:
+            return (0, 0, 0)
+        try:
+            return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+        except Exception:
+            return (0, 0, 0)
 
-    accent_contrast = "#000000" if _is_light_hex(accent) else "#ffffff"
+    r, g, b = _hex_to_rgb(accent)
+    blob1_a = 0.18 if theme == "light" else 0.16
+    blob2_a = 0.10 if theme == "light" else 0.10
+    blob3_a = 0.08 if theme == "light" else 0.09
 
-    if is_dark:
-        # ダーク：背景もカードも暗め、文字は白系
-        bg1 = "#0b1020"
-        bg2 = _blend_hex(accent, "#000000", 0.78)
+    base = {
+        "--pv-accent": accent,
+        "--pv-bg1": "#f8fafc",
+        "--pv-bg2": "#eef2ff",
+        "--pv-text": "#0f172a",
+        "--pv-muted": "rgba(15,23,42,.62)",
+        "--pv-card": "rgba(255,255,255,.55)",
+        "--pv-border": "rgba(255,255,255,.45)",
+        "--pv-line": "rgba(15,23,42,.10)",
+        "--pv-chip-bg": "rgba(255,255,255,.65)",
+        "--pv-chip-border": "rgba(255,255,255,.55)",
+        "--pv-blob1": f"rgba({r},{g},{b},{blob1_a})",
+        "--pv-blob2": f"rgba({r},{g},{b},{blob2_a})",
+        "--pv-blob3": f"rgba({r},{g},{b},{blob3_a})",
+        "--pv-band": "rgba(255,255,255,.22)",
+    }
 
-        text = "#e5e7eb"
-        muted = "rgba(226,232,240,.72)"
+    if theme == "dark":
+        base.update(
+            {
+                "--pv-bg1": "#0b1220",
+                "--pv-bg2": "#0f172a",
+                "--pv-text": "#e2e8f0",
+                "--pv-muted": "rgba(226,232,240,.72)",
+                "--pv-card": "rgba(15,23,42,.62)",
+                "--pv-border": "rgba(148,163,184,.18)",
+                "--pv-line": "rgba(148,163,184,.14)",
+                "--pv-chip-bg": "rgba(15,23,42,.52)",
+                "--pv-chip-border": "rgba(148,163,184,.18)",
+                "--pv-band": "rgba(15,23,42,.35)",
+            }
+        )
 
-        card_bg = "rgba(15,23,42,.58)"
-        card_border = "rgba(255,255,255,.12)"
-        card_shadow = "0 18px 44px rgba(0,0,0,.45)"
-
-        topbar_bg = "rgba(2,6,23,.56)"
-        topbar_border = "rgba(255,255,255,.12)"
-
-        secondary_bg = "rgba(255,255,255,.06)"
-        secondary_border = "rgba(255,255,255,.14)"
-
-        pill_bg = "rgba(255,255,255,.06)"
-        pill_border = "rgba(255,255,255,.14)"
-
-        line = "rgba(255,255,255,.12)"
-
-        hero_overlay = "linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.72))"
-    else:
-        # ライト：ほぼ白 + うっすらアクセント
-        bg1 = _blend_hex(accent, "#ffffff", 0.94)
-        bg2 = _blend_hex(accent, "#ffffff", 0.86)
-
-        text = "#0b1220"
-        muted = "rgba(15,23,42,.62)"
-
-        card_bg = "rgba(255,255,255,.72)"
-        card_border = "rgba(255,255,255,.64)"
-        card_shadow = "0 16px 40px rgba(15,23,42,.12)"
-
-        topbar_bg = "rgba(255,255,255,.58)"
-        topbar_border = "rgba(255,255,255,.70)"
-
-        secondary_bg = "rgba(255,255,255,.34)"
-        secondary_border = "rgba(255,255,255,.78)"
-
-        pill_bg = "rgba(255,255,255,.55)"
-        pill_border = "rgba(15,23,42,.10)"
-
-        line = "rgba(15,23,42,.10)"
-
-        hero_overlay = "linear-gradient(180deg, rgba(0,0,0,.24), rgba(0,0,0,.62))"
-
-    # Quasar の primary もプレビュー内だけ差し替える（text-primary等が効く）
-    return (
-        f"--pv-accent:{accent};"
-        f"--pv-accent-contrast:{accent_contrast};"
-        f"--pv-bg1:{bg1};"
-        f"--pv-bg2:{bg2};"
-        f"--pv-text:{text};"
-        f"--pv-muted:{muted};"
-        f"--pv-card-bg:{card_bg};"
-        f"--pv-card-border:{card_border};"
-        f"--pv-card-shadow:{card_shadow};"
-        f"--pv-topbar-bg:{topbar_bg};"
-        f"--pv-topbar-border:{topbar_border};"
-        f"--pv-secondary-bg:{secondary_bg};"
-        f"--pv-secondary-border:{secondary_border};"
-        f"--pv-pill-bg:{pill_bg};"
-        f"--pv-pill-border:{pill_border};"
-        f"--pv-line:{line};"
-        f"--pv-hero-overlay:{hero_overlay};"
-        f"--q-primary:{accent};"
+    # 背景“画像”＝レイヤーグラデ（外部画像に依存せず、ガラス表現が映える）
+    base["--pv-bg-img"] = (
+        "radial-gradient(900px 700px at 12% 10%, var(--pv-blob1), transparent 60%),"
+        "radial-gradient(1000px 760px at 92% 28%, var(--pv-blob2), transparent 55%),"
+        "radial-gradient(900px 760px at 30% 95%, var(--pv-blob3), transparent 60%),"
+        "linear-gradient(135deg, var(--pv-bg1), var(--pv-bg2))"
     )
 
-def render_preview(p: dict, mode: str = "mobile") -> None:
-    """右側プレビュー: mode='mobile' or 'pc'"""
-    if not p:
-        ui.label("案件が未選択です").classes("text-caption text-grey")
-        return
+    # Quasar primary (NiceGUI button color etc.)
+    base["--q-primary"] = accent
 
-    data = normalize_project(p)["data"]
-    step1 = data["step1"]
-    step2 = data["step2"]
-    blocks = data["blocks"]
+    return ";".join([f"{k}:{v}" for k, v in base.items()]) + ";"
 
-    primary = step1.get("primary_color") or step1.get("page_color") or "blue"
-    accent_hex = _preview_accent_hex(primary)
-    header_text = _safe_primary_text_class(primary)
+def render_preview(p: dict, mode: str = "sp") -> None:
+    """Render preview (SP/PC). Design target: commercial-grade glassmorphism base."""
 
-    company = (step2.get("company_name") or "会社名（未入力）").strip()
-    catch = (step2.get("catch_copy") or "キャッチコピー（未入力）").strip()
-    hero = blocks.get("hero", {}) if isinstance(blocks.get("hero"), dict) else {}
-    subcatch = (hero.get("sub_catch") or hero.get("subcatch") or "").strip()
-    phone = (step2.get("phone") or "").strip()
-    email = (step2.get("email") or "").strip()
-    addr = (step2.get("address") or "").strip()
+    step1 = p.get("step1", {}) if isinstance(p, dict) else {}
+    blocks = p.get("blocks", {}) if isinstance(p, dict) else {}
 
-    # 画像（未入力ならテンプレ）
-    hero_img = (hero.get("hero_image_url") or hero.get("image_url") or "").strip()
-    hero_choice = (hero.get("hero_image") or hero.get("image_preset") or "A: オフィス").strip()
-    if not hero_img:
-        hero_img = HERO_IMAGE_PRESET_URLS.get(hero_choice) or HERO_IMAGE_PRESET_URLS.get("A: オフィス") or ""
+    company = (step1.get("company_name") or "").strip() or "会社名"
+    catch = (step1.get("catch_copy") or "").strip() or "スタッフ・利用者の笑顔を守る企業"
+    phone = (step1.get("phone") or "").strip()
+    email = (step1.get("email") or "").strip()
+    addr = (step1.get("address") or "").strip()
+    industry = (step1.get("industry") or "").strip()
 
-    # ボタン文言
-    btn_primary = (hero.get("primary_button_text") or hero.get("button_primary_text") or "お問い合わせ").strip()
-    btn_secondary = (hero.get("secondary_button_text") or hero.get("button_secondary_text") or "見学・相談").strip()
+    hero = blocks.get("hero", {}) if isinstance(blocks, dict) else {}
+    hero_choice = (hero.get("hero_image") or "A: オフィス").strip() or "A: オフィス"
+    hero_img_url = (hero.get("hero_image_url") or "").strip() or HERO_IMAGE_PRESETS.get(hero_choice, HERO_IMAGE_DEFAULT)
 
-    # 理念 / 紹介
-    ph = blocks.get("philosophy", {}) if isinstance(blocks.get("philosophy"), dict) else {}
-    ph_title = (ph.get("title") or "私たちの想い").strip()
-    ph_body = (ph.get("body") or "ここに理念や会社の紹介文を書きます。\n（あとで自由に書き換えてできます）").strip()
-    tags = ph.get("points") or ph.get("tags") or ["地域密着", "丁寧な対応", "安心の体制"]
-    if not isinstance(tags, list):
-        tags = [tags]
-    tags = [str(t).strip() for t in tags if str(t).strip()]
+    # sub catch: hero block > step1
+    subcatch = (hero.get("sub_catch") or step1.get("sub_catch") or "").strip()
 
-    # お知らせ
-    news_items = blocks.get("news", {}).get("items") or []
-    # FAQ
-    faq_items = blocks.get("faq", {}).get("items") or []
+    primary_btn = (hero.get("primary_button_text") or "").strip() or "お問い合わせ"
+    secondary_btn = (hero.get("secondary_button_text") or "").strip() or "見学・相談"
 
-    # アクセス
-    access_notes = (blocks.get("access", {}).get("notes") or "（例）○○駅から徒歩5分 / 駐車場あり").strip()
-    map_url = google_maps_url(addr) if addr else ""
+    philosophy = blocks.get("philosophy", {}) if isinstance(blocks, dict) else {}
+    ph_text = (philosophy.get("text") or "").strip() or "ここに理念や会社の紹介文を書きます。（あとで自由に書き換えできます）"
+    ph_features = philosophy.get("features") or ["地域密着", "丁寧な対応", "安心の体制"]
+    if not isinstance(ph_features, list):
+        ph_features = ["地域密着", "丁寧な対応", "安心の体制"]
 
-    # お問い合わせ
-    message = (blocks.get("contact", {}).get("message") or "まずはお気軽にご相談ください。").strip()
-    hours = (blocks.get("contact", {}).get("hours") or "平日 9:00〜18:00").strip()
+    news = blocks.get("news", {}) if isinstance(blocks, dict) else {}
+    news_items = news.get("items") or []
+    if not isinstance(news_items, list):
+        news_items = []
 
-    preview_style = _preview_glass_style(primary)
+    faq = blocks.get("faq", {}) if isinstance(blocks, dict) else {}
+    faq_items = faq.get("items") or []
+    if not isinstance(faq_items, list):
+        faq_items = []
 
-    def label_pre(text: str, classes: str = "") -> ui.element:
-        """改行を保持して表示するラベル（プレビュー用）"""
-        lb = ui.label(text)
-        if classes:
-            lb.classes(classes)
-        lb.style("white-space: pre-wrap;")
-        return lb
+    access = blocks.get("access", {}) if isinstance(blocks, dict) else {}
+    map_url = (access.get("map_url") or "").strip() or "https://maps.google.com/"
+    access_note = (access.get("note") or "").strip() or "（例）○○駅から徒歩5分 / 駐車場あり"
 
+    contact = blocks.get("contact", {}) if isinstance(blocks, dict) else {}
+    hours = (contact.get("hours") or "").strip() or "平日 9:00〜18:00"
+    cta_text = (contact.get("cta_text") or "").strip() or "まずはお気軽にご相談ください。"
 
-    def section_title(icon_name: str, title: str) -> None:
-        with ui.row().classes("items-center q-gutter-sm"):
-            ui.icon(icon_name).classes("text-primary")
-            ui.label(title).classes("text-subtitle1")
+    style = _preview_glass_style(step1)
 
-    def pv_button_primary(label: str, on_click=None) -> ui.element:
-        btn = ui.button(label, on_click=on_click).props("unelevated no-caps")
-        btn.classes("pv-btn-primary")
-        return btn
+    def _chip(text_: str) -> None:
+        ui.label(text_).classes("pv-chip")
 
-    def pv_button_secondary(label: str, on_click=None) -> ui.element:
-        btn = ui.button(label, on_click=on_click).props("unelevated no-caps")
-        btn.classes("pv-btn-secondary")
-        return btn
+    def _news_card(items: list, max_items: int = 3) -> None:
+        shown = 0
+        for it in items:
+            if shown >= max_items:
+                break
+            if not isinstance(it, dict):
+                continue
+            title = (it.get("title") or "").strip()
+            body = (it.get("body") or "").strip()
+            date = (it.get("date") or "").strip()
+            category = (it.get("category") or "").strip()
+            if not title and not body:
+                continue
+            shown += 1
 
-    # -------------------------
-    # Mobile preview
-    # -------------------------
-    if mode == "mobile":
-        with ui.column().classes("w-full cvhb-preview cvhb-preview-glass").style(preview_style):
+            with ui.element("div").classes("pv-newsitem"):
+                with ui.row().classes("items-center justify-between"):
+                    ui.label(title or "お知らせ").classes("text-body1 text-weight-bold")
+                    if date:
+                        ui.label(date).classes("pv-muted").style("font-size: 12px;")
+                if category:
+                    ui.label(category).classes("pv-pill q-mt-xs")
+                if body:
+                    ui.label(body).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+
+        if shown == 0:
+            ui.label("まだお知らせはありません。").classes("pv-muted")
+
+    def _faq_card(items: list, max_items: int = 3) -> None:
+        shown = 0
+        for it in items:
+            if shown >= max_items:
+                break
+            if not isinstance(it, dict):
+                continue
+            q = (it.get("q") or "").strip()
+            a = (it.get("a") or "").strip()
+            if not q and not a:
+                continue
+            shown += 1
+            with ui.element("div").classes("pv-faqitem"):
+                ui.label(q or "質問").classes("text-body1 text-weight-bold")
+                if a:
+                    ui.label(a).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+
+        if shown == 0:
+            ui.label("まだFAQはありません。").classes("pv-muted")
+
+    # =========================
+    # SP (Smartphone)
+    # =========================
+    if mode == "sp":
+        with ui.element("div").classes("w-full cvhb-preview cvhb-preview-sp cvhb-preview-glass").style(
+            style + "height: 100%; display:flex; flex-direction: column;"
+        ):
             # topbar
-            with ui.element("div").classes("w-full pv-topbar"):
-                with ui.element("div").classes("pv-topbar-inner"):
+            with ui.element("div").classes("pv-topbar"):
+                with ui.row().classes("items-center justify-between pv-topbar-inner"):
                     ui.label(company).classes("pv-topbar-title")
-                    ui.icon("menu").classes("text-primary")
+                    ui.icon("menu").classes("pv-topbar-menu")
 
-            # body scroll
-            with ui.element("div").classes("w-full").style("height: calc(100vh - 140px); overflow: auto; padding: 16px;"):
+            # scroll body
+            with ui.element("div").classes("pv-scroll"):
                 # hero
-                with ui.element("div").classes("w-full pv-hero").style(
-                    f"height: 240px; background-image: url('{hero_img}'); background-size: cover; background-position: center;"
-                ):
-                    with ui.element("div").classes("pv-hero-overlay"):
-                        with ui.column().classes("q-pa-md").style("height: 100%; justify-content: flex-end;"):
-                            ui.label(catch).classes("text-h6 text-white")
+                with ui.element("div").classes("pv-section pv-section-tight pv-animate pv-delay-1"):
+                    with ui.element("div").classes("pv-hero"):
+                        ui.element("div").classes("pv-hero-bg").style(f"background-image: url('{hero_img_url}');")
+                        ui.element("div").classes("pv-hero-overlay")
+                        with ui.element("div").classes("pv-hero-inner"):
+                            if industry:
+                                ui.label(industry).classes("pv-pill")
+                            ui.label(catch).classes("pv-hero-title")
                             if subcatch:
-                                ui.label(subcatch).classes("text-body2 text-white")
-                            with ui.row().classes("q-gutter-sm q-mt-md"):
-                                pv_button_primary(btn_primary)
-                                pv_button_secondary(btn_secondary)
+                                ui.label(subcatch).classes("pv-hero-sub")
+                            with ui.row().classes("q-gutter-sm q-mt-md items-center"):
+                                ui.button(primary_btn).props("unelevated").classes("pv-btn-primary")
+                                ui.button(secondary_btn).props("outline").classes("pv-btn-secondary")
+
+                    # hero subcard (軽い説明 + 特徴チップ)
+                    with ui.element("div").classes("pv-card pv-card-pad pv-animate pv-delay-2 q-mt-md"):
+                        ui.label(company).classes("pv-section-title")
+                        ui.label(ph_text).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        with ui.row().classes("q-gutter-xs q-mt-md"):
+                            for f in ph_features[:3]:
+                                _chip(str(f))
 
                 # philosophy
-                with ui.element("div").classes("w-full pv-section pv-animate pv-delay-1"):
-                    with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
-                        section_title("favorite", ph_title)
-                        label_pre(ph_body, "text-body2 q-mt-sm")
-                        if tags:
-                            with ui.row().classes("q-gutter-xs q-mt-sm"):
-                                for t in tags[:6]:
-                                    ui.badge(t).classes("pv-pill")
+                with ui.element("div").classes("pv-section pv-section-alt pv-animate pv-delay-3"):
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("私たちの想い").classes("pv-section-title")
+                        ui.label(ph_text).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        with ui.row().classes("q-gutter-xs q-mt-md"):
+                            for f in ph_features[:6]:
+                                _chip(str(f))
 
                 # news
-                with ui.element("div").classes("w-full pv-section pv-animate pv-delay-2"):
-                    with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
-                        section_title("campaign", "お知らせ")
-                        if not news_items:
-                            ui.label("まだお知らせはありません").classes("text-caption pv-muted q-mt-sm")
-                        else:
-                            with ui.column().classes("q-gutter-sm q-mt-sm"):
-                                for it in news_items[:3]:
-                                    title = (it.get("title") or "（タイトル未入力）").strip()
-                                    date = (it.get("date") or "").strip()
-                                    cat = (it.get("category") or "").strip()
-                                    body = (it.get("body") or "").strip()
-                                    with ui.card().classes("q-pa-sm").props("flat"):
-                                        with ui.row().classes("items-start justify-between q-gutter-sm"):
-                                            ui.label(title).classes("text-body1")
-                                            if cat:
-                                                ui.badge(cat).classes("pv-pill")
-                                        if date:
-                                            ui.label(date).classes("text-caption pv-muted")
-                                        if body:
-                                            snippet = body.replace("\n", " ")
-                                            if len(snippet) > 80:
-                                                snippet = snippet[:80] + "…"
-                                            ui.label(snippet).classes("text-caption")
+                with ui.element("div").classes("pv-section pv-animate pv-delay-4"):
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("お知らせ").classes("pv-section-title")
+                        _news_card(news_items, max_items=3)
 
                 # faq
-                with ui.element("div").classes("w-full pv-section pv-animate pv-delay-3"):
-                    with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
-                        section_title("help", "よくある質問")
-                        if not faq_items:
-                            ui.label("まだFAQはありません").classes("text-caption pv-muted q-mt-sm")
-                        else:
-                            with ui.column().classes("q-gutter-sm q-mt-sm"):
-                                for it in faq_items[:4]:
-                                    q = (it.get("q") or "").strip() or "（質問 未入力）"
-                                    a = (it.get("a") or "").strip() or "（回答 未入力）"
-                                    with ui.card().classes("q-pa-sm").props("flat"):
-                                        ui.label(q).classes("text-body1")
-                                        ui.separator().classes("q-my-xs")
-                                        label_pre(a, "text-caption pv-muted")
+                with ui.element("div").classes("pv-section pv-section-alt pv-animate pv-delay-5"):
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("よくある質問").classes("pv-section-title")
+                        _faq_card(faq_items, max_items=3)
 
                 # access
-                with ui.element("div").classes("w-full pv-section pv-animate"):
-                    with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
-                        section_title("place", "アクセス")
-                        ui.label(f"住所：{addr if addr else '未入力'}").classes("text-body2")
-                        ui.label(access_notes).classes("text-caption pv-muted q-mt-xs")
-                        if map_url:
-                            pv_button_primary("地図を開く", on_click=lambda u=map_url: ui.run_javascript(f"window.open('{u}','_blank')")).classes("q-mt-sm")
-                        else:
-                            ui.label("住所を入力すると地図ボタンが出ます").classes("text-caption pv-muted q-mt-sm")
+                with ui.element("div").classes("pv-section pv-animate pv-delay-5"):
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("アクセス").classes("pv-section-title")
+                        if addr:
+                            ui.label(f"住所：{addr}").classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        ui.label(access_note).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        ui.button("地図を開く").props("unelevated").classes("pv-btn-primary q-mt-md w-full").on(
+                            "click", lambda: None
+                        )
 
                 # contact
-                with ui.element("div").classes("w-full pv-section pv-animate"):
-                    with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
-                        section_title("call", "お問い合わせ")
-                        label_pre(message, "text-body2")
-                        ui.separator().classes("q-my-sm")
-                        ui.label(f"TEL：{phone if phone else '未入力'}").classes("text-body1")
-                        ui.label(f"Email：{email if email else '未入力'}").classes("text-body2")
-                        ui.label(f"受付時間：{hours}").classes("text-caption pv-muted")
-                        pv_button_primary(btn_primary).classes("q-mt-sm w-full")
+                with ui.element("div").classes("pv-section pv-section-alt pv-animate pv-delay-5"):
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("お問い合わせ").classes("pv-section-title")
+                        ui.label(cta_text).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        if phone:
+                            ui.label(f"TEL：{phone}").classes("text-body2 q-mt-md")
+                        ui.label(hours).classes("pv-muted q-mt-xs")
+                        if email:
+                            ui.label(f"Email：{email}").classes("pv-muted q-mt-xs")
+                        ui.button(primary_btn).props("unelevated").classes("pv-btn-primary q-mt-md w-full").on(
+                            "click", lambda: None
+                        )
+
+                # pre-footer company mini
+                with ui.element("div").classes("pv-section pv-animate pv-delay-5"):
+                    with ui.element("div").classes("pv-prefooter"):
+                        with ui.column().classes("q-gutter-xs"):
+                            ui.label(company).classes("pv-prefooter-title")
+                            if industry:
+                                ui.label(industry).classes("pv-prefooter-meta")
+                            if addr:
+                                ui.label(addr).classes("pv-prefooter-meta").style("white-space: pre-wrap;")
+                        with ui.row().classes("items-center q-gutter-sm"):
+                            if phone:
+                                ui.label(f"TEL：{phone}").classes("pv-prefooter-meta")
+                            if email:
+                                ui.label(email).classes("pv-prefooter-meta")
 
                 # footer
-                with ui.element("div").classes("w-full pv-footer"):
-                    with ui.element("div").classes("q-pa-md"):
-                        ui.label(company).classes("text-subtitle2")
-                        ui.label("© CoreVistaJP").classes("text-caption pv-muted")
+                with ui.element("div").classes("pv-footer"):
+                    ui.label("© CoreVistaJP / CV-HomeBuilder").classes("pv-muted")
 
         return
 
-    # -------------------------
-    # PC preview
-    # -------------------------
-    def pc_heading(icon_name: str, title: str) -> None:
-        with ui.row().classes("items-center justify-center q-gutter-sm q-mb-md"):
-            ui.icon(icon_name).classes("text-primary")
-            ui.label(title).classes("text-h6")
-
-    def jump(anchor: str) -> None:
-        # anchor: '#pv-news' 等
-        ui.run_javascript(f"document.querySelector('{anchor}')?.scrollIntoView({{behavior:'smooth', block:'start'}});")
-
-    with ui.element("div").classes("w-full cvhb-preview cvhb-preview-pc cvhb-preview-glass").style(preview_style):
-        # Header (glass)
-        with ui.element("div").classes("cvhb-pc-header"):
+    # =========================
+    # PC
+    # =========================
+    with ui.element("div").classes("w-full cvhb-preview cvhb-preview-pc cvhb-preview-glass").style(style):
+        # header
+        with ui.element("header").classes("w-full cvhb-pc-header"):
             with ui.element("div").classes("cvhb-pc-container"):
-                with ui.row().classes("items-center justify-between"):
-                    ui.label(company).classes("cvhb-pc-logo text-subtitle1")
-                    with ui.row().classes("items-center q-gutter-xs"):
-                        ui.button("想い", on_click=lambda: jump("#pv-philosophy")).props("flat dense no-caps").classes("pv-nav-btn pv-linkbtn")
-                        ui.button("お知らせ", on_click=lambda: jump("#pv-news")).props("flat dense no-caps").classes("pv-nav-btn pv-linkbtn")
-                        ui.button("FAQ", on_click=lambda: jump("#pv-faq")).props("flat dense no-caps").classes("pv-nav-btn pv-linkbtn")
-                        ui.button("アクセス", on_click=lambda: jump("#pv-access")).props("flat dense no-caps").classes("pv-nav-btn pv-linkbtn")
-                        pv_button_primary("お問い合わせ", on_click=lambda: jump("#pv-contact")).props("dense")
+                with ui.row().classes("items-center justify-between q-py-sm"):
+                    ui.label(company).classes("text-h6 text-weight-bold")
+                    with ui.row().classes("items-center q-gutter-sm"):
+                        for nav in ["想い", "お知らせ", "FAQ", "アクセス"]:
+                            ui.button(nav).props("flat dense").classes("pv-navbtn")
+                        ui.button("お問い合わせ").props("unelevated").classes("pv-btn-primary").style("height: 36px;")
 
-        # Hero
-        with ui.element("div").classes("cvhb-pc-hero pv-animate pv-delay-1").style(
-            f"background-image: url('{hero_img}'); background-size: cover; background-position: center;"
-        ):
-            with ui.element("div").classes("cvhb-pc-hero-overlay"):
-                with ui.element("div").classes("cvhb-pc-container"):
-                    with ui.element("div").classes("cvhb-pc-hero-inner"):
-                        with ui.element("div").classes("cvhb-pc-hero-grid"):
-                            # Left: text
-                            with ui.element("div"):
-                                ui.label(catch).classes("text-h4 text-white")
-                                if subcatch:
-                                    ui.label(subcatch).classes("text-body1 text-white q-mt-sm")
-                                with ui.row().classes("q-gutter-sm q-mt-md"):
-                                    pv_button_primary(btn_primary)
-                                    pv_button_secondary(btn_secondary)
-                            # Right: small glass card
-                            with ui.card().classes("cvhb-pc-card q-pa-md").props("flat"):
-                                ui.label(company).classes("text-subtitle1")
-                                ui.label("会社サイト（企業）").classes("text-caption pv-muted")
-                                ui.separator().classes("q-my-sm")
-                                ui.label("ここに会社の強みや一言PRを入れます。").classes("text-body2")
-                                with ui.row().classes("q-gutter-xs q-mt-sm"):
-                                    for t in tags[:3]:
-                                        ui.badge(t).classes("pv-pill")
-
-        # Philosophy / Overview
-        with ui.element("div").classes("cvhb-pc-section pv-animate pv-delay-2").props("id=pv-philosophy"):
+        # hero
+        with ui.element("div").classes("pv-section pv-section-tight pv-animate pv-delay-1"):
             with ui.element("div").classes("cvhb-pc-container"):
-                pc_heading("favorite", ph_title)
-                with ui.card().classes("cvhb-pc-card q-pa-md").props("flat"):
-                    with ui.element("div").classes("cvhb-pc-grid-2"):
-                        with ui.element("div"):
-                            label_pre(ph_body, "text-body1")
-                        with ui.element("div"):
-                            ui.label("特徴").classes("text-subtitle2")
-                            with ui.row().classes("q-gutter-xs q-mt-sm"):
-                                for t in tags[:6]:
-                                    ui.badge(t).classes("pv-pill")
-
-        # News + FAQ (2 column)
-        with ui.element("div").classes("cvhb-pc-section pv-animate pv-delay-3").props("id=pv-news"):
-            with ui.element("div").classes("cvhb-pc-container"):
-                with ui.element("div").classes("cvhb-pc-grid-2"):
-                    # News
-                    with ui.card().classes("cvhb-pc-card q-pa-md").props("flat"):
-                        pc_heading("campaign", "お知らせ")
-                        if not news_items:
-                            ui.label("まだお知らせはありません").classes("text-caption pv-muted")
-                        else:
+                with ui.element("div").classes("pv-hero pv-hero-lg"):
+                    ui.element("div").classes("pv-hero-bg").style(f"background-image: url('{hero_img_url}');")
+                    ui.element("div").classes("pv-hero-overlay")
+                    with ui.element("div").classes("pv-hero-inner pv-hero-inner-lg"):
+                        with ui.element("div").classes("pv-hero-grid"):
+                            # left: message + CTA
                             with ui.column().classes("q-gutter-sm"):
-                                for it in news_items[:4]:
-                                    title = (it.get("title") or "（タイトル未入力）").strip()
-                                    date = (it.get("date") or "").strip()
-                                    cat = (it.get("category") or "").strip()
-                                    body = (it.get("body") or "").strip()
-                                    with ui.card().classes("q-pa-sm").props("flat"):
-                                        with ui.row().classes("items-start justify-between q-gutter-sm"):
-                                            ui.label(title).classes("text-body1")
-                                            if cat:
-                                                ui.badge(cat).classes("pv-pill")
-                                        if date:
-                                            ui.label(date).classes("text-caption pv-muted")
-                                        if body:
-                                            snippet = body.replace("\n", " ")
-                                            if len(snippet) > 110:
-                                                snippet = snippet[:110] + "…"
-                                            ui.label(snippet).classes("text-caption")
+                                if industry:
+                                    ui.label(industry).classes("pv-pill")
+                                ui.label(catch).classes("pv-hero-title")
+                                if subcatch:
+                                    ui.label(subcatch).classes("pv-hero-sub")
+                                with ui.row().classes("q-gutter-sm q-mt-sm items-center"):
+                                    ui.button(primary_btn).props("unelevated").classes("pv-btn-primary")
+                                    ui.button(secondary_btn).props("outline").classes("pv-btn-secondary")
+                                if phone:
+                                    ui.label(f"TEL：{phone}（{hours}）").classes("pv-muted q-mt-sm")
+                            # right: glass summary
+                            with ui.element("div").classes("pv-card pv-card-pad"):
+                                ui.label("概要").classes("pv-section-title")
+                                ui.label(ph_text).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                                with ui.row().classes("q-gutter-xs q-mt-md"):
+                                    for f in ph_features[:5]:
+                                        _chip(str(f))
 
-                    # FAQ
-                    with ui.element("div").props("id=pv-faq"):
-                        with ui.card().classes("cvhb-pc-card q-pa-md").props("flat"):
-                            pc_heading("help", "よくある質問")
-                            if not faq_items:
-                                ui.label("まだFAQはありません").classes("text-caption pv-muted")
-                            else:
-                                with ui.column().classes("q-gutter-sm"):
-                                    for it in faq_items[:6]:
-                                        q = (it.get("q") or "").strip() or "（質問 未入力）"
-                                        a = (it.get("a") or "").strip() or "（回答 未入力）"
-                                        with ui.card().classes("q-pa-sm").props("flat"):
-                                            ui.label(q).classes("text-body1")
-                                            ui.separator().classes("q-my-xs")
-                                            label_pre(a, "text-caption pv-muted")
-
-        # Access / Contact
-        with ui.element("div").classes("cvhb-pc-section pv-animate").props("id=pv-access"):
+        # section group: philosophy + (news + faq)
+        with ui.element("div").classes("pv-section pv-section-alt pv-animate pv-delay-2"):
             with ui.element("div").classes("cvhb-pc-container"):
-                with ui.element("div").classes("cvhb-pc-grid-2"):
-                    # Access
-                    with ui.card().classes("cvhb-pc-card q-pa-md").props("flat"):
-                        pc_heading("place", "アクセス")
-                        ui.label(f"住所：{addr if addr else '未入力'}").classes("text-body2")
-                        if access_notes:
-                            label_pre(access_notes, "text-caption pv-muted")
-                        if map_url:
-                            pv_button_primary("地図を開く", on_click=lambda u=map_url: ui.run_javascript(f"window.open('{u}','_blank')")).classes("q-mt-sm")
-                        else:
-                            ui.label("住所を入力すると地図ボタンが出ます").classes("text-caption pv-muted")
+                with ui.element("div").classes("cvhb-pc-grid2"):
+                    # left: philosophy
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("私たちの想い").classes("pv-section-title")
+                        ui.label(ph_text).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        with ui.row().classes("q-gutter-xs q-mt-md"):
+                            for f in ph_features[:8]:
+                                _chip(str(f))
+                    # right: stacked cards
+                    with ui.column().classes("q-gutter-md"):
+                        with ui.element("div").classes("pv-card pv-card-pad"):
+                            ui.label("お知らせ").classes("pv-section-title")
+                            _news_card(news_items, max_items=4)
+                        with ui.element("div").classes("pv-card pv-card-pad"):
+                            ui.label("よくある質問").classes("pv-section-title")
+                            _faq_card(faq_items, max_items=3)
 
-                    # Contact
-                    with ui.element("div").props("id=pv-contact"):
-                        with ui.card().classes("cvhb-pc-card q-pa-md").props("flat"):
-                            pc_heading("call", "お問い合わせ")
-                            if message:
-                                label_pre(message, "text-body2")
-                                ui.separator().classes("q-my-sm")
-                            ui.label(f"TEL：{phone if phone else '未入力'}").classes("text-body1")
-                            if hours:
-                                ui.label(f"受付時間：{hours}").classes("text-caption pv-muted")
-                            ui.label(f"Email：{email if email else '未入力'}").classes("text-body2")
-                            pv_button_primary(btn_primary).classes("q-mt-sm")
-
-        # Footer
-        with ui.element("div").classes("w-full pv-footer"):
+        # section group: access + contact
+        with ui.element("div").classes("pv-section pv-animate pv-delay-3"):
             with ui.element("div").classes("cvhb-pc-container"):
-                with ui.row().classes("items-center justify-between q-pa-md"):
-                    ui.label(company).classes("text-subtitle2")
-                    ui.label("© CoreVistaJP").classes("text-caption pv-muted")
-# =========================
+                with ui.element("div").classes("cvhb-pc-grid2"):
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("アクセス").classes("pv-section-title")
+                        if addr:
+                            ui.label(f"住所：{addr}").classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        ui.label(access_note).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        ui.button("地図を開く").props("unelevated").classes("pv-btn-primary q-mt-md").on(
+                            "click", lambda: None
+                        )
+                    with ui.element("div").classes("pv-card pv-card-pad"):
+                        ui.label("お問い合わせ").classes("pv-section-title")
+                        ui.label(cta_text).classes("pv-muted q-mt-sm").style("white-space: pre-wrap;")
+                        if phone:
+                            ui.label(f"TEL：{phone}").classes("text-body2 q-mt-md")
+                        ui.label(hours).classes("pv-muted q-mt-xs")
+                        if email:
+                            ui.label(f"Email：{email}").classes("pv-muted q-mt-xs")
+                        ui.button(primary_btn).props("unelevated").classes("pv-btn-primary q-mt-md").on(
+                            "click", lambda: None
+                        )
+
+        # pre-footer (company small)
+        with ui.element("div").classes("pv-section pv-section-alt pv-animate pv-delay-4"):
+            with ui.element("div").classes("cvhb-pc-container"):
+                with ui.element("div").classes("pv-prefooter"):
+                    with ui.row().classes("items-start justify-between"):
+                        with ui.column().classes("q-gutter-xs"):
+                            ui.label(company).classes("pv-prefooter-title")
+                            if industry:
+                                ui.label(industry).classes("pv-prefooter-meta")
+                            if addr:
+                                ui.label(addr).classes("pv-prefooter-meta").style("white-space: pre-wrap;")
+                        with ui.column().classes("items-end q-gutter-xs"):
+                            if phone:
+                                ui.label(f"TEL：{phone}").classes("pv-prefooter-meta")
+                            if email:
+                                ui.label(email).classes("pv-prefooter-meta")
+
+        # footer
+        with ui.element("div").classes("pv-footer"):
+            ui.label("© CoreVistaJP / CV-HomeBuilder").classes("pv-muted")
+
+
 # [BLK-11] Builder (Main)
 # =========================
 
@@ -1992,39 +2072,57 @@ def render_main(u: User) -> None:
                                                 if current_industry == "福祉事業所":
                                                     ui.separator().classes("q-my-sm")
                                                     ui.label("福祉事業所のタイプ").classes("text-subtitle2")
-                                                    ui.label("「介護/障がい/児童」と「入所/通所」を選びます。").classes("cvhb-muted q-mb-sm")
+                                                    ui.label("「介護/障がい/児童」と「入所/通所」を選びます。").classes("cvhb-muted")
 
+                                                    # 初期値（業種選択直後でも必ず表示されるように）
                                                     current_domain = step1.get("welfare_domain") or WELFARE_DOMAIN_PRESETS[0]["value"]
-
-                                                    def _on_domain(e):
-                                                        step1["welfare_domain"] = e.value
-                                                        step1["template_id"] = resolve_template_id(step1)
-                                                        update_and_refresh()
-                                                        industry_selector.refresh()
-
-                                                    domain_options = {f"{x['label']}（{x['hint']}）": x["value"] for x in WELFARE_DOMAIN_PRESETS}
-                                                    ui.select(
-                                                        options=domain_options,
-                                                        value=current_domain,
-                                                        label="サービス種別",
-                                                        on_change=_on_domain,
-                                                    ).props("outlined dense").classes("w-full q-mb-sm")
-
                                                     current_mode = step1.get("welfare_mode") or WELFARE_MODE_PRESETS[0]["value"]
 
-                                                    def _on_mode(e):
-                                                        step1["welfare_mode"] = e.value
+                                                    def set_domain(v: str) -> None:
+                                                        step1["welfare_domain"] = v
                                                         step1["template_id"] = resolve_template_id(step1)
                                                         update_and_refresh()
                                                         industry_selector.refresh()
 
-                                                    mode_options = {f"{x['label']}（{x['hint']}）": x["value"] for x in WELFARE_MODE_PRESETS}
-                                                    ui.select(
-                                                        options=mode_options,
-                                                        value=current_mode,
-                                                        label="入所 / 通所",
-                                                        on_change=_on_mode,
-                                                    ).props("outlined dense").classes("w-full q-mb-sm")
+                                                    def set_mode(v: str) -> None:
+                                                        step1["welfare_mode"] = v
+                                                        step1["template_id"] = resolve_template_id(step1)
+                                                        update_and_refresh()
+                                                        industry_selector.refresh()
+
+                                                    ui.label("サービス種別").classes("text-body2 q-mt-sm")
+                                                    with ui.column().classes("q-gutter-xs"):
+                                                        for x in WELFARE_DOMAIN_PRESETS:
+                                                            selected = x["value"] == current_domain
+                                                            cls = "cvhb-choice q-pa-sm rounded-borders w-full"
+                                                            if selected:
+                                                                cls += " is-selected"
+                                                            c = ui.card().classes(cls).props("flat bordered")
+                                                            with c:
+                                                                with ui.row().classes("items-start justify-between"):
+                                                                    with ui.column().classes("q-gutter-xs"):
+                                                                        ui.label(x["label"]).classes("text-body1")
+                                                                        ui.label(x["hint"]).classes("cvhb-muted")
+                                                                    if selected:
+                                                                        ui.icon("check_circle").classes("text-primary")
+                                                            c.on("click", lambda e, v=x["value"]: set_domain(v))
+
+                                                    ui.label("提供形態").classes("text-body2 q-mt-sm")
+                                                    with ui.column().classes("q-gutter-xs"):
+                                                        for x in WELFARE_MODE_PRESETS:
+                                                            selected = x["value"] == current_mode
+                                                            cls = "cvhb-choice q-pa-sm rounded-borders w-full"
+                                                            if selected:
+                                                                cls += " is-selected"
+                                                            c = ui.card().classes(cls).props("flat bordered")
+                                                            with c:
+                                                                with ui.row().classes("items-start justify-between"):
+                                                                    with ui.column().classes("q-gutter-xs"):
+                                                                        ui.label(x["label"]).classes("text-body1")
+                                                                        ui.label(x["hint"]).classes("cvhb-muted")
+                                                                    if selected:
+                                                                        ui.icon("check_circle").classes("text-primary")
+                                                            c.on("click", lambda e, v=x["value"]: set_mode(v))
 
                                             industry_selector()
 
@@ -2289,7 +2387,7 @@ def render_main(u: User) -> None:
                                 with ui.card().style(
                                     "width: min(100%, 1024px); height: clamp(560px, 75vh, 740px); overflow: hidden; border-radius: 14px; margin: 0 auto;"
                                 ).props("flat bordered"):
-                                    with ui.element("div").style("height: 100%; overflow: auto; background: #f5f5f5;"):
+                                    with ui.element("div").style("height: 100%; overflow: auto; background: transparent;"):
                                         @ui.refreshable
                                         def preview_pc_panel():
                                             if not p:
