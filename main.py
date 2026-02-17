@@ -311,115 +311,200 @@ def inject_global_styles() -> None:
 
 
   /* ====== Preview (Glassmorphism) ====== */
-  /* [BLK-02] Preview CSS: Glassmorphism theme */
-  .cvhb-preview-glass {
-    /* CSS variables are set inline from Python for each project (accent/background) */
-    background: linear-gradient(135deg, var(--pv-bg1, #f8fafc), var(--pv-bg2, #eef2ff));
-    color: var(--pv-text, #0b1220);
-  }
+/* プレビューは「商用に耐える見た目」を目標に、ガラス+余白+軽い動きを基本にします。
+   ※ builder側の見た目は変えません（.cvhb-preview-glass の中だけに効くCSSです） */
 
-  .cvhb-preview-glass .pv-topbar {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: rgba(255,255,255,.58);
-    border-bottom: 1px solid rgba(255,255,255,.68);
-    backdrop-filter: blur(14px);
-  }
-  .cvhb-preview-glass .pv-topbar-inner {
-    height: 48px;
-    padding: 0 12px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .cvhb-preview-glass .pv-topbar-title {
-    font-weight: 800;
-    font-size: 14px;
-    letter-spacing: .02em;
-  }
+.cvhb-preview-glass {
+  background: linear-gradient(135deg, var(--pv-bg1, #f8fafc), var(--pv-bg2, #eef2ff));
+  color: var(--pv-text, #0b1220);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  letter-spacing: 0.01em;
+  scroll-behavior: smooth;
+}
 
-  .cvhb-preview-glass .pv-hero {
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: 0 18px 40px rgba(15,23,42,.12);
-  }
-  .cvhb-preview-glass .pv-hero-overlay {
-    height: 100%;
-    background: linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.58));
-  }
+.cvhb-preview-glass a { color: inherit; text-decoration: none; }
 
-  .cvhb-preview-glass .pv-section {
-    padding: 16px;
-  }
+.cvhb-preview-glass .pv-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--pv-topbar-bg, rgba(255,255,255,.58));
+  border-bottom: 1px solid var(--pv-topbar-border, rgba(255,255,255,.70));
+  backdrop-filter: blur(14px);
+}
 
-  .cvhb-preview-glass .pv-card,
-  .cvhb-preview-glass .pv-section .q-card {
-    background: rgba(255,255,255,.70);
-    border: 1px solid rgba(255,255,255,.64);
-    border-radius: 16px;
-    box-shadow: 0 16px 40px rgba(15,23,42,.10);
-    backdrop-filter: blur(14px);
-  }
-  .cvhb-preview-glass .pv-muted {
-    color: rgba(15,23,42,.66);
-  }
+.cvhb-preview-glass .pv-topbar-inner {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 
-  .cvhb-preview-glass .pv-pill {
-    border: 1px solid rgba(15,23,42,.10);
-    background: rgba(255,255,255,.55);
-    padding: 4px 10px;
-    border-radius: 999px;
-  }
+.cvhb-preview-glass .pv-topbar-title { font-weight: 800; }
 
-  .cvhb-preview-glass .pv-btn-primary {
-    background: var(--pv-accent, #1976d2) !important;
-    color: var(--pv-accent-contrast, #ffffff) !important;
-    border-radius: 999px;
-    box-shadow: 0 12px 24px rgba(15,23,42,.18);
-  }
-  .cvhb-preview-glass .pv-btn-secondary {
-    background: rgba(255,255,255,.30) !important;
-    border: 1px solid rgba(255,255,255,.74) !important;
-    color: var(--pv-text, #0b1220) !important;
-    border-radius: 999px;
-  }
-  .cvhb-preview-glass .pv-linkbtn {
-    color: var(--pv-text, #0b1220) !important;
-  }
+.cvhb-preview-glass .pv-section { padding: 16px 16px 0 16px; }
 
-  /* ====== PC preview (Glass override) ====== */
-  .cvhb-preview-glass.cvhb-preview-pc {
-    background: linear-gradient(135deg, var(--pv-bg1, #f8fafc), var(--pv-bg2, #eef2ff));
-  }
-  .cvhb-preview-glass .cvhb-pc-header {
-    background: rgba(255,255,255,.60);
-    border-bottom: 1px solid rgba(255,255,255,.72);
-    backdrop-filter: blur(14px);
-  }
-  .cvhb-preview-glass .cvhb-pc-hero-overlay {
-    background: linear-gradient(180deg, rgba(0,0,0,.20), rgba(0,0,0,.64));
-  }
-  .cvhb-preview-glass .cvhb-pc-section {
-    padding: 44px 0;
-  }
-  .cvhb-preview-glass .cvhb-pc-card {
-    background: rgba(255,255,255,.74);
-    border: 1px solid rgba(255,255,255,.66);
-    box-shadow: 0 16px 40px rgba(15,23,42,.10);
-    backdrop-filter: blur(14px);
-  }
-  .cvhb-preview-glass .pv-nav-btn {
-    border-radius: 999px;
-    background: rgba(255,255,255,.10);
-  }
-  .cvhb-preview-glass .pv-footer {
-    margin-top: 24px;
-    background: rgba(255,255,255,.60);
-    border-top: 1px solid rgba(255,255,255,.72);
-    backdrop-filter: blur(14px);
-  }
+.cvhb-preview-glass .pv-card {
+  background: var(--pv-card-bg, rgba(255,255,255,.72));
+  border: 1px solid var(--pv-card-border, rgba(255,255,255,.64));
+  border-radius: 16px;
+  box-shadow: var(--pv-card-shadow, 0 16px 40px rgba(15,23,42,.12));
+  overflow: hidden;
+}
 
+.cvhb-preview-glass .pv-card.pv-card-pad { padding: 14px; }
+
+.cvhb-preview-glass .pv-muted { color: var(--pv-muted, rgba(15,23,42,.62)); }
+
+.cvhb-preview-glass .pv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--pv-pill-border, rgba(15,23,42,.10));
+  background: var(--pv-pill-bg, rgba(255,255,255,.55));
+  font-size: 12px;
+}
+
+.cvhb-preview-glass .pv-hero {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  min-height: 240px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.18);
+}
+
+.cvhb-preview-glass .pv-hero-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.02);
+}
+
+.cvhb-preview-glass .pv-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--pv-hero-overlay, linear-gradient(180deg, rgba(0,0,0,.24), rgba(0,0,0,.62)));
+}
+
+.cvhb-preview-glass .pv-hero-inner {
+  position: relative;
+  padding: 18px;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  color: #ffffff;
+}
+
+.cvhb-preview-glass .pv-hero-title {
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-shadow: 0 6px 20px rgba(0,0,0,.35);
+}
+
+.cvhb-preview-glass .pv-hero-sub {
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: .95;
+  text-shadow: 0 6px 20px rgba(0,0,0,.35);
+}
+
+.cvhb-preview-glass .pv-btn-primary {
+  background: var(--pv-accent, #1976d2) !important;
+  color: var(--pv-accent-contrast, #ffffff) !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-weight: 800 !important;
+}
+
+.cvhb-preview-glass .pv-btn-secondary {
+  background: var(--pv-secondary-bg, rgba(255,255,255,.34)) !important;
+  color: #ffffff !important;
+  border: 1px solid var(--pv-secondary-border, rgba(255,255,255,.78)) !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-weight: 800 !important;
+}
+
+.cvhb-preview-glass .pv-linkbtn {
+  font-weight: 700;
+  color: var(--pv-text, #0b1220);
+  opacity: .92;
+}
+
+.cvhb-preview-glass .pv-divider { border-top: 1px solid var(--pv-line, rgba(15,23,42,.10)); margin: 12px 0; }
+.cvhb-preview-glass .pv-kv { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.cvhb-preview-glass .pv-kv .pv-k { font-size: 12px; color: var(--pv-muted, rgba(15,23,42,.62)); }
+.cvhb-preview-glass .pv-kv .pv-v { font-weight: 700; }
+
+.cvhb-preview-glass .pv-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 900;
+  margin: 0 0 10px 0;
+}
+
+.cvhb-preview-glass .pv-footer {
+  margin-top: 18px;
+  padding: 16px;
+  color: var(--pv-muted, rgba(15,23,42,.62));
+}
+
+.cvhb-preview-glass .pv-footer-inner {
+  border-top: 1px solid var(--pv-line, rgba(15,23,42,.10));
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ====== Preview: micro interactions (軽い動き) ====== */
+@keyframes pv_fade_up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cvhb-preview-glass .pv-animate { animation: pv_fade_up 650ms cubic-bezier(.2,.8,.2,1) both; }
+.cvhb-preview-glass .pv-delay-1 { animation-delay: 80ms; }
+.cvhb-preview-glass .pv-delay-2 { animation-delay: 140ms; }
+.cvhb-preview-glass .pv-delay-3 { animation-delay: 220ms; }
+
+.cvhb-preview-glass .pv-card { transition: transform .18s ease, box-shadow .18s ease; }
+.cvhb-preview-glass .pv-card:hover { transform: translateY(-2px); }
+
+.cvhb-preview-glass .pv-btn-primary,
+.cvhb-preview-glass .pv-btn-secondary { transition: transform .12s ease, filter .12s ease; }
+
+.cvhb-preview-glass .pv-btn-primary:hover,
+.cvhb-preview-glass .pv-btn-secondary:hover { transform: translateY(-1px); filter: brightness(1.04); }
+
+/* ====== Preview: PC layout tweaks ====== */
+.cvhb-preview-glass.cvhb-preview-pc .cvhb-pc-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--pv-topbar-bg, rgba(255,255,255,.58));
+  border-bottom: 1px solid var(--pv-topbar-border, rgba(255,255,255,.70));
+  backdrop-filter: blur(14px);
+}
+
+.cvhb-preview-glass.cvhb-preview-pc .cvhb-pc-container { max-width: 1200px; padding: 0 28px; }
+.cvhb-preview-glass.cvhb-preview-pc .cvhb-pc-hero { background: transparent; }
+.cvhb-preview-glass.cvhb-preview-pc .cvhb-pc-hero-overlay {
+  background: var(--pv-hero-overlay, linear-gradient(180deg, rgba(0,0,0,.24), rgba(0,0,0,.62)));
+}
+
+/* ====== Preview tabs icon spacing ====== */
+.cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
 </style>
 """
     )
@@ -1306,28 +1391,96 @@ def _is_light_hex(hex_color: str) -> bool:
 
 def _preview_accent_hex(primary: str) -> str:
     """プレビュー用のアクセント色（ガラステーマ用）"""
-    # 「白」はアクセントが白だと見えないので、濃い色に寄せる
+    # 「白」はアクセントが白だと見えないので、濃い色に寄せる（=白基調 + 濃いアクセント）
     if primary == "white":
         return "#0f172a"
-    # 「黒」は真っ黒より少し柔らかい方が見やすい
+    # 「黒」はダークモード扱いにする（ボタン等が沈まないように、見えるアクセントを採用）
     if primary == "black":
-        return "#111827"
+        return "#60a5fa"  # blue-400
     # それ以外は既存の COLOR_HEX を採用
     return COLOR_HEX.get(primary, "#1976d2")
 
+
 def _preview_glass_style(primary: str) -> str:
+    """プレビュー（Glass）用のCSS変数を返す。
+
+    - primary == black のときは「ダーク（黒基調）」として見た目を切り替える
+    - primary == white のときは「ライト（白基調）」のまま、アクセントだけ濃くする
+    """
     accent = _preview_accent_hex(primary)
-    # 背景は「ほぼ白 + うっすらアクセント」の2色グラデ
-    bg1 = _blend_hex(accent, "#ffffff", 0.94)
-    bg2 = _blend_hex(accent, "#ffffff", 0.86)
+
+    is_dark = (primary == "black")
+
     accent_contrast = "#000000" if _is_light_hex(accent) else "#ffffff"
+
+    if is_dark:
+        # ダーク：背景もカードも暗め、文字は白系
+        bg1 = "#0b1020"
+        bg2 = _blend_hex(accent, "#000000", 0.78)
+
+        text = "#e5e7eb"
+        muted = "rgba(226,232,240,.72)"
+
+        card_bg = "rgba(15,23,42,.58)"
+        card_border = "rgba(255,255,255,.12)"
+        card_shadow = "0 18px 44px rgba(0,0,0,.45)"
+
+        topbar_bg = "rgba(2,6,23,.56)"
+        topbar_border = "rgba(255,255,255,.12)"
+
+        secondary_bg = "rgba(255,255,255,.06)"
+        secondary_border = "rgba(255,255,255,.14)"
+
+        pill_bg = "rgba(255,255,255,.06)"
+        pill_border = "rgba(255,255,255,.14)"
+
+        line = "rgba(255,255,255,.12)"
+
+        hero_overlay = "linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.72))"
+    else:
+        # ライト：ほぼ白 + うっすらアクセント
+        bg1 = _blend_hex(accent, "#ffffff", 0.94)
+        bg2 = _blend_hex(accent, "#ffffff", 0.86)
+
+        text = "#0b1220"
+        muted = "rgba(15,23,42,.62)"
+
+        card_bg = "rgba(255,255,255,.72)"
+        card_border = "rgba(255,255,255,.64)"
+        card_shadow = "0 16px 40px rgba(15,23,42,.12)"
+
+        topbar_bg = "rgba(255,255,255,.58)"
+        topbar_border = "rgba(255,255,255,.70)"
+
+        secondary_bg = "rgba(255,255,255,.34)"
+        secondary_border = "rgba(255,255,255,.78)"
+
+        pill_bg = "rgba(255,255,255,.55)"
+        pill_border = "rgba(15,23,42,.10)"
+
+        line = "rgba(15,23,42,.10)"
+
+        hero_overlay = "linear-gradient(180deg, rgba(0,0,0,.24), rgba(0,0,0,.62))"
+
     # Quasar の primary もプレビュー内だけ差し替える（text-primary等が効く）
     return (
         f"--pv-accent:{accent};"
         f"--pv-accent-contrast:{accent_contrast};"
         f"--pv-bg1:{bg1};"
         f"--pv-bg2:{bg2};"
-        f"--pv-text:#0b1220;"
+        f"--pv-text:{text};"
+        f"--pv-muted:{muted};"
+        f"--pv-card-bg:{card_bg};"
+        f"--pv-card-border:{card_border};"
+        f"--pv-card-shadow:{card_shadow};"
+        f"--pv-topbar-bg:{topbar_bg};"
+        f"--pv-topbar-border:{topbar_border};"
+        f"--pv-secondary-bg:{secondary_bg};"
+        f"--pv-secondary-border:{secondary_border};"
+        f"--pv-pill-bg:{pill_bg};"
+        f"--pv-pill-border:{pill_border};"
+        f"--pv-line:{line};"
+        f"--pv-hero-overlay:{hero_overlay};"
         f"--q-primary:{accent};"
     )
 
@@ -1439,7 +1592,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                 pv_button_secondary(btn_secondary)
 
                 # philosophy
-                with ui.element("div").classes("w-full pv-section"):
+                with ui.element("div").classes("w-full pv-section pv-animate pv-delay-1"):
                     with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
                         section_title("favorite", ph_title)
                         label_pre(ph_body, "text-body2 q-mt-sm")
@@ -1449,7 +1602,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                     ui.badge(t).classes("pv-pill")
 
                 # news
-                with ui.element("div").classes("w-full pv-section"):
+                with ui.element("div").classes("w-full pv-section pv-animate pv-delay-2"):
                     with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
                         section_title("campaign", "お知らせ")
                         if not news_items:
@@ -1475,7 +1628,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                             ui.label(snippet).classes("text-caption")
 
                 # faq
-                with ui.element("div").classes("w-full pv-section"):
+                with ui.element("div").classes("w-full pv-section pv-animate pv-delay-3"):
                     with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
                         section_title("help", "よくある質問")
                         if not faq_items:
@@ -1491,7 +1644,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                         label_pre(a, "text-caption pv-muted")
 
                 # access
-                with ui.element("div").classes("w-full pv-section"):
+                with ui.element("div").classes("w-full pv-section pv-animate"):
                     with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
                         section_title("place", "アクセス")
                         ui.label(f"住所：{addr if addr else '未入力'}").classes("text-body2")
@@ -1502,7 +1655,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                             ui.label("住所を入力すると地図ボタンが出ます").classes("text-caption pv-muted q-mt-sm")
 
                 # contact
-                with ui.element("div").classes("w-full pv-section"):
+                with ui.element("div").classes("w-full pv-section pv-animate"):
                     with ui.card().classes("w-full q-pa-md pv-card").props("flat"):
                         section_title("call", "お問い合わせ")
                         label_pre(message, "text-body2")
@@ -1510,7 +1663,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                         ui.label(f"TEL：{phone if phone else '未入力'}").classes("text-body1")
                         ui.label(f"Email：{email if email else '未入力'}").classes("text-body2")
                         ui.label(f"受付時間：{hours}").classes("text-caption pv-muted")
-                        pv_button_primary(btn_primary).classes("q-mt-sm")
+                        pv_button_primary(btn_primary).classes("q-mt-sm w-full")
 
                 # footer
                 with ui.element("div").classes("w-full pv-footer"):
@@ -1546,7 +1699,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                         pv_button_primary("お問い合わせ", on_click=lambda: jump("#pv-contact")).props("dense")
 
         # Hero
-        with ui.element("div").classes("cvhb-pc-hero").style(
+        with ui.element("div").classes("cvhb-pc-hero pv-animate pv-delay-1").style(
             f"background-image: url('{hero_img}'); background-size: cover; background-position: center;"
         ):
             with ui.element("div").classes("cvhb-pc-hero-overlay"):
@@ -1572,7 +1725,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                         ui.badge(t).classes("pv-pill")
 
         # Philosophy / Overview
-        with ui.element("div").classes("cvhb-pc-section").props("id=pv-philosophy"):
+        with ui.element("div").classes("cvhb-pc-section pv-animate pv-delay-2").props("id=pv-philosophy"):
             with ui.element("div").classes("cvhb-pc-container"):
                 pc_heading("favorite", ph_title)
                 with ui.card().classes("cvhb-pc-card q-pa-md").props("flat"):
@@ -1586,7 +1739,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                     ui.badge(t).classes("pv-pill")
 
         # News + FAQ (2 column)
-        with ui.element("div").classes("cvhb-pc-section").props("id=pv-news"):
+        with ui.element("div").classes("cvhb-pc-section pv-animate pv-delay-3").props("id=pv-news"):
             with ui.element("div").classes("cvhb-pc-container"):
                 with ui.element("div").classes("cvhb-pc-grid-2"):
                     # News
@@ -1631,7 +1784,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                             label_pre(a, "text-caption pv-muted")
 
         # Access / Contact
-        with ui.element("div").classes("cvhb-pc-section").props("id=pv-access"):
+        with ui.element("div").classes("cvhb-pc-section pv-animate").props("id=pv-access"):
             with ui.element("div").classes("cvhb-pc-container"):
                 with ui.element("div").classes("cvhb-pc-grid-2"):
                     # Access
@@ -1849,10 +2002,11 @@ def render_main(u: User) -> None:
                                                         update_and_refresh()
                                                         industry_selector.refresh()
 
+                                                    domain_options = {f"{x['label']}（{x['hint']}）": x["value"] for x in WELFARE_DOMAIN_PRESETS}
                                                     ui.select(
-                                                        "サービス種別",
-                                                        options=[x["value"] for x in WELFARE_DOMAIN_PRESETS],
+                                                        options=domain_options,
                                                         value=current_domain,
+                                                        label="サービス種別",
                                                         on_change=_on_domain,
                                                     ).props("outlined dense").classes("w-full q-mb-sm")
 
@@ -1864,10 +2018,11 @@ def render_main(u: User) -> None:
                                                         update_and_refresh()
                                                         industry_selector.refresh()
 
+                                                    mode_options = {f"{x['label']}（{x['hint']}）": x["value"] for x in WELFARE_MODE_PRESETS}
                                                     ui.select(
-                                                        "入所 / 通所",
-                                                        options=[x["value"] for x in WELFARE_MODE_PRESETS],
+                                                        options=mode_options,
                                                         value=current_mode,
+                                                        label="入所 / 通所",
                                                         on_change=_on_mode,
                                                     ).props("outlined dense").classes("w-full q-mb-sm")
 
