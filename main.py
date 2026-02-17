@@ -1096,6 +1096,11 @@ HERO_IMAGE_PRESET_URLS = {
 }
 HERO_IMAGE_OPTIONS = list(HERO_IMAGE_PRESET_URLS.keys())
 
+# v0.6.7: Safe defaults (avoid preview errors)
+HERO_IMAGE_DEFAULT = HERO_IMAGE_PRESET_URLS.get("A: オフィス") or next(iter(HERO_IMAGE_PRESET_URLS.values()), "")
+# Alias for backward compatibility
+HERO_IMAGE_PRESETS = HERO_IMAGE_PRESET_URLS
+
 
 def project_dir(project_id: str) -> str:
     return f"{SFTP_PROJECTS_DIR}/{project_id}"
