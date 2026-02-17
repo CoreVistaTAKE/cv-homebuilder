@@ -239,6 +239,59 @@ def inject_global_styles() -> None:
 
   /* ====== Preview inside builder ====== */
   .cvhb-preview .q-card { width: 100%; }
+/* ====== Preview PC（実サイト寄り） ====== */
+.cvhb-preview-pc { background: #f5f5f5; }
+.cvhb-pc-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid rgba(0,0,0,.10);
+}
+.cvhb-pc-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 24px;
+}
+.cvhb-pc-logo {
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.cvhb-pc-hero {
+  height: 380px;
+  background-size: cover;
+  background-position: center;
+}
+.cvhb-pc-hero-overlay {
+  height: 100%;
+  background: rgba(0,0,0,.52);
+}
+.cvhb-pc-hero-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-bottom: 40px;
+}
+.cvhb-pc-section { padding: 28px 0; }
+.cvhb-pc-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.cvhb-pc-grid-2-uneven {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.cvhb-pc-card { width: 100%; border-radius: 14px; }
+
+@media (max-width: 900px) {
+  .cvhb-pc-container { padding: 16px; }
+  .cvhb-pc-hero { height: 320px; }
+  .cvhb-pc-grid-2,
+  .cvhb-pc-grid-2-uneven { grid-template-columns: 1fr; }
+}
+
 </style>
 """
     )
@@ -1140,7 +1193,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                             title = (it.get("title") or "").strip() or "（タイトル 未入力）"
                             body = (it.get("body") or "").strip()
 
-                            with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                            with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                                 with ui.row().classes("items-start justify-between q-gutter-sm"):
                                     ui.label(title).classes("text-body1")
                                     ui.badge(cat).props("outline").classes(
@@ -1165,7 +1218,7 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                         for it in faq_items[:6]:
                             q = (it.get("q") or "").strip() or "（質問 未入力）"
                             a = (it.get("a") or "").strip() or "（回答 未入力）"
-                            with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                            with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                                 ui.label(q).classes("text-body1")
                                 ui.separator().classes("q-my-sm")
                                 label_pre(a, "text-body2")
@@ -1210,33 +1263,59 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                         ui.label(f"TEL: {phone}").classes("text-caption")
         return
 
+        # ----------------
+    # PC preview（実サイト寄り）
+    # - 右の「PC」タブは、PC用サイトの雰囲気を出す（ヘッダー/余白/2カラム）
+    # - ただし v0.6.x では「完成イメージの再現」を優先し、厳密なレスポンシブは次で詰める
     # ----------------
-    # PC preview
-    # ----------------
-    header_text = _safe_primary_text_class(primary)
+    def jump(section_id: str) -> None:
+        # 右プレビュー枠（overflow: auto）の中でスクロールさせる
+        ui.run_javascript(
+            f"""
+            (function() {{
+              const el = document.getElementById('{section_id}');
+              if (el) el.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+            }})();
+            """
+        )
 
-    with ui.column().classes("w-full"):
-        # Header
-        with ui.element("div").classes("w-full bg-white").style("border-bottom: 3px solid rgba(0,0,0,.06);"):
-            with ui.row().classes("items-center justify-between q-px-md").style("height: 56px;"):
-                ui.label(company).classes("text-subtitle1")
-                with ui.row().classes("items-center q-gutter-sm"):
-                    ui.button("ホーム").props("flat dense")
-                    ui.button("お知らせ").props("flat dense")
-                    ui.button("FAQ").props("flat dense")
-                    ui.button("アクセス").props("flat dense")
-                    ui.button("お問い合わせ").props(f"unelevated color={primary} text-color={'black' if _is_light_color(primary) else 'white'}")
+    def pc_heading(icon_name: str, title: str) -> None:
+        with ui.row().classes("items-center q-gutter-sm q-mb-md"):
+            icon_color_class = f"text-{primary}" if primary not in {"white"} else "text-grey-9"
+            ui.icon(icon_name).classes(icon_color_class)
+            ui.label(title).classes("text-h6")
+
+    # root
+    with ui.element("div").classes("w-full cvhb-preview cvhb-preview-pc"):
+        ui.element("div").props("id=pv-top")
+
+        # Header（sticky）
+        with ui.element("div").classes("cvhb-pc-header bg-white"):
+            with ui.element("div").classes("cvhb-pc-container"):
+                with ui.row().classes("items-center justify-between"):
+                    ui.label(company).classes("cvhb-pc-logo")
+
+                    with ui.row().classes("items-center q-gutter-sm").style("flex-wrap: wrap; justify-content:flex-end;"):
+                        ui.button("ホーム", on_click=lambda: jump("pv-top")).props("flat dense no-caps")
+                        ui.button("特徴", on_click=lambda: jump("pv-philosophy")).props("flat dense no-caps")
+                        ui.button("お知らせ", on_click=lambda: jump("pv-news")).props("flat dense no-caps")
+                        ui.button("FAQ", on_click=lambda: jump("pv-faq")).props("flat dense no-caps")
+                        ui.button("アクセス", on_click=lambda: jump("pv-access")).props("flat dense no-caps")
+                        ui.button("お問い合わせ", on_click=lambda: jump("pv-contact")).props(
+                            f"unelevated color={primary} text-color={'black' if _is_light_color(primary) else 'white'} no-caps"
+                        )
 
         # Hero
-        with ui.element("div").style(
-            f"height: 320px; background-image: url('{hero_url}'); background-size: cover; background-position: center;"
-        ).classes("w-full"):
-            with ui.element("div").style("height:100%; background: rgba(0,0,0,0.50);"):
-                with ui.column().classes("q-pa-xl text-white").style("height:100%; justify-content:flex-end; max-width: 1000px; margin: 0 auto;"):
-                    ui.label(catch).classes("text-h4").style("line-height:1.15;")
+        with ui.element("div").classes("cvhb-pc-hero").style(
+            f"background-image: url('{hero_url}');"
+        ):
+            with ui.element("div").classes("cvhb-pc-hero-overlay"):
+                with ui.element("div").classes("cvhb-pc-container cvhb-pc-hero-inner text-white"):
+                    ui.label(catch).classes("text-h4").style("line-height: 1.15;")
                     if sub_catch:
                         label_pre(sub_catch, "text-body1")
-                    ui.label(industry).classes("text-caption").style("opacity:.9;")
+                    ui.label(industry).classes("text-caption").style("opacity: .9;")
+
                     with ui.row().classes("q-gutter-sm q-mt-md"):
                         ui.button(btn_primary).props(
                             f"color={primary} text-color={'black' if _is_light_color(primary) else 'white'} unelevated"
@@ -1246,95 +1325,101 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                                 f"outline color={primary} text-color={'black' if _is_light_color(primary) else 'white'}"
                             )
 
-        # Main sections
-        with ui.element("div").classes("w-full bg-grey-1"):
-            with ui.element("div").style("max-width: 1000px; margin: 0 auto;").classes("q-pa-md"):
-                # Philosophy
-                with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                    section_title("favorite", ph_title)
-                    with ui.row().classes("q-col-gutter-md items-start"):
-                        with ui.column().classes("col-12 col-md-8"):
+        # ---- Section: Philosophy ----
+        with ui.element("div").classes("cvhb-pc-section bg-white").props("id=pv-philosophy"):
+            with ui.element("div").classes("cvhb-pc-container"):
+                pc_heading("favorite", "私たちの想い")
+                with ui.card().classes("cvhb-pc-card q-pa-md").props("flat bordered"):
+                    with ui.element("div").classes("cvhb-pc-grid-2-uneven"):
+                        # left: body
+                        with ui.element("div"):
+                            ui.label(ph_title).classes("text-subtitle1 q-mb-sm")
                             if ph_body:
                                 label_pre(ph_body, "text-body2")
                             else:
                                 ui.label("（本文 未入力）").classes("text-caption text-grey")
-                        with ui.column().classes("col-12 col-md-4"):
+                        # right: points
+                        with ui.element("div"):
                             pts = [str(x).strip() for x in ph_points][:3]
                             pts = [x for x in pts if x]
                             if pts:
-                                ui.label("特徴").classes("text-caption text-grey q-mb-xs")
+                                ui.label("特徴").classes("text-caption text-grey q-mb-sm")
                                 with ui.row().classes("q-gutter-xs"):
                                     for t in pts:
                                         ui.badge(t).props("outline").classes(
                                             f"text-{primary}" if primary not in {"white"} else "text-grey-9"
                                         )
-
-                # News
-                ui.separator().classes("q-my-md")
-                with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                    section_title("campaign", "お知らせ")
-                    if not news_items:
-                        ui.label("まだお知らせはありません").classes("text-caption text-grey")
-                    else:
-                        with ui.row().classes("q-col-gutter-md"):
-                            for it in news_items[:4]:
-                                date = (it.get("date") or "").strip()
-                                cat = (it.get("category") or "").strip() or "お知らせ"
-                                title = (it.get("title") or "").strip() or "（タイトル 未入力）"
-                                body = (it.get("body") or "").strip()
-
-                                with ui.column().classes("col-12 col-md-6"):
-                                    with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                                        with ui.row().classes("items-start justify-between q-gutter-sm"):
-                                            ui.label(title).classes("text-body1")
-                                            ui.badge(cat).props("outline").classes(
-                                                f"text-{primary}" if primary not in {"white"} else "text-grey-9"
-                                            )
-                                        if date:
-                                            ui.label(date).classes("text-caption text-grey")
-                                        if body:
-                                            snippet = body.replace("\n", " ")
-                                            if len(snippet) > 100:
-                                                snippet = snippet[:100] + "…"
-                                            ui.label(snippet).classes("text-caption")
-
-                # FAQ
-                ui.separator().classes("q-my-md")
-                with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                    section_title("help", "よくある質問")
-                    if not faq_items:
-                        ui.label("まだFAQはありません").classes("text-caption text-grey")
-                    else:
-                        with ui.row().classes("q-col-gutter-md"):
-                            for it in faq_items[:6]:
-                                q = (it.get("q") or "").strip() or "（質問 未入力）"
-                                a = (it.get("a") or "").strip() or "（回答 未入力）"
-                                with ui.column().classes("col-12 col-md-6"):
-                                    with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                                        ui.label(q).classes("text-body1")
-                                        ui.separator().classes("q-my-sm")
-                                        label_pre(a, "text-body2")
-
-                # Access + Contact
-                ui.separator().classes("q-my-md")
-                with ui.row().classes("q-col-gutter-md items-stretch"):
-                    with ui.column().classes("col-12 col-md-6"):
-                        with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                            section_title("place", "アクセス")
-                            ui.label(f"住所：{addr if addr else '未入力'}").classes("text-body2")
-                            if access_notes:
-                                label_pre(access_notes, "text-caption text-grey")
-                            if map_url:
-                                ui.button(
-                                    "地図を開く",
-                                    on_click=lambda u=map_url: ui.run_javascript(f"window.open('{u}','_blank')"),
-                                ).props(f"color={primary} text-color={'black' if _is_light_color(primary) else 'white'} unelevated").classes("q-mt-sm")
                             else:
-                                ui.label("住所を入力すると地図ボタンが出ます").classes("text-caption text-grey")
+                                ui.label("（特徴 未入力）").classes("text-caption text-grey")
 
-                    with ui.column().classes("col-12 col-md-6"):
-                        with ui.card().classes("q-pa-md rounded-borders").props("flat bordered"):
-                            section_title("call", "お問い合わせ")
+        # ---- Section: News ----
+        with ui.element("div").classes("cvhb-pc-section bg-grey-1").props("id=pv-news"):
+            with ui.element("div").classes("cvhb-pc-container"):
+                pc_heading("campaign", "お知らせ")
+                if not news_items:
+                    ui.label("まだお知らせはありません").classes("text-caption text-grey")
+                else:
+                    with ui.element("div").classes("cvhb-pc-grid-2"):
+                        for it in news_items[:4]:
+                            date = (it.get("date") or "").strip()
+                            cat = (it.get("category") or "").strip() or "お知らせ"
+                            title = (it.get("title") or "").strip() or "（タイトル 未入力）"
+                            body = (it.get("body") or "").strip()
+
+                            with ui.card().classes("cvhb-pc-card q-pa-md").props("flat bordered"):
+                                with ui.row().classes("items-start justify-between q-gutter-sm"):
+                                    ui.label(title).classes("text-body1")
+                                    ui.badge(cat).props("outline").classes(
+                                        f"text-{primary}" if primary not in {"white"} else "text-grey-9"
+                                    )
+                                if date:
+                                    ui.label(date).classes("text-caption text-grey")
+                                if body:
+                                    snippet = body.replace("\n", " ")
+                                    if len(snippet) > 110:
+                                        snippet = snippet[:110] + "…"
+                                    ui.label(snippet).classes("text-caption")
+
+        # ---- Section: FAQ ----
+        with ui.element("div").classes("cvhb-pc-section bg-white").props("id=pv-faq"):
+            with ui.element("div").classes("cvhb-pc-container"):
+                pc_heading("help", "よくある質問")
+                if not faq_items:
+                    ui.label("まだFAQはありません").classes("text-caption text-grey")
+                else:
+                    with ui.element("div").classes("cvhb-pc-grid-2"):
+                        for it in faq_items[:6]:
+                            q = (it.get("q") or "").strip() or "（質問 未入力）"
+                            a = (it.get("a") or "").strip() or "（回答 未入力）"
+                            with ui.card().classes("cvhb-pc-card q-pa-md").props("flat bordered"):
+                                ui.label(q).classes("text-body1")
+                                ui.separator().classes("q-my-sm")
+                                label_pre(a, "text-body2")
+
+        # ---- Section: Access / Contact ----
+        with ui.element("div").classes("cvhb-pc-section bg-grey-1").props("id=pv-access"):
+            with ui.element("div").classes("cvhb-pc-container"):
+                with ui.element("div").classes("cvhb-pc-grid-2"):
+                    # Access
+                    with ui.card().classes("cvhb-pc-card q-pa-md").props("flat bordered"):
+                        pc_heading("place", "アクセス")
+                        ui.label(f"住所：{addr if addr else '未入力'}").classes("text-body2")
+                        if access_notes:
+                            label_pre(access_notes, "text-caption text-grey")
+                        if map_url:
+                            ui.button(
+                                "地図を開く",
+                                on_click=lambda u=map_url: ui.run_javascript(f"window.open('{u}','_blank')"),
+                            ).props(
+                                f"color={primary} text-color={'black' if _is_light_color(primary) else 'white'} unelevated"
+                            ).classes("q-mt-sm")
+                        else:
+                            ui.label("住所を入力すると地図ボタンが出ます").classes("text-caption text-grey")
+
+                    # Contact
+                    with ui.element("div").props("id=pv-contact"):
+                        with ui.card().classes("cvhb-pc-card q-pa-md").props("flat bordered"):
+                            pc_heading("call", "お問い合わせ")
                             if message:
                                 label_pre(message, "text-body2")
                                 ui.separator().classes("q-my-sm")
@@ -1347,10 +1432,12 @@ def render_preview(p: dict, mode: str = "mobile") -> None:
                             ).classes("q-mt-sm")
 
         # Footer
-        with ui.element("div").classes(f"w-full bg-{primary} {header_text}"):
-            with ui.row().classes("items-center justify-between q-px-md").style("height: 56px; max-width: 1000px; margin: 0 auto;"):
-                ui.label(company).classes("text-subtitle2")
-                ui.label("© CoreVistaJP").classes("text-caption")
+        header_text = _safe_primary_text_class(primary)
+        with ui.element("div").classes(f"w-full bg-{primary} {header_text}").style("margin-top: 24px;"):
+            with ui.element("div").classes("cvhb-pc-container"):
+                with ui.row().classes("items-center justify-between"):
+                    ui.label(company).classes("text-subtitle2")
+                    ui.label("© CoreVistaJP").classes("text-caption")
 
 # =========================
 # Builder (Main)
@@ -1426,11 +1513,11 @@ def render_main(u: User) -> None:
                             ui.label("ステップを選ぶと、下の入力画面が切り替わります。").classes("cvhb-muted q-mb-sm")
 
                             with ui.tabs().props("vertical dense").classes("w-full cvhb-step-tabs") as step_tabs:
-                                ui.tab("s1", label="1. 業種設定・ページカラー設定", icon="looks_one")
-                                ui.tab("s2", label="2. 基本情報設定", icon="looks_two")
-                                ui.tab("s3", label="3. ページ内容詳細設定（ブロックごと）", icon="looks_3")
-                                ui.tab("s4", label="4. 承認・最終チェック", icon="looks_4")
-                                ui.tab("s5", label="5. 公開（管理者権限のみ）", icon="looks_5")
+                                ui.tab("s1", label="1. 業種設定・ページカラー設定")
+                                ui.tab("s2", label="2. 基本情報設定")
+                                ui.tab("s3", label="3. ページ内容詳細設定（ブロックごと）")
+                                ui.tab("s4", label="4. 承認・最終チェック")
+                                ui.tab("s5", label="5. 公開（管理者権限のみ）")
 
                         # Card 3: step contents
                         with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
@@ -1658,7 +1745,7 @@ def render_main(u: User) -> None:
                                                         if not items:
                                                             ui.label("まだお知らせがありません").classes("cvhb-muted")
                                                         for i, it in enumerate(items):
-                                                            with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                            with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                                                                 with ui.row().classes("items-center justify-between"):
                                                                     ui.label(f"お知らせ #{i+1}").classes("text-body1")
                                                                     ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
@@ -1703,7 +1790,7 @@ def render_main(u: User) -> None:
                                                         if not items:
                                                             ui.label("まだFAQがありません").classes("cvhb-muted")
                                                         for i, it in enumerate(items):
-                                                            with ui.card().classes("q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                            with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                                                                 with ui.row().classes("items-center justify-between"):
                                                                     ui.label(f"FAQ #{i+1}").classes("text-body1")
                                                                     ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
