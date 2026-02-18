@@ -1104,7 +1104,7 @@ def inject_global_styles() -> None:
   opacity: 0.62;
   font-size: 0.8rem;
 }
-/* ====== v0.6.83: Theme color clearly visible (Preview 260218) ====== */
+/* ====== v0.6.84: Theme color clearly visible (Preview 260218) ====== */
 .pv-layout-260218 .pv-section-title{
   position: relative;
   padding-left: 12px;
@@ -1217,7 +1217,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.83")
+VERSION = read_text_file("VERSION", "0.6.84")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -2217,7 +2217,7 @@ def _preview_accent_hex(primary: str) -> str:
 def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, **_ignore) -> str:
     """Return inline CSS variables for the preview glass theme.
 
-    v0.6.83:
+    v0.6.84:
     - Step1の「ページカラー」が“確実に”プレビューへ効くように、ここでパレットを作る。
     - 背景は「3段階の深み」が出るように、色の光（グロー）を多層グラデで表現する。
 
@@ -2374,8 +2374,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     root_id = f"pv-root-{mode}"
     theme_style = _preview_glass_style(step1, dark=is_dark)
 
-    # scope the CSS variables to the preview root (so builder UI won't be affected)
-    ui.html(f"<style>#{root_id}{{{theme_style}}}</style>")
+    # v0.6.84: CSS変数はルート要素の style 属性で直接付与（確実に反映させる）
 
     # -------- helpers --------
     SECTION_IDS = {
@@ -2462,7 +2461,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
 
-    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f'id="{root_id}"'):
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f"id={root_id}").style(theme_style):
         # scroll container (header sticky)
         with ui.element("div").classes("pv-scroll"):
             # ----- header -----
