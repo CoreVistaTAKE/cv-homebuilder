@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.6.82] - 2026-02-18
+- プレビューのヘッダー配置を安定化（会社名左/メニュー右、文字消え対策）
+
 ## [0.6.3] - 2026-02-17
 - UI polish: step menu icons removed, Step3 news/faq full-width, PC preview upgraded (header/spacing/2-column)
 
@@ -28,6 +31,7 @@
 - Herokuにデプロイして起動確認
 - 独自ドメイン cvh.visone-ai.jp + SSL(ACM) OK
 - GitHubに最小構成を追加
+
 
 
 
