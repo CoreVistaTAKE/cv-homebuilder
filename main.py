@@ -630,10 +630,522 @@ def inject_global_styles() -> None:
         }
         .pv-prefooter a { color: var(--pv-muted); text-decoration: none; }
         .pv-prefooter a:hover { text-decoration: underline; }
+/* ====== 260218 Layout (Preview) ====== */
+.pv-shell.pv-layout-260218{
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--pv-bg-img);
+  color: var(--pv-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+}
+
+.pv-layout-260218 .pv-scroll{
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  background: var(--pv-bg-img);
+}
+
+.pv-layout-260218 .pv-topbar-260218{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 12px 14px;
+  backdrop-filter: blur(16px);
+  background: rgba(255,255,255,0.72);
+  border-bottom: 1px solid rgba(255,255,255,0.35);
+}
+
+.pv-layout-260218.pv-dark .pv-topbar-260218{
+  background: rgba(13,16,22,0.72);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-topbar-inner{
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.pv-layout-260218 .pv-brand{
+  cursor: pointer;
+  gap: 10px;
+}
+
+.pv-layout-260218 .pv-favicon{
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.9);
+}
+
+.pv-layout-260218.pv-dark .pv-favicon{
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.20);
+}
+
+.pv-layout-260218 .pv-brand-name{
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.pv-layout-260218 .pv-menu-btn{
+  opacity: 0.85;
+}
+
+.pv-layout-260218 .pv-nav-card{
+  width: min(92vw, 360px);
+  border-radius: 18px;
+}
+
+.pv-layout-260218 .pv-nav-item{
+  justify-content: flex-start;
+}
+
+.pv-layout-260218 .pv-main{
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px 18px 0;
+}
+
+.pv-layout-260218 .pv-section{
+  margin: 18px 0 28px;
+}
+
+.pv-layout-260218 .pv-section-head{
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-section-title{
+  font-weight: 900;
+  font-size: 1.08rem;
+}
+
+.pv-layout-260218 .pv-section-en{
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  opacity: 0.55;
+}
+
+.pv-layout-260218 .pv-panel{
+  border-radius: 22px;
+  border: 1px solid var(--pv-border);
+  box-shadow: var(--pv-shadow);
+}
+
+.pv-layout-260218 .pv-panel-glass{
+  background: var(--pv-card);
+}
+
+.pv-layout-260218 .pv-panel-flat{
+  background: rgba(255,255,255,0.82);
+  padding: 16px;
+}
+
+.pv-layout-260218.pv-dark .pv-panel-flat{
+  background: rgba(15,18,25,0.62);
+}
+
+.pv-layout-260218 .pv-muted{
+  color: var(--pv-muted);
+}
+
+.pv-layout-260218 .pv-h2{
+  font-weight: 900;
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-bodytext{
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-bullets{
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--pv-text);
+  opacity: 0.84;
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-hero-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-grid{
+  grid-template-columns: 0.92fr 1.08fr;
+  align-items: center;
+}
+
+.pv-layout-260218 .pv-hero-title{
+  font-weight: 1000;
+  font-size: clamp(1.35rem, 3.4vw, 2.25rem);
+  line-height: 1.18;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-hero-sub{
+  color: var(--pv-muted);
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-cta-row{
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pv-layout-260218 .pv-btn.q-btn{
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.pv-layout-260218 .pv-hero-slider{
+  border-radius: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.40);
+  box-shadow: var(--pv-shadow);
+  background: rgba(255,255,255,0.20);
+}
+
+.pv-layout-260218.pv-dark .pv-hero-slider{
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.14);
+}
+
+.pv-layout-260218 .pv-hero-track{
+  display: flex;
+  transition: transform 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.pv-layout-260218 .pv-hero-slide{
+  flex: 0 0 100%;
+}
+
+.pv-layout-260218 .pv-hero-img{
+  width: 100%;
+  height: 240px;
+  display: block;
+  object-fit: cover;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-img{
+  height: 380px;
+}
+
+.pv-layout-260218 .pv-news-list{
+  margin-top: 6px;
+}
+
+.pv-layout-260218 .pv-news-item{
+  display: grid;
+  grid-template-columns: 110px 92px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.pv-layout-260218.pv-dark .pv-news-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-news-date{
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.pv-layout-260218 .pv-news-cat{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--pv-primary-weak);
+  color: var(--pv-primary);
+  font-weight: 900;
+  font-size: 0.72rem;
+}
+
+.pv-layout-260218.pv-dark .pv-news-cat{
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.86);
+}
+
+.pv-layout-260218 .pv-news-title{
+  font-weight: 700;
+}
+
+.pv-layout-260218 .pv-link-btn.q-btn{
+  margin-top: 10px;
+  font-weight: 900;
+}
+
+.pv-layout-260218 .pv-about-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-about-grid{
+  grid-template-columns: 1.12fr 0.88fr;
+}
+
+.pv-layout-260218 .pv-about-img{
+  width: 100%;
+  height: 320px;
+  border-radius: 22px;
+  object-fit: cover;
+  border: 1px solid var(--pv-border);
+  box-shadow: var(--pv-shadow);
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-about-img{
+  height: 240px;
+}
+
+.pv-layout-260218 .pv-surface-white{
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(255,255,255,0.58);
+  border-radius: 22px;
+  box-shadow: var(--pv-shadow);
+  padding: 16px;
+}
+
+.pv-layout-260218.pv-dark .pv-surface-white{
+  background: rgba(12,15,22,0.64);
+  border-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-services-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-services-grid{
+  grid-template-columns: 0.95fr 1.05fr;
+  align-items: center;
+}
+
+.pv-layout-260218 .pv-services-img{
+  width: 100%;
+  height: 260px;
+  border-radius: 18px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.pv-layout-260218.pv-dark .pv-services-img{
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218.pv-mode-pc .pv-services-img{
+  height: 320px;
+}
+
+.pv-layout-260218 .pv-service-item{
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.pv-layout-260218.pv-dark .pv-service-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-service-title{
+  font-weight: 900;
+  margin-bottom: 2px;
+}
+
+.pv-layout-260218 .pv-faq-item{
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.pv-layout-260218.pv-dark .pv-faq-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-faq-q{
+  font-weight: 900;
+}
+
+.pv-layout-260218 .pv-faq-a{
+  margin-top: 4px;
+  color: var(--pv-muted);
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-access-card{
+  padding: 16px;
+}
+
+.pv-layout-260218 .pv-contact-card{
+  padding: 16px;
+}
+
+.pv-layout-260218 .pv-contact-actions{
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.pv-layout-260218 .pv-companybar{
+  margin: 22px 0 0;
+  padding: 0 18px 18px;
+}
+
+.pv-layout-260218 .pv-companybar-inner{
+  max-width: 1080px;
+  margin: 0 auto;
+  border-radius: 22px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.70);
+  border: 1px solid rgba(255,255,255,0.40);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pv-layout-260218.pv-dark .pv-companybar-inner{
+  background: rgba(13,16,22,0.66);
+  border-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-companybar-name{
+  font-weight: 1000;
+}
+
+.pv-layout-260218 .pv-companybar-meta{
+  color: var(--pv-muted);
+  font-size: 0.85rem;
+  margin-top: 2px;
+}
+
+.pv-layout-260218 .pv-footer{
+  margin-top: 8px;
+  padding: 18px;
+  background: rgba(10,12,18,0.92);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.78);
+}
+
+.pv-layout-260218 .pv-footer-grid{
+  max-width: 1080px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-footer-grid{
+  grid-template-columns: 1.2fr 0.8fr;
+}
+
+.pv-layout-260218 .pv-footer-brand{
+  font-weight: 1000;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-footer-cap{
+  font-weight: 900;
+  color: rgba(255,255,255,0.92);
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-footer-link.q-btn{
+  color: rgba(255,255,255,0.78) !important;
+  justify-content: flex-start;
+  padding-left: 0;
+}
+
+.pv-layout-260218 .pv-footer-link.q-btn:hover{
+  color: #fff !important;
+}
+
+.pv-layout-260218 .pv-footer-text{
+  color: rgba(255,255,255,0.76);
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-footer-copy{
+  max-width: 1080px;
+  margin: 12px auto 0;
+  opacity: 0.62;
+  font-size: 0.8rem;
+}
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
 </style>
 """
+    )
+
+    ui.add_head_html(
+        """
+<script>
+(function(){
+  window.__cvhbHeroIntervals = window.__cvhbHeroIntervals || {};
+  window.cvhbInitHeroSlider = window.cvhbInitHeroSlider || function(sliderId, intervalMs){
+    try{
+      const slider = document.getElementById(sliderId);
+      if(!slider) return;
+      const track = slider.querySelector('.pv-hero-track');
+      if(!track) return;
+      const slides = track.children ? track.children.length : 0;
+      if(window.__cvhbHeroIntervals[sliderId]){
+        clearInterval(window.__cvhbHeroIntervals[sliderId]);
+        delete window.__cvhbHeroIntervals[sliderId];
+      }
+      if(slides <= 1){
+        track.style.transform = 'translateX(0%)';
+        return;
+      }
+      let idx = 0;
+      window.__cvhbHeroIntervals[sliderId] = setInterval(function(){
+        idx = (idx + 1) % slides;
+        track.style.transform = 'translateX(-' + (idx * 100) + '%)';
+      }, intervalMs || 4600);
+    } catch(e){}
+  };
+
+  window.cvhbPreviewScrollTo = window.cvhbPreviewScrollTo || function(rootId, targetId){
+    try{
+      const root = document.getElementById(rootId);
+      if(!root) return;
+      const sc = root.querySelector('.pv-scroll');
+      const el = root.querySelector('#' + targetId);
+      if(!sc || !el) return;
+      const scRect = sc.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const top = sc.scrollTop + (elRect.top - scRect.top) - 72;
+      sc.scrollTo({top: top, behavior: 'smooth'});
+    } catch(e){}
+  };
+})();
+</script>
+""",
     )
 # =========================
 # [BLK-03] Config
@@ -646,7 +1158,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.0.0")
+VERSION = read_text_file("VERSION", "0.6.81")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -1184,6 +1696,7 @@ def normalize_project(p: dict) -> dict:
 
     # step2
     step2.setdefault("company_name", "")
+    step2.setdefault("favicon_url", "")
     step2.setdefault("catch_copy", "")
     step2.setdefault("phone", "")
     step2.setdefault("address", "")
@@ -1196,6 +1709,15 @@ def normalize_project(p: dict) -> dict:
     hero.setdefault("hero_image_url", "")
     hero.setdefault("primary_button_text", "お問い合わせ")
     hero.setdefault("secondary_button_text", "見学・相談")
+    # hero: 最大4枚までのスライド画像（任意）
+    hero.setdefault("hero_image_urls", [])
+    hero["hero_image_urls"] = _safe_list(hero.get("hero_image_urls"))
+    # 旧: hero_image_url を 1枚目として扱う
+    _h1 = str(hero.get("hero_image_url") or "").strip()
+    if _h1:
+        hero["hero_image_urls"] = [_h1] + [u for u in hero["hero_image_urls"] if str(u).strip() and str(u).strip() != _h1]
+    # 空を除去 & 最大4枚
+    hero["hero_image_urls"] = [str(u).strip() for u in hero["hero_image_urls"] if str(u).strip()][:4]
 
     philosophy = blocks.setdefault("philosophy", {})
     philosophy.setdefault("title", "私たちの想い")
@@ -1206,6 +1728,46 @@ def normalize_project(p: dict) -> dict:
     while len(pts) < 3:
         pts.append("")
     philosophy["points"] = pts[:3]
+    # philosophy: 画像（任意）
+    philosophy.setdefault("image_url", "")
+
+    # services: 業務内容（philosophyブロック内に統合 / 6ブロック固定のまま）
+    services = philosophy.setdefault(
+        "services",
+        {
+            "title": "業務内容",
+            "lead": "提供サービスの概要をここに記載します。",
+            "image_url": "",
+            "items": [
+                {"title": "サービス1", "body": "内容をここに記載します。"},
+                {"title": "サービス2", "body": "内容をここに記載します。"},
+                {"title": "サービス3", "body": "内容をここに記載します。"},
+            ],
+        },
+    )
+    if not isinstance(services, dict):
+        services = {}
+        philosophy["services"] = services
+    services.setdefault("title", "業務内容")
+    services.setdefault("lead", "提供サービスの概要をここに記載します。")
+    services.setdefault("image_url", "")
+    items = services.get("items")
+    if not isinstance(items, list):
+        items = []
+    # item 正規化（最大6 / 表示は基本3）
+    norm_items = []
+    for it in items:
+        if isinstance(it, dict):
+            t = str(it.get("title") or "").strip()
+            b = str(it.get("body") or "").strip()
+            norm_items.append({"title": t, "body": b})
+    if not norm_items:
+        norm_items = [
+            {"title": "サービス1", "body": "内容をここに記載します。"},
+            {"title": "サービス2", "body": "内容をここに記載します。"},
+            {"title": "サービス3", "body": "内容をここに記載します。"},
+        ]
+    services["items"] = norm_items[:6]
 
     news = blocks.setdefault("news", {})
     news_items = news.setdefault(
@@ -1365,7 +1927,7 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
         "updated_by": created_by.username if created_by else "",
         "data": {
             "step1": {"industry": "会社サイト（企業）", "primary_color": "blue", "welfare_domain": "", "welfare_mode": "", "template_id": "corp_v1"},
-            "step2": {"company_name": "", "catch_copy": "", "phone": "", "address": "", "email": ""},
+            "step2": {"company_name": "", "favicon_url": "", "catch_copy": "", "phone": "", "address": "", "email": ""},
             "blocks": {},
         },
     }
@@ -1679,225 +2241,352 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
     return ";".join([f"{k}:{v}" for k, v in base.items()]) + ";"
 
 
-def render_preview(p: dict, mode: str = "sp") -> None:
-    """Right-side preview (Smartphone / PC). The page itself is responsive; the mode mainly changes the viewport size."""
-    step1 = p.get("step1", {}) or {}
-    step2 = p.get("step2", {}) or {}
-    blocks = p.get("blocks", {}) or {}
+def render_preview(p: dict, mode: str = "pc") -> None:
+    """右側プレビュー（260218配置レイアウト）を描画する。
 
-    pre_err = _preview_preflight_error()
-    if pre_err:
-        with ui.element("div").classes("cvhb-preview-glass"):
-            ui.label("プレビュー初期化エラー").classes("text-red text-bold")
-            ui.label(pre_err).classes("text-red")
-        return
+    p は「プロジェクト全体(dict)」または p["data"] 相当(dict) のどちらでも受け付ける。
+    """
+    # -------- data extraction (project dict / data dict 両対応) --------
+    if isinstance(p, dict) and isinstance(p.get("data"), dict):
+        d = p.get("data") or {}
+    elif isinstance(p, dict):
+        d = p
+    else:
+        d = {}
 
-    primary_color = (step1.get("primary_color") or "blue").strip()
-    is_dark = primary_color == "black"
+    step1 = d.get("step1", {}) if isinstance(d.get("step1"), dict) else {}
+    step2 = d.get("step2", {}) if isinstance(d.get("step2"), dict) else {}
+    blocks = d.get("blocks", {}) if isinstance(d.get("blocks"), dict) else {}
+
+    # -------- theme --------
+    primary_key = str(step1.get("primary_color") or "blue")
+    is_dark = primary_key in ("black", "navy")
+    root_id = f"pv-root-{mode}"
     theme_style = _preview_glass_style(step1, dark=is_dark)
 
-    company_name = (step2.get("company_name") or "会社名").strip()
-    catch_copy = (step2.get("catch_copy") or "スタッフ・利用者の笑顔を守る企業").strip()
+    # scope the CSS variables to the preview root (so builder UI won't be affected)
+    ui.html(f"<style>#{root_id}{{{theme_style}}}</style>")
 
-    hero = blocks.get("hero", {}) or {}
-    sub_catch = (hero.get("sub_catch") or "地域に寄り添い、安心できるサービスを届けます").strip()
-    primary_btn_text = (hero.get("primary_button_text") or "お問い合わせ").strip()
-    secondary_btn_text = (hero.get("secondary_button_text") or "見学・相談").strip()
+    # -------- helpers --------
+    SECTION_IDS = {
+        "top": "pv-top",
+        "news": "pv-news",
+        "about": "pv-about",
+        "services": "pv-services",
+        "faq": "pv-faq",
+        "access": "pv-access",
+        "contact": "pv-contact",
+    }
 
-    hero_choice = (hero.get("hero_image") or HERO_IMAGE_OPTIONS[0]).strip()
-    hero_img_url = (hero.get("hero_image_url") or "").strip() or HERO_IMAGE_PRESETS.get(hero_choice, HERO_IMAGE_DEFAULT)
+    def scroll_to(section_id: str) -> None:
+        sid = SECTION_IDS.get(section_id, section_id)
+        ui.run_javascript(f"window.cvhbPreviewScrollTo && window.cvhbPreviewScrollTo('{root_id}','{sid}')")
 
-    philosophy = blocks.get("philosophy", {}) or {}
-    ph_title = (philosophy.get("title") or "私たちの想い").strip()
-    ph_body = (philosophy.get("body") or "ここに理念や会社/事業所の紹介文を書きます。（あとで自由に書き換えできます）").strip()
-    ph_points = _safe_list(philosophy.get("points") or [])
+    def _clean(s: str, fallback: str = "") -> str:
+        s = str(s or "").strip()
+        return s if s else fallback
 
-    news = blocks.get("news", {}) or {}
-    news_items = _safe_list(news.get("items") or [])
+    # -------- content --------
+    company_name = _clean(step2.get("company_name"), "会社名")
+    favicon_url = _clean(step2.get("favicon_url"))
+    catch_copy = _clean(step2.get("catch_copy"))
+    phone = _clean(step2.get("phone"))
+    email = _clean(step2.get("email"))
+    address = _clean(step2.get("address"))
 
-    faq = blocks.get("faq", {}) or {}
-    faq_items = _safe_list(faq.get("items") or [])
+    hero = blocks.get("hero", {}) if isinstance(blocks.get("hero"), dict) else {}
+    hero_image_choice = _clean(hero.get("hero_image"), "A: オフィス")
+    sub_catch = _clean(hero.get("sub_catch"))
 
-    access = blocks.get("access", {}) or {}
-    contact = blocks.get("contact", {}) or {}
+    # hero slider images (max 4)
+    hero_urls = _safe_list(hero.get("hero_image_urls"))
+    _legacy_hero_url = _clean(hero.get("hero_image_url"))
+    if _legacy_hero_url:
+        hero_urls = [_legacy_hero_url] + [u for u in hero_urls if _clean(u) and _clean(u) != _legacy_hero_url]
+    hero_urls = [_clean(u) for u in hero_urls if _clean(u)]
+    if not hero_urls:
+        hero_urls = [_clean(HERO_IMAGE_PRESETS.get(hero_image_choice), HERO_IMAGE_DEFAULT)]
+    hero_urls = hero_urls[:4]
 
-    industry_label = (step1.get("industry") or "会社・企業サイト").strip()
-    phone = (step2.get("phone") or "").strip()
-    email = (step2.get("email") or "").strip()
-    address = (step2.get("address") or "").strip()
+    # CTA texts (legacy fields)
+    primary_cta = _clean(hero.get("primary_button_text"), "お問い合わせ")
+    secondary_cta = _clean(hero.get("secondary_button_text"), "見学・相談")
 
-    # -------- helper: nav button (scroll within preview) --------
-    def nav_btn(label: str, anchor: str) -> None:
-        ui.button(label, on_click=lambda: scroll_to_anchor(anchor)).props("flat dense").classes("pv-navbtn")
+    news = blocks.get("news", {}) if isinstance(blocks.get("news"), dict) else {}
+    news_items = _safe_list(news.get("items"))  # list[dict]
 
-    root_classes = "cvhb-preview-glass"
-    if is_dark:
-        root_classes += " pv-dark"
+    philosophy = blocks.get("philosophy", {}) if isinstance(blocks.get("philosophy"), dict) else {}
+    about_title = _clean(philosophy.get("title"), "私たちについて")
+    about_body = _clean(philosophy.get("body"))
+    about_points = _safe_list(philosophy.get("points"))
 
-    with ui.element("div").classes(root_classes).style(theme_style):
-        # ========== Topbar ==========
-        with ui.element("div").classes("pv-topbar"):
-            ui.label(company_name).classes("pv-brand")
+    about_image_url = _clean(
+        philosophy.get("image_url"),
+        # default: wood/forest vibe
+        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=60",
+    )
 
-            with ui.element("div").classes("pv-nav"):
-                nav_btn("想い", "section-philosophy")
-                nav_btn("お知らせ", "section-news")
-                nav_btn("FAQ", "section-faq")
-                nav_btn("アクセス", "section-access")
-                nav_btn("お問い合わせ", "section-contact")
+    services = philosophy.get("services") if isinstance(philosophy.get("services"), dict) else {}
+    svc_title = _clean(services.get("title"), "業務内容")
+    svc_lead = _clean(services.get("lead"))
+    svc_image_url = _clean(
+        services.get("image_url"),
+        "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1200&q=60",
+    )
+    svc_items = _safe_list(services.get("items"))
 
-            ui.button(primary_btn_text, on_click=lambda: scroll_to_anchor("section-contact")).props("unelevated dense").classes("pv-topcta")
+    faq = blocks.get("faq", {}) if isinstance(blocks.get("faq"), dict) else {}
+    faq_items = _safe_list(faq.get("items"))
 
-        # ========== Scroll body ==========
+    access = blocks.get("access", {}) if isinstance(blocks.get("access"), dict) else {}
+    access_notes = _clean(access.get("notes"))
+    map_url = _clean(access.get("map_url"))
+    if not map_url and address:
+        map_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
+
+    contact = blocks.get("contact", {}) if isinstance(blocks.get("contact"), dict) else {}
+    contact_message = _clean(contact.get("message"))
+    contact_hours = _clean(contact.get("hours"))
+    contact_btn = _clean(contact.get("button_text"), "お問い合わせ")
+
+    # -------- render --------
+    dark_class = " pv-dark" if is_dark else ""
+
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f'id="{root_id}"'):
+        # scroll container (header sticky)
         with ui.element("div").classes("pv-scroll"):
-            # -------- Hero --------
-            with ui.element("section").classes("pv-band").props('id="section-hero"'):
-                with ui.element("div").classes("pv-container pv-hero-grid"):
-                    # Left: copy + CTA
-                    with ui.element("div").classes("pv-panel"):
-                        with ui.element("div").classes("pv-kicker"):
-                            ui.icon("auto_awesome")
-                            ui.label("はじめに")
+            # ----- header -----
+            with ui.element("header").classes("pv-topbar pv-topbar-260218"):
+                with ui.row().classes("pv-topbar-inner items-center justify-between no-wrap"):
+                    # brand (favicon + name)
+                    with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
+                        if favicon_url:
+                            ui.image(favicon_url).classes("pv-favicon")
+                        ui.label(company_name).classes("pv-brand-name")
 
-                        ui.label(catch_copy).classes("pv-title")
-                        ui.label(sub_catch).classes("pv-sub")
+                    # hamburger menu
+                    menu_btn = ui.button(icon="menu", on_click=nav_dialog.open).props("flat round dense").classes("pv-menu-btn")
+                    with ui.dialog() as nav_dialog:
+                        with ui.card().classes("pv-nav-card"):
+                            ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
+                            for label, sec in [
+                                ("トップ", "top"),
+                                ("お知らせ", "news"),
+                                ("私たちについて", "about"),
+                                ("業務内容", "services"),
+                                ("よくある質問", "faq"),
+                                ("アクセス", "access"),
+                                ("お問い合わせ", "contact"),
+                            ]:
+                                ui.button(
+                                    label,
+                                    on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
+                                ).props("flat no-caps").classes("pv-nav-item w-full")
+                    # menu opened by on_click
 
-                        with ui.element("div").classes("pv-hero-cta-row"):
-                            ui.button(primary_btn_text, on_click=lambda: scroll_to_anchor("section-contact")).props("unelevated").classes("pv-cta pv-cta-primary")
-                            ui.button(secondary_btn_text, on_click=lambda: scroll_to_anchor("section-contact")).props("unelevated").classes("pv-cta pv-cta-secondary")
+            # ----- main -----
+            with ui.element("main").classes("pv-main"):
+                # HERO
+                with ui.element("section").classes("pv-section pv-hero").props('id="pv-top"'):
+                    with ui.element("div").classes("pv-hero-grid"):
+                        with ui.element("div").classes("pv-hero-copy"):
+                            ui.label(_clean(catch_copy, company_name)).classes("pv-hero-title")
+                            if sub_catch:
+                                ui.label(sub_catch).classes("pv-hero-sub")
+                            with ui.row().classes("pv-cta-row"):
+                                ui.button(primary_cta, on_click=lambda: scroll_to("contact")).props(
+                                    "no-caps unelevated color=primary"
+                                ).classes("pv-btn pv-btn-primary")
+                                ui.button(secondary_cta, on_click=lambda: scroll_to("contact")).props(
+                                    "no-caps outline color=primary"
+                                ).classes("pv-btn pv-btn-secondary")
 
-                        # Compact info (kept small so it doesn't feel "stuck on")
-                        if phone:
-                            ui.label(f"TEL：{phone}").classes("pv-sub")
-                        if address:
-                            ui.label(address).classes("pv-sub")
+                        with ui.element("div").classes("pv-hero-media"):
+                            slider_id = f"pv-hero-slider-{mode}"
+                            with ui.element("div").classes("pv-hero-slider").props(f'id="{slider_id}"'):
+                                with ui.element("div").classes("pv-hero-track"):
+                                    for url in hero_urls:
+                                        with ui.element("div").classes("pv-hero-slide"):
+                                            ui.image(url).classes("pv-hero-img")
+                            # init slider (auto)
+                            ui.run_javascript(
+                                f"window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}')"
+                            )
 
-                    # Right: image + floating summary
-                    with ui.element("div").classes("pv-hero-media"):
-                        with ui.element("div").classes("pv-hero-image").style(f"background-image: url('{hero_img_url}');"):
-                            with ui.element("div").classes("pv-hero-image-inner"):
-                                ui.label("").style("display:none;")
-
-                        # Floating summary card (becomes stacked on small screens)
-                        summary_text = ph_body.strip()
-                        if len(summary_text) > 90:
-                            summary_text = summary_text[:90] + "…"
-
-                        with ui.element("div").classes("pv-hero-float pv-panel"):
-                            with ui.element("div").classes("pv-kicker"):
-                                ui.icon("info")
-                                ui.label("概要")
-
-                            ui.label(ph_title).classes("pv-h2")
-                            ui.label(summary_text).classes("pv-sub")
-
-                            if ph_points:
-                                for pt in ph_points[:3]:
-                                    with ui.element("span").classes("pv-chip"):
-                                        ui.icon("check_circle").props("size=16px")
-                                        ui.label(str(pt))
-
-            # -------- Philosophy --------
-            with ui.element("section").classes("pv-band").props('id="section-philosophy"'):
-                with ui.element("div").classes("pv-container"):
-                    with ui.element("div").classes("pv-panel"):
-                        with ui.element("div").classes("pv-kicker"):
-                            ui.icon("favorite")
-                            ui.label("私たちの想い")
-
-                        ui.label(ph_title).classes("pv-h2")
-                        ui.label(ph_body).classes("pv-sub")
-
-                        if ph_points:
-                            for pt in ph_points:
-                                with ui.element("span").classes("pv-chip"):
-                                    ui.icon("label").props("size=16px")
-                                    ui.label(str(pt))
-
-            # -------- News + FAQ --------
-            with ui.element("section").classes("pv-band").props('id="section-news"'):
-                with ui.element("div").classes("pv-container pv-grid-2"):
-                    # News
-                    with ui.element("div").classes("pv-panel"):
-                        with ui.element("div").classes("pv-kicker"):
-                            ui.icon("campaign")
-                            ui.label("お知らせ")
-
-                        if news_items:
-                            cap = 4 if mode == "pc" else 3
-                            for it in news_items[:cap]:
-                                date = str(it.get("date") or "").strip()
-                                category = str(it.get("category") or "お知らせ").strip()
-                                title = str(it.get("title") or "お知らせ").strip()
-
+                # NEWS
+                with ui.element("section").classes("pv-section pv-news").props('id="pv-news"'):
+                    with ui.element("div").classes("pv-section-head"):
+                        ui.label("お知らせ").classes("pv-section-title")
+                        ui.label("NEWS").classes("pv-section-en")
+                    with ui.element("div").classes("pv-panel pv-panel-flat"):
+                        with ui.element("div").classes("pv-news-list"):
+                            shown = 0
+                            for it in news_items:
+                                if not isinstance(it, dict):
+                                    continue
+                                date = _clean(it.get("date"))
+                                cat = _clean(it.get("category"), "お知らせ")
+                                title = _clean(it.get("title"), "タイトル未設定")
+                                shown += 1
                                 with ui.element("div").classes("pv-news-item"):
-                                    with ui.element("div").classes("pv-news-meta"):
-                                        if date:
-                                            ui.label(date)
-                                        with ui.element("span").classes("pv-badge"):
-                                            ui.label(category)
-                                    ui.label(title).classes("pv-q")
+                                    ui.label(date or "----.--.--").classes("pv-news-date")
+                                    ui.label(cat).classes("pv-news-cat")
+                                    ui.label(title).classes("pv-news-title")
+                                if shown >= 4:
+                                    break
+                            if shown == 0:
+                                ui.label("まだお知らせはありません。").classes("pv-muted q-mt-sm")
+                        ui.button("お知らせ一覧").props("no-caps flat").classes("pv-link-btn")
+
+                # ABOUT
+                with ui.element("section").classes("pv-section pv-about").props('id="pv-about"'):
+                    with ui.element("div").classes("pv-section-head"):
+                        ui.label("私たちについて").classes("pv-section-title")
+                        ui.label("ABOUT").classes("pv-section-en")
+                    with ui.element("div").classes("pv-about-grid"):
+                        with ui.element("div").classes("pv-panel pv-panel-glass"):
+                            ui.label(about_title).classes("pv-h2")
+                            if about_body:
+                                ui.label(about_body).classes("pv-bodytext")
+                            pts = [str(x).strip() for x in about_points if str(x).strip()]
+                            if pts:
+                                with ui.element("ul").classes("pv-bullets"):
+                                    for t in pts[:6]:
+                                        with ui.element("li"):
+                                            ui.label(t)
+                        with ui.element("div").classes("pv-about-media"):
+                            ui.image(about_image_url).classes("pv-about-img")
+
+                # SERVICES (integrated in philosophy block)
+                with ui.element("section").classes("pv-section pv-services").props('id="pv-services"'):
+                    with ui.element("div").classes("pv-section-head"):
+                        ui.label(svc_title or "業務内容").classes("pv-section-title")
+                        ui.label("SERVICES").classes("pv-section-en")
+                    with ui.element("div").classes("pv-services-wrap pv-surface-white"):
+                        with ui.element("div").classes("pv-services-grid"):
+                            with ui.element("div").classes("pv-services-media"):
+                                ui.image(svc_image_url).classes("pv-services-img")
+                            with ui.element("div").classes("pv-services-copy"):
+                                if svc_lead:
+                                    ui.label(svc_lead).classes("pv-bodytext")
+                                # items
+                                cleaned_items = []
+                                for it in svc_items:
+                                    if isinstance(it, dict):
+                                        t = _clean(it.get("title"))
+                                        b = _clean(it.get("body"))
+                                        if t or b:
+                                            cleaned_items.append((t, b))
+                                if cleaned_items:
+                                    for (t, b) in cleaned_items[:6]:
+                                        with ui.element("div").classes("pv-service-item"):
+                                            ui.label(t or "項目").classes("pv-service-title")
+                                            if b:
+                                                ui.label(b).classes("pv-muted")
+                                else:
+                                    ui.label("業務内容の項目を設定してください。").classes("pv-muted")
+
+                # FAQ
+                with ui.element("section").classes("pv-section pv-faq").props('id="pv-faq"'):
+                    with ui.element("div").classes("pv-section-head"):
+                        ui.label("よくある質問").classes("pv-section-title")
+                        ui.label("FAQ").classes("pv-section-en")
+                    with ui.element("div").classes("pv-panel pv-panel-glass"):
+                        shown = 0
+                        for it in faq_items:
+                            if not isinstance(it, dict):
+                                continue
+                            q = _clean(it.get("q"))
+                            a = _clean(it.get("a"))
+                            if not q and not a:
+                                continue
+                            shown += 1
+                            with ui.element("div").classes("pv-faq-item"):
+                                ui.label(q or "質問").classes("pv-faq-q")
+                                if a:
+                                    ui.label(a).classes("pv-faq-a")
+                            if shown >= 4:
+                                break
+                        if shown == 0:
+                            ui.label("よくある質問は準備中です。").classes("pv-muted")
+
+                # ACCESS
+                with ui.element("section").classes("pv-section pv-access").props('id="pv-access"'):
+                    with ui.element("div").classes("pv-section-head"):
+                        ui.label("アクセス").classes("pv-section-title")
+                        ui.label("ACCESS").classes("pv-section-en")
+                    with ui.element("div").classes("pv-panel pv-panel-glass pv-access-card"):
+                        if address:
+                            ui.label(address).classes("pv-bodytext")
                         else:
-                            ui.label("まだお知らせはありません。").classes("pv-sub")
+                            ui.label("住所を入力してください（基本情報 > 住所）").classes("pv-muted")
+                        if access_notes:
+                            ui.label(access_notes).classes("pv-muted q-mt-sm")
+                        if map_url:
+                            ui.button("地図を開く").props(
+                                f'no-caps unelevated color=primary type=a href="{map_url}" target="_blank"'
+                            ).classes("pv-btn pv-map-btn")
 
-                    # FAQ
-                    with ui.element("div").classes("pv-panel").props('id="section-faq"'):
-                        with ui.element("div").classes("pv-kicker"):
-                            ui.icon("help")
-                            ui.label("よくある質問")
+                # CONTACT
+                with ui.element("section").classes("pv-section pv-contact").props('id="pv-contact"'):
+                    with ui.element("div").classes("pv-section-head"):
+                        ui.label("お問い合わせ").classes("pv-section-title")
+                        ui.label("CONTACT").classes("pv-section-en")
+                    with ui.element("div").classes("pv-panel pv-panel-glass pv-contact-card"):
+                        if contact_message:
+                            ui.label(contact_message).classes("pv-bodytext")
+                        if contact_hours:
+                            ui.label(contact_hours).classes("pv-muted q-mt-sm")
+                        with ui.row().classes("pv-contact-actions"):
+                            if phone:
+                                ui.button("電話する").props(
+                                    f'no-caps outline color=primary type=a href="tel:{phone}"'
+                                ).classes("pv-btn pv-btn-secondary")
+                            if email:
+                                ui.button("メール").props(
+                                    f'no-caps outline color=primary type=a href="mailto:{email}"'
+                                ).classes("pv-btn pv-btn-secondary")
+                            ui.button(contact_btn, on_click=lambda: None).props("no-caps unelevated color=primary").classes(
+                                "pv-btn pv-btn-primary"
+                            )
 
-                        if faq_items:
-                            cap = 4 if mode == "pc" else 3
-                            for qa in faq_items[:cap]:
-                                q = str(qa.get("q") or "質問").strip()
-                                a = str(qa.get("a") or "回答").strip()
-                                with ui.element("div").classes("pv-faq-item"):
-                                    ui.label(q).classes("pv-q")
-                                    ui.label(a).classes("pv-a")
-                        else:
-                            ui.label("まだFAQはありません。").classes("pv-sub")
+                # PRE-FOOTER (company mini)
+                with ui.element("section").classes("pv-companybar"):
+                    with ui.element("div").classes("pv-companybar-inner"):
+                        with ui.element("div").classes("pv-companybar-left"):
+                            ui.label(company_name).classes("pv-companybar-name")
+                            if address:
+                                ui.label(address).classes("pv-companybar-meta")
+                            if phone:
+                                ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
+                        with ui.element("div").classes("pv-companybar-right"):
+                            ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated color=primary").classes("pv-btn pv-btn-primary")
 
-            # -------- Access + Contact --------
-            with ui.element("section").classes("pv-band").props('id="section-access"'):
-                with ui.element("div").classes("pv-container pv-grid-2"):
-                    # Access
-                    with ui.element("div").classes("pv-panel"):
-                        with ui.element("div").classes("pv-kicker"):
-                            ui.icon("place")
-                            ui.label("アクセス")
-
-                        access_note = str(access.get("note") or "（例）〇〇駅から徒歩5分 / 駐車場あり").strip()
-                        ui.label(address or "住所（未入力）").classes("pv-sub")
-                        ui.label(access_note).classes("pv-sub")
-
-                        ui.button("地図を開く").props("unelevated").classes("pv-action pv-action-primary")
-
-                    # Contact
-                    with ui.element("div").classes("pv-panel").props('id="section-contact"'):
-                        with ui.element("div").classes("pv-kicker"):
-                            ui.icon("call")
-                            ui.label("お問い合わせ")
-
-                        contact_msg = str(contact.get("message") or "まずはお気軽にご相談ください。").strip()
-                        hours = str(contact.get("hours") or "平日 9:00〜18:00").strip()
-                        btn_text = str(contact.get("button_text") or primary_btn_text).strip()
-
-                        ui.label(contact_msg).classes("pv-sub")
-
-                        if phone:
-                            ui.label(f"TEL：{phone}").classes("pv-sub")
-                        if email:
-                            ui.label(f"Email：{email}").classes("pv-sub")
-                        ui.label(hours).classes("pv-sub")
-
-                        ui.button(btn_text, on_click=lambda: scroll_to_anchor("section-contact")).props("unelevated").classes("pv-action pv-action-primary")
-
-            # -------- Prefooter --------
-            with ui.element("div").classes("pv-prefooter"):
-                ui.label(f"{company_name}  /  {industry_label}")
-                ui.label("© CoreVistaJP / CV-HomeBuilder")
-
-
+                # FOOTER
+                with ui.element("footer").classes("pv-footer"):
+                    with ui.element("div").classes("pv-footer-grid"):
+                        with ui.element("div"):
+                            ui.label(company_name).classes("pv-footer-brand")
+                            ui.label("ページリンク").classes("pv-footer-cap")
+                            for label, sec in [
+                                ("トップ", "top"),
+                                ("お知らせ", "news"),
+                                ("私たちについて", "about"),
+                                ("業務内容", "services"),
+                                ("よくある質問", "faq"),
+                                ("アクセス", "access"),
+                                ("お問い合わせ", "contact"),
+                            ]:
+                                ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link")
+                        with ui.element("div"):
+                            ui.label("連絡先").classes("pv-footer-cap")
+                            if address:
+                                ui.label(address).classes("pv-footer-text")
+                            if phone:
+                                ui.label(f"TEL: {phone}").classes("pv-footer-text")
+                            if email:
+                                ui.label(f"MAIL: {email}").classes("pv-footer-text")
+                    ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
 def render_main(u: User) -> None:
     inject_global_styles()
     cleanup_user_storage()
@@ -2169,6 +2858,7 @@ def render_main(u: User) -> None:
                                             ui.label("会社の基本情報").classes("text-subtitle1 q-mb-sm")
 
                                             bind_step2_input("会社名", "company_name")
+                                            bind_step2_input("ファビコンURL（任意）", "favicon_url", hint="ブラウザタブのアイコン用（32x32推奨）")
                                             bind_step2_input("キャッチコピー", "catch_copy")
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
@@ -2208,7 +2898,27 @@ def render_main(u: User) -> None:
 
                                                     ui.label("大きい写真 + キャッチコピーのエリアです").classes("cvhb-muted q-mb-sm")
                                                     ui.radio(HERO_IMAGE_OPTIONS, value=current_preset, on_change=_on_preset_change).props("inline")
-                                                    bind_block_input("hero", "画像URL（任意：貼るだけ）", "hero_image_url", hint="URLを入れると、上のプリセットより優先されます。")
+                                                    # スライド画像URL（最大4枚 / 任意）
+                                                    urls = _safe_list(hero.get("hero_image_urls"))
+                                                    # 旧: hero_image_url は 1枚目として扱う
+                                                    _legacy = str(hero.get("hero_image_url") or "").strip()
+                                                    if _legacy:
+                                                        urls = [_legacy] + [u for u in urls if str(u).strip() and str(u).strip() != _legacy]
+                                                    while len(urls) < 4:
+                                                        urls.append("")
+                                                    hero["hero_image_urls"] = urls[:4]
+                                                    ui.label("スライド画像URL（最大4枚 / 任意）").classes("cvhb-muted q-mt-sm")
+                                                    for _i in range(4):
+                                                        def _on_url_change(e, i=_i):
+                                                            uu = _safe_list(hero.get("hero_image_urls"))
+                                                            while len(uu) < 4:
+                                                                uu.append("")
+                                                            uu[i] = str(e.value or "").strip()
+                                                            hero["hero_image_urls"] = uu[:4]
+                                                            # legacy: 1枚目を hero_image_url にも反映
+                                                            hero["hero_image_url"] = hero["hero_image_urls"][0] if hero.get("hero_image_urls") else ""
+                                                            update_and_refresh()
+                                                        ui.input(f"画像URL { _i + 1 }", value=hero["hero_image_urls"][_i], on_change=_on_url_change).props("outlined dense").classes("w-full q-mb-sm")
                                                     bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
                                                     bind_block_input("hero", "ボタン1の文言", "primary_button_text")
                                                     bind_block_input("hero", "ボタン2の文言（任意）", "secondary_button_text")
@@ -2217,6 +2927,7 @@ def render_main(u: User) -> None:
                                                     ui.label("理念 / 会社概要").classes("text-subtitle1 q-mb-sm")
                                                     bind_block_input("philosophy", "見出し", "title")
                                                     bind_block_input("philosophy", "本文", "body", textarea=True)
+                                                    bind_block_input("philosophy", "画像URL（任意）", "image_url", hint="未入力ならデフォルト画像")
 
                                                     # points
                                                     ph = blocks.setdefault("philosophy", {})
@@ -2237,6 +2948,41 @@ def render_main(u: User) -> None:
                                                         v = ph["points"][i]
                                                         ui.input(f"ポイント{i+1}", value=v, on_change=lambda e, idx=i: update_point(idx, e.value or "")).props("outlined").classes("w-full q-mb-sm")
 
+                                                    ui.separator().classes("q-my-md")
+                                                    ui.label("業務内容（プレビューに表示）").classes("text-subtitle2 q-mb-sm")
+                                                    svc = blocks.setdefault("philosophy", {}).setdefault("services", {})
+                                                    if not isinstance(svc, dict):
+                                                        svc = {}
+                                                        blocks["philosophy"]["services"] = svc
+                                                    svc.setdefault("title", "業務内容")
+                                                    svc.setdefault("lead", "提供サービスの概要をここに記載します。")
+                                                    svc.setdefault("image_url", "")
+                                                    items = svc.setdefault("items", [])
+                                                    if not isinstance(items, list):
+                                                        items = []
+                                                        svc["items"] = items
+                                                    while len(items) < 3:
+                                                        items.append({"title": "", "body": ""})
+                                                    svc["items"] = items[:3]
+                                                    ui.input("セクション見出し", value=svc.get("title", ""), on_change=lambda e: (svc.__setitem__("title", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
+                                                    ui.input("導入文", value=svc.get("lead", ""), on_change=lambda e: (svc.__setitem__("lead", e.value or ""), update_and_refresh())).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
+                                                    ui.input("画像URL（任意 / 1枚）", value=svc.get("image_url", ""), on_change=lambda e: (svc.__setitem__("image_url", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
+                                                    ui.label("項目（3つまで）").classes("cvhb-muted q-mt-sm")
+                                                    for i in range(3):
+                                                        it = svc["items"][i]
+                                                        if not isinstance(it, dict):
+                                                            it = {"title": "", "body": ""}
+                                                            svc["items"][i] = it
+                                                        ui.input(
+                                                            f"項目{i+1} タイトル",
+                                                            value=it.get("title", ""),
+                                                            on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("title", e.value or ""), update_and_refresh()),
+                                                        ).props("outlined").classes("w-full q-mb-sm")
+                                                        ui.input(
+                                                            f"項目{i+1} 本文",
+                                                            value=it.get("body", ""),
+                                                            on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("body", e.value or ""), update_and_refresh()),
+                                                        ).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
                                                 with ui.tab_panel("news"):
                                                     ui.label("お知らせ").classes("text-subtitle1 q-mb-sm")
                                                     ui.label("最大3件がスマホ側に表示されます（PCは4件まで表示）。").classes("cvhb-muted q-mb-sm")
