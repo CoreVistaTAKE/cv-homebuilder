@@ -667,15 +667,11 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-topbar-inner{
   max-width: 1080px;
   margin: 0 auto;
-  width: 100%;
 }
 
 .pv-layout-260218 .pv-brand{
   cursor: pointer;
   gap: 10px;
-  flex: 1 1 auto;   /* 会社名は左で伸びる */
-  min-width: 0;     /* 省略表示が効く */
-  max-width: none;  /* 48%制限を解除 */
 }
 
 .pv-layout-260218 .pv-favicon{
@@ -695,14 +691,10 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-brand-name{
   font-weight: 800;
   letter-spacing: 0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .pv-layout-260218 .pv-menu-btn{
   opacity: 0.85;
-  flex: 0 0 auto; /* ハンバーガーは右に固定 */
 }
 
 .pv-layout-260218 .pv-nav-card{
@@ -712,6 +704,23 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-nav-item{
   justify-content: flex-start;
+}
+
+.pv-layout-260218 .pv-nav-item.q-btn{
+  color: var(--pv-text) !important;
+  font-weight: 800;
+}
+
+.pv-layout-260218 .pv-nav-item.q-btn:hover{
+  background: rgba(255,255,255,0.22);
+}
+
+.pv-layout-260218.pv-dark .pv-nav-item.q-btn:hover{
+  background: rgba(255,255,255,0.08);
+}
+
+.pv-layout-260218 .pv-menu-btn.q-btn{
+  color: var(--pv-text) !important;
 }
 
 .pv-layout-260218 .pv-main{
@@ -744,9 +753,34 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-panel{
+  position: relative;
+  overflow: hidden;
   border-radius: 22px;
   border: 1px solid var(--pv-border);
   box-shadow: var(--pv-shadow);
+}
+
+.pv-layout-260218 .pv-panel::before{
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(520px 420px at 18% 18%, var(--pv-blob4), transparent 62%),
+    radial-gradient(420px 340px at 92% 0%, rgba(255,255,255,0.22), transparent 60%);
+  opacity: 0.55;
+}
+
+.pv-layout-260218.pv-dark .pv-panel::before{
+  background:
+    radial-gradient(520px 420px at 18% 18%, var(--pv-blob4), transparent 62%),
+    radial-gradient(420px 340px at 92% 0%, rgba(255,255,255,0.10), transparent 60%);
+  opacity: 0.45;
+}
+
+.pv-layout-260218 .pv-panel > *{
+  position: relative;
 }
 
 .pv-layout-260218 .pv-panel-glass{
@@ -754,12 +788,13 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-panel-flat{
-  background: rgba(255,255,255,0.82);
+  background: rgba(255,255,255,0.70);
+  backdrop-filter: blur(14px);
   padding: 16px;
 }
 
 .pv-layout-260218.pv-dark .pv-panel-flat{
-  background: rgba(15,18,25,0.62);
+  background: rgba(15,18,25,0.48);
 }
 
 .pv-layout-260218 .pv-muted{
@@ -929,16 +964,17 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-surface-white{
-  background: rgba(255,255,255,0.92);
-  border: 1px solid rgba(255,255,255,0.58);
+  background: rgba(255,255,255,0.82);
+  border: 1px solid rgba(255,255,255,0.42);
   border-radius: 22px;
   box-shadow: var(--pv-shadow);
+  backdrop-filter: blur(16px);
   padding: 16px;
 }
 
 .pv-layout-260218.pv-dark .pv-surface-white{
-  background: rgba(12,15,22,0.64);
-  border-color: rgba(255,255,255,0.10);
+  background: rgba(12,15,22,0.52);
+  border-color: rgba(255,255,255,0.12);
 }
 
 .pv-layout-260218 .pv-services-grid{
@@ -1026,8 +1062,8 @@ def inject_global_styles() -> None:
   margin: 0 auto;
   border-radius: 22px;
   padding: 14px 16px;
-  background: rgba(255,255,255,0.70);
-  border: 1px solid rgba(255,255,255,0.40);
+  background: rgba(255,255,255,0.58);
+  border: 1px solid rgba(255,255,255,0.28);
   backdrop-filter: blur(14px);
   display: flex;
   align-items: center;
@@ -1036,8 +1072,8 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-dark .pv-companybar-inner{
-  background: rgba(13,16,22,0.66);
-  border-color: rgba(255,255,255,0.10);
+  background: rgba(13,16,22,0.52);
+  border-color: rgba(255,255,255,0.12);
 }
 
 .pv-layout-260218 .pv-companybar-name{
@@ -1104,57 +1140,6 @@ def inject_global_styles() -> None:
   opacity: 0.62;
   font-size: 0.8rem;
 }
-/* ====== v0.6.84: Theme color clearly visible (Preview 260218) ====== */
-.pv-layout-260218 .pv-section-title{
-  position: relative;
-  padding-left: 12px;
-}
-.pv-layout-260218 .pv-section-title::before{
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0.33em;
-  width: 6px;
-  height: 0.92em;
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--pv-primary), var(--pv-accent-2));
-  box-shadow: 0 10px 30px rgba(0,0,0,.10);
-}
-
-.pv-layout-260218 .pv-menu-btn .q-icon{
-  color: var(--pv-primary) !important;
-}
-.pv-layout-260218.pv-dark .pv-menu-btn .q-icon{
-  color: rgba(255,255,255,0.92) !important;
-}
-
-.pv-layout-260218 .pv-btn-primary.q-btn{
-  background: linear-gradient(135deg, var(--pv-primary), var(--pv-accent-2)) !important;
-  color: #fff !important;
-  border: none !important;
-  box-shadow: var(--pv-shadow) !important;
-}
-.pv-layout-260218 .pv-btn-primary.q-btn:hover{
-  filter: brightness(1.03);
-}
-
-.pv-layout-260218 .pv-btn-secondary.q-btn{
-  background: rgba(255,255,255,0.78) !important;
-  color: var(--pv-text) !important;
-  border: 1px solid rgba(15,23,42,0.12) !important;
-  box-shadow: var(--pv-shadow-soft) !important;
-}
-.pv-layout-260218.pv-dark .pv-btn-secondary.q-btn{
-  background: rgba(15,23,42,0.56) !important;
-  border-color: rgba(148,163,184,0.18) !important;
-}
-.pv-layout-260218 .pv-btn-secondary.q-btn:hover{
-  background: rgba(255,255,255,0.92) !important;
-}
-.pv-layout-260218.pv-dark .pv-btn-secondary.q-btn:hover{
-  background: rgba(15,23,42,0.66) !important;
-}
-
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
 </style>
@@ -1217,7 +1202,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.84")
+VERSION = read_text_file("VERSION", "0.6.81")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -1697,6 +1682,283 @@ def new_project_id() -> str:
     return f"p{ts}_{rnd}"
 
 
+def apply_template_starter_defaults(p: dict, template_id: str) -> None:
+    """テンプレ切替時の「初期文章」を安全に差し替える。
+
+    - 目的: 業種を切り替えたのに文面が変わらず「連携していない」ように見える問題を解消
+    - 方針: すでにユーザーが書いた内容は極力上書きしない（空/サンプルだけ差し替え）
+    - 例外: ここで失敗してもプレビューやアプリ全体が落ちないように握りつぶす
+    """
+
+    try:
+        data = p.get("data") or {}
+        p["data"] = data
+
+        step2 = data.get("step2") or {}
+        blocks = data.get("blocks") or {}
+        data["step2"] = step2
+        data["blocks"] = blocks
+
+        hero = blocks.get("hero") or {}
+        philosophy = blocks.get("philosophy") or {}
+        news = blocks.get("news") or {}
+        faq = blocks.get("faq") or {}
+        access = blocks.get("access") or {}
+        contact = blocks.get("contact") or {}
+        blocks["hero"] = hero
+        blocks["philosophy"] = philosophy
+        blocks["news"] = news
+        blocks["faq"] = faq
+        blocks["access"] = access
+        blocks["contact"] = contact
+
+        services = philosophy.get("services") or {}
+        philosophy["services"] = services
+
+        # ---------- helpers ----------
+        def _txt(v) -> str:
+            return str(v or "").strip()
+
+        def set_text(obj: dict, key: str, new_value: str, *, replace_if=None, startswith: Optional[str] = None) -> None:
+            cur = _txt(obj.get(key))
+            if cur == "":
+                obj[key] = new_value
+                return
+            if replace_if and cur in set(replace_if):
+                obj[key] = new_value
+                return
+            if startswith and cur.startswith(startswith):
+                obj[key] = new_value
+
+        def set_list(obj: dict, key: str, new_list: list, *, replace_if_lists=None) -> None:
+            cur = obj.get(key)
+            if not isinstance(cur, list) or len(cur) == 0:
+                obj[key] = new_list
+                return
+            if replace_if_lists and cur in replace_if_lists:
+                obj[key] = new_list
+                return
+            if all(_txt(x) == "" for x in cur):
+                obj[key] = new_list
+
+        def set_services_items(new_items: list) -> None:
+            cur = services.get("items")
+            if not isinstance(cur, list) or len(cur) == 0:
+                services["items"] = new_items
+                return
+            # サンプル判定（"サービス1" など）
+            for it in cur:
+                if isinstance(it, dict) and _txt(it.get("title")).startswith("サービス"):
+                    services["items"] = new_items
+                    return
+            if all(isinstance(it, dict) and _txt(it.get("title")) == "" and _txt(it.get("body")) == "" for it in cur):
+                services["items"] = new_items
+
+        def set_faq_items(new_items: list) -> None:
+            cur = faq.get("items")
+            if not isinstance(cur, list) or len(cur) == 0:
+                faq["items"] = new_items
+                return
+            # サンプル判定（"サンプル" で始まる質問が混ざっていたら差し替えOK）
+            for it in cur:
+                if isinstance(it, dict) and _txt(it.get("q")).startswith("サンプル"):
+                    faq["items"] = new_items
+                    return
+            if all(isinstance(it, dict) and _txt(it.get("q")) == "" and _txt(it.get("a")) == "" for it in cur):
+                faq["items"] = new_items
+
+        # ---------- presets ----------
+        corp_sample_catch = "スタッフ・利用者の笑顔を守る企業"
+        corp_sample_sub = "地域に寄り添い、安心できるサービスを届けます"
+        corp_sample_points = ["地域密着", "丁寧な対応", "安心の体制"]
+
+        presets = {
+            # 介護（入所）
+            "care_residential_v1": {
+                "catch_copy": "安心して暮らせる、あたたかな住まい",
+                "sub_catch": "見学・入居相談を受け付けています",
+                "primary_cta": "入居相談",
+                "secondary_cta": "見学予約",
+                "hero_image": "G: 家",
+                "about_title": "施設紹介",
+                "about_body": "お部屋や共用スペース、食事や日々の過ごし方など、施設の雰囲気が伝わるようにご紹介します。安心してご相談いただけるよう、できるだけ分かりやすくまとめました。",
+                "points": ["個室・共用設備", "24時間サポート", "医療連携"],
+                "svc_title": "ケア・サポート内容",
+                "svc_lead": "介護体制・健康管理・日常生活のサポートなど、提供しているケアをまとめています。",
+                "svc_items": [
+                    {"title": "日常生活の支援", "body": "食事・入浴・排泄など、毎日の生活を丁寧にサポートします。"},
+                    {"title": "健康管理・医療連携", "body": "体調の変化に気づける体制を整え、必要に応じて医療機関と連携します。"},
+                    {"title": "レクリエーション", "body": "季節行事や交流の機会を通して、無理なく楽しめる時間をつくります。"},
+                ],
+                "faq_items": [
+                    {"q": "見学はできますか？", "a": "はい、可能です。日程を調整しますので、お電話またはお問い合わせフォームからご連絡ください。"},
+                    {"q": "費用の目安を知りたいです。", "a": "ご状況により異なります。料金の目安と補足をご案内しますので、お気軽にお問い合わせください。"},
+                    {"q": "入居までの流れを教えてください。", "a": "ご相談→見学→面談→ご契約→ご入居の順に進みます。詳細は個別にご案内します。"},
+                ],
+                "contact_message": "空室状況や費用の目安など、まずはお気軽にお問い合わせください。",
+            },
+            # 介護（通所）
+            "care_day_v1": {
+                "catch_copy": "毎日に、楽しみと安心を。デイサービスのご案内",
+                "sub_catch": "見学・体験利用のご相談を受け付けています",
+                "primary_cta": "見学・体験の相談",
+                "secondary_cta": "資料請求",
+                "hero_image": "E: 森",
+                "about_title": "私たちの想い",
+                "about_body": "通い慣れた地域で、安心して過ごせる場所を目指しています。お一人おひとりのペースを大切にしながら、日常の楽しみと安全を両立できるようサポートします。",
+                "points": ["送迎サポート", "活動プログラム", "看護・介護体制"],
+                "svc_title": "サービス内容",
+                "svc_lead": "日中の過ごし方や提供サービスを分かりやすくまとめています。",
+                "svc_items": [
+                    {"title": "入浴・食事", "body": "ご希望や体調に合わせて、安心してご利用いただけるよう支援します。"},
+                    {"title": "機能訓練・体操", "body": "無理のない範囲で、日常生活に必要な動きを保てるようサポートします。"},
+                    {"title": "レクリエーション", "body": "会話や制作活動など、楽しみながら参加できるプログラムをご用意します。"},
+                ],
+                "faq_items": [
+                    {"q": "体験利用はできますか？", "a": "はい、可能です。ご都合を伺って日程調整しますので、お気軽にご相談ください。"},
+                    {"q": "送迎はありますか？", "a": "送迎対応の有無・範囲は事業所により異なります。詳細はお問い合わせください。"},
+                    {"q": "利用の持ち物はありますか？", "a": "必要な持ち物はご利用内容により変わります。見学時にご案内します。"},
+                ],
+                "contact_message": "見学・体験・空き状況など、お気軽にご相談ください。",
+            },
+            # 障がい（入所：グループホームなど）
+            "disability_residential_v1": {
+                "catch_copy": "安心して暮らせるグループホーム",
+                "sub_catch": "見学・入居相談を受け付けています",
+                "primary_cta": "入居相談",
+                "secondary_cta": "見学予約",
+                "hero_image": "F: 手",
+                "about_title": "事業所の想い",
+                "about_body": "一人ひとりの生活リズムと気持ちを大切にし、安心して暮らせる環境づくりを進めています。自立に向けた支援と、あたたかな見守りの両方を大切にしています。",
+                "points": ["夜間体制", "生活スキル支援", "医療・家族連携"],
+                "svc_title": "生活サポート",
+                "svc_lead": "日常生活のサポート内容や体制をまとめています。",
+                "svc_items": [
+                    {"title": "生活の支援", "body": "食事・家事・身だしなみなど、日々の生活を一緒に整えます。"},
+                    {"title": "服薬・健康管理", "body": "体調の変化を共有し、必要に応じて関係機関と連携します。"},
+                    {"title": "相談・金銭管理", "body": "困りごとの相談や、必要に応じて金銭管理の支援を行います。"},
+                ],
+                "faq_items": [
+                    {"q": "対象となる方は？", "a": "サービスの対象や条件は事業所により異なります。まずはご状況をお聞かせください。"},
+                    {"q": "費用の目安を知りたいです。", "a": "ご契約形態により異なります。分かりやすくご説明しますので、お問い合わせください。"},
+                    {"q": "体験入居はできますか？", "a": "対応可否は時期により異なります。ご希望があれば早めにご相談ください。"},
+                ],
+                "contact_message": "入居のご相談や見学予約など、お気軽にお問い合わせください。",
+            },
+            # 障がい（通所：生活介護など）
+            "disability_day_v1": {
+                "catch_copy": "日中活動を、もっと安心に、もっと楽しく",
+                "sub_catch": "見学・体験利用のご相談を受け付けています",
+                "primary_cta": "見学・体験の相談",
+                "secondary_cta": "資料請求",
+                "hero_image": "F: 手",
+                "about_title": "支援方針",
+                "about_body": "安心できる環境の中で、活動を通して「できること」を少しずつ増やしていく支援を大切にしています。ご本人のペースを尊重し、日々の充実につながる時間をつくります。",
+                "points": ["活動プログラム", "生活支援", "地域連携"],
+                "svc_title": "活動・支援内容",
+                "svc_lead": "日中の活動内容やサポート体制をまとめています。",
+                "svc_items": [
+                    {"title": "創作・生産活動", "body": "手作業や制作など、集中して取り組める活動をご用意します。"},
+                    {"title": "生活訓練", "body": "身だしなみや生活スキルなど、日常に役立つ練習を行います。"},
+                    {"title": "余暇・外出", "body": "無理のない範囲で、外出や余暇活動を楽しむ機会をつくります。"},
+                ],
+                "faq_items": [
+                    {"q": "見学はできますか？", "a": "はい、可能です。日程調整しますのでお問い合わせください。"},
+                    {"q": "送迎はありますか？", "a": "送迎の有無や範囲は事業所により異なります。詳細はお問い合わせください。"},
+                    {"q": "利用開始までの流れは？", "a": "ご相談→見学→面談→手続き→ご利用開始の順で進みます。状況によりご案内します。"},
+                ],
+                "contact_message": "見学・体験・ご利用相談など、お気軽にご連絡ください。",
+            },
+            # 児童（入所）
+            "child_residential_v1": {
+                "catch_copy": "子どもの成長を支える生活の場",
+                "sub_catch": "見学・入所相談を受け付けています",
+                "primary_cta": "入所相談",
+                "secondary_cta": "見学予約",
+                "hero_image": "D: ひかり",
+                "about_title": "施設紹介",
+                "about_body": "生活環境や過ごし方、支援体制についてご紹介します。安心してご相談いただけるよう、できるだけ分かりやすくまとめています。",
+                "points": ["安心の生活環境", "学習・生活支援", "医療・学校連携"],
+                "svc_title": "支援内容",
+                "svc_lead": "生活・学習・健康面などの支援内容をまとめています。",
+                "svc_items": [
+                    {"title": "生活支援", "body": "安心して日々を過ごせるよう、生活面を丁寧に支えます。"},
+                    {"title": "学習・成長の支援", "body": "お子さまの状況に合わせて、学習や生活スキルの支援を行います。"},
+                    {"title": "関係機関連携", "body": "医療機関・学校・関係機関と連携し、支援の質を高めます。"},
+                ],
+                "faq_items": [
+                    {"q": "対象となる年齢は？", "a": "対象年齢や受け入れ条件は施設により異なります。まずはご相談ください。"},
+                    {"q": "見学はできますか？", "a": "はい、可能です。ご都合を伺って日程調整します。"},
+                    {"q": "費用について知りたいです。", "a": "ご状況により異なります。目安と補足を分かりやすくご案内します。"},
+                ],
+                "contact_message": "入所相談・見学予約など、お気軽にお問い合わせください。",
+            },
+            # 児童（通所：児発/放デイ）
+            "child_day_v1": {
+                "catch_copy": "子どもの「できた！」を増やす療育",
+                "sub_catch": "見学・無料相談 受付中",
+                "primary_cta": "見学・相談",
+                "secondary_cta": "資料請求",
+                "hero_image": "D: ひかり",
+                "about_title": "私たちの想い",
+                "about_body": "お子さまの成長に寄り添い、安心して通える場所づくりを大切にしています。保護者の方の不安や悩みにも丁寧に向き合いながら、日々の「できた」を一緒に増やしていきます。",
+                "points": ["少人数サポート", "個別プログラム", "保護者連携"],
+                "svc_title": "療育プログラム",
+                "svc_lead": "発達段階や特性に合わせた療育内容を分かりやすくまとめています。",
+                "svc_items": [
+                    {"title": "コミュニケーション", "body": "遊びや関わりの中で、気持ちの伝え方ややりとりを育てます。"},
+                    {"title": "学習・生活スキル", "body": "身支度や学習の土台づくりなど、日常に役立つ力を伸ばします。"},
+                    {"title": "運動・感覚あそび", "body": "体を動かしながら、感覚統合や姿勢づくりをサポートします。"},
+                ],
+                "faq_items": [
+                    {"q": "受給者証がなくても相談できますか？", "a": "はい、可能です。状況に応じて手続きの流れもご案内します。"},
+                    {"q": "送迎はありますか？", "a": "送迎の有無・範囲は事業所により異なります。お問い合わせください。"},
+                    {"q": "体験はできますか？", "a": "はい、可能です。まずは見学・相談からお気軽にご連絡ください。"},
+                ],
+                "contact_message": "ご不安なことは、まず無料相談からお気軽にどうぞ。",
+            },
+        }
+
+        preset = presets.get(template_id)
+        if not preset:
+            # welfare_v1 などの中間IDは、通所系の雰囲気で軽く当てる（空/サンプルのみ）
+            if template_id == "welfare_v1":
+                preset = presets.get("care_day_v1")
+            else:
+                return
+
+        # ---------- apply (safe overwrite) ----------
+        set_text(step2, "catch_copy", preset.get("catch_copy", ""), replace_if=["", corp_sample_catch])
+
+        set_text(hero, "sub_catch", preset.get("sub_catch", ""), replace_if=["", corp_sample_sub])
+        set_text(hero, "primary_button_text", preset.get("primary_cta", ""), replace_if=["", "お問い合わせ"])
+        set_text(hero, "secondary_button_text", preset.get("secondary_cta", ""), replace_if=["", "資料請求"])
+
+        # 画像：未選択 or 既定のままなら差し替え
+        if preset.get("hero_image") and _txt(hero.get("hero_image")) in ("", "A: オフィス"):
+            hero["hero_image"] = preset["hero_image"]
+
+        set_text(philosophy, "title", preset.get("about_title", ""), replace_if=["", "私たちの想い", "理念・概要"])
+        set_text(philosophy, "body", preset.get("about_body", ""), startswith="ここに")
+        set_list(philosophy, "points", preset.get("points", []), replace_if_lists=[corp_sample_points])
+
+        set_text(services, "title", preset.get("svc_title", ""), replace_if=["", "業務内容"])
+        set_text(services, "lead", preset.get("svc_lead", ""), startswith="ここに")
+        if preset.get("svc_items"):
+            set_services_items(preset["svc_items"])
+
+        if preset.get("faq_items"):
+            set_faq_items(preset["faq_items"])
+
+        set_text(contact, "message", preset.get("contact_message", ""), startswith="ここに")
+        # button_text はユーザーが変えやすいので、空の時だけ埋める
+        set_text(contact, "button_text", contact.get("button_text") or "お問い合わせ", replace_if=[""])
+
+    except Exception:
+        # ここで落ちるとプレビューや保存に影響するので、必ず握りつぶす
+        return
+
+
 def normalize_project(p: dict) -> dict:
     """project.json をアプリ内で扱いやすい形に整える（足りない項目を補う）。"""
     if not isinstance(p, dict):
@@ -1876,67 +2138,23 @@ def normalize_project(p: dict) -> dict:
     contact.setdefault("hours", "平日 9:00〜18:00")
     contact.setdefault("message", "まずはお気軽にご相談ください。")
 
-    # ---- Template-specific starter defaults (welfare day-service, v0.6.8) ----
+    # ---- Template-specific starter defaults (safe) ----
+    # 業種を切り替えたときに「文章が変わらない」問題を避けるため、
+    # 初期文（空/サンプル）だけをテンプレに合わせて差し替える。
     template_id = resolve_template_id(step1)
+    step1["template_id"] = template_id
 
     # Ensure keys exist for preview stability
     contact.setdefault("button_text", "お問い合わせ")
 
-    if template_id in ("care_day_v1", "disability_day_v1", "child_day_v1"):
-        # Welfare day-service: default theme closer to "warm & calm"
-        if step1.get("primary_color", "blue") == "blue":
-            step1["primary_color"] = "green"
-
-        # Catch copy: override only when still at the corporate sample
-        if step2.get("catch_copy", "").strip() in ("", "スタッフ・利用者の笑顔を守る企業"):
-            step2["catch_copy"] = "“できる”が増える毎日へ。"
-
-        # Hero: sub / CTA
-        if hero.get("sub_catch", "").strip() in ("", "地域に寄り添い、安心できるサービスを届けます"):
-            hero["sub_catch"] = "見学・体験・ご相談は随時受付中。まずは気軽にお問い合わせください。"
-        if hero.get("primary_button_text", "").strip() in ("", "お問い合わせ"):
-            hero["primary_button_text"] = "見学・体験を予約"
-        if hero.get("secondary_button_text", "").strip() in ("", "見学・相談"):
-            hero["secondary_button_text"] = "まずは相談"
-
-        # Hero image: prefer people / activity feel (can be changed later)
-        if hero.get("hero_image", "").strip() in ("", "A: オフィス"):
-            hero["hero_image"] = "B: チーム"
-
-        # Philosophy: title/body/points
-        if philosophy.get("title", "").strip() in ("", "私たちの想い"):
-            philosophy["title"] = "私たちの支援"
-        if philosophy.get("body", "").strip().startswith("ここに"):
-            philosophy["body"] = (
-                "一人ひとりのペースに合わせて、安心して過ごせる居場所と、日中活動の機会を提供します。"
-                "体験利用から丁寧にご案内し、目標に合わせたサポートを行います。"
-            )
-        if philosophy.get("points", []) == ["地域密着", "丁寧な対応", "安心の体制"]:
-            philosophy["points"] = ["見学・体験OK", "個別支援", "少人数", "送迎相談可"]
-
-        # FAQ: day-service oriented (override only when sample)
-        if any(str(it.get("q", "")).startswith("サンプル") for it in faq_items):
-            faq["items"] = [
-                {"q": "見学・体験はできますか？", "a": "はい。ご希望日時を伺い、日程調整のうえご案内します。"},
-                {"q": "利用料金はどのくらいですか？", "a": "サービス区分・所得により異なります。まずは状況をお聞かせください。"},
-                {"q": "送迎はありますか？", "a": "エリアにより対応可能です。詳細はお問い合わせください。"},
-                {"q": "1日の流れを教えてください。", "a": "来所→活動→休憩→活動→帰宅の流れです。見学時に詳しくご説明します。"},
-            ]
-
-        # Contact: CTA/Message
-        if contact.get("message", "").strip() in ("", "まずはお気軽にご相談ください。"):
-            contact["message"] = "見学・体験・ご相談はお気軽に。ご希望日時を添えてご連絡ください。"
-        if contact.get("button_text", "").strip() in ("", "お問い合わせ"):
-            contact["button_text"] = "見学・体験を申し込む"
-
-        # Optional: keep a small guideline for photo direction (future UI usage)
-        p.setdefault("guides", {})
-        p["guides"].setdefault(
-            "photo_direction_day_service",
-            "活動の様子（手元だけでなく空気感）＋スタッフの寄り添いが伝わる写真。逆光で文字が読めなくならない構図。"
-        )
+    applied = step1.get("_applied_template_id")
+    if applied != template_id:
+        apply_template_starter_defaults(p, template_id)
+        step1["_applied_template_id"] = template_id
 
     return p
+
+
 
 
 def get_current_project(user: Optional[User]) -> Optional[dict]:
@@ -2213,144 +2431,145 @@ def _preview_accent_hex(primary: str) -> str:
     # それ以外は既存の COLOR_HEX を採用
     return COLOR_HEX.get(primary, "#1976d2")
 
+def _preview_accent2_hex(primary: str, accent_hex: str) -> str:
+    """プレビュー用のアクセント2（グラデーション用の2色目）"""
+    presets = {
+        "blue": "#7c3aed",    # violet-600
+        "green": "#14b8a6",   # teal-500
+        "red": "#fb7185",     # rose-400
+        "orange": "#f59e0b",  # amber-500
+        "purple": "#ec4899",  # pink-500
+        "grey": "#64748b",    # slate-500
+        "black": "#a78bfa",   # violet-400
+        "white": "#60a5fa",   # blue-400
+    }
+    if primary in presets:
+        return presets[primary]
+    # fallback: accent を少しだけ明るくして2色目にする
+    try:
+        return _blend_hex(accent_hex, "#ffffff", 0.35)
+    except Exception:
+        return accent_hex
+
+
 
 def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, **_ignore) -> str:
     """Return inline CSS variables for the preview glass theme.
 
-    v0.6.84:
-    - Step1の「ページカラー」が“確実に”プレビューへ効くように、ここでパレットを作る。
-    - 背景は「3段階の深み」が出るように、色の光（グロー）を多層グラデで表現する。
-
-    事故防止のため、引数の形を2パターン許容します（互換維持）:
-      - step1(dict) を渡す（推奨）
-      - primary_color(str) を渡す
-
-    さらに refactor 時の引数ズレでプレビューが真っ白にならないように、
-    余分な keyword 引数は無視します（**_ignore）。
+    - カラー設定が確実に効くように、ここで必要なCSS変数をすべて揃える
+    - 背景は「薄いグラデ + 複数の丸い光（ガラス）」で奥行きを作る
     """
 
-    # 1) 入力の正規化（dict / str の両対応）
-    if isinstance(step1_or_primary, dict):
-        step1 = step1_or_primary or {}
-        primary_color = (step1.get("primary_color") or "blue").strip() or "blue"
-        if dark is None:
-            dark = primary_color == "black"
-    else:
-        primary_color = (str(step1_or_primary) if step1_or_primary is not None else "blue").strip() or "blue"
-        if dark is None:
-            dark = primary_color == "black"
+    # ---- primary color ----
+    primary = "blue"
+    try:
+        if isinstance(step1_or_primary, dict):
+            primary = str(step1_or_primary.get("primary_color") or "blue")
+        elif isinstance(step1_or_primary, str) and step1_or_primary:
+            primary = str(step1_or_primary)
+    except Exception:
+        primary = "blue"
 
-    primary_color = COLOR_MIGRATION.get(primary_color, primary_color)
-    theme = "dark" if bool(dark) else "light"
+    accent = _preview_accent_hex(primary)
+    accent2 = _preview_accent2_hex(primary, accent)
 
-    # 2) アクセント色（1 + 2）と背景ベース（bg1/bg2）
-    accent = _preview_accent_hex(primary_color)
+    # ---- dark mode decision ----
+    if dark is None:
+        dark = (primary == "black")
+    is_dark = bool(dark)
 
-    accent2_map = {
-        "blue": "#7c3aed",    # violet
-        "red": "#f97316",     # orange
-        "green": "#06b6d4",   # cyan
-        "orange": "#ef4444",  # red
-        "purple": "#2563eb",  # blue
-        "grey": "#0ea5e9",    # sky
-        "yellow": "#16a34a",  # green
-        "white": "#2563eb",   # blue
-        "black": "#a78bfa",   # violet
-    }
-    accent2 = accent2_map.get(primary_color, "#7c3aed")
-
-    bg_map_light = {
-        "blue": ("#f7fbff", "#eef2ff"),
-        "red": ("#fff7f7", "#fff1f2"),
-        "green": ("#f0fdf4", "#ecfeff"),
-        "orange": ("#fff7ed", "#fffbeb"),
-        "purple": ("#faf5ff", "#eff6ff"),
-        "grey": ("#f8fafc", "#f1f5f9"),
-        "yellow": ("#fffbeb", "#f0fdf4"),
-        "white": ("#ffffff", "#f1f5f9"),
-    }
-
-    if theme == "light":
-        bg1, bg2 = bg_map_light.get(primary_color, ("#f8fafc", "#eef2ff"))
-        text = "#0f172a"
-        muted = "rgba(15,23,42,.62)"
-        card = "rgba(255,255,255,.62)"
-        card_strong = "rgba(255,255,255,.78)"
-        border = "rgba(255,255,255,.55)"
-        line = "rgba(15,23,42,.10)"
-        chip_bg = "rgba(255,255,255,.70)"
-        chip_border = "rgba(255,255,255,.58)"
-        band = "rgba(255,255,255,.24)"
-        shadow = "0 18px 60px rgba(15,23,42,.16)"
-        shadow_soft = "0 10px 28px rgba(15,23,42,.10)"
-        a1, a2, a3 = (0.28, 0.22, 0.16)
-        neutral_glow = "rgba(255,255,255,0.38)"
-    else:
-        bg1, bg2 = ("#0b1220", "#0f172a")
-        text = "#e2e8f0"
-        muted = "rgba(226,232,240,.72)"
-        card = "rgba(15,23,42,.66)"
-        card_strong = "rgba(15,23,42,.78)"
-        border = "rgba(148,163,184,.18)"
-        line = "rgba(148,163,184,.14)"
-        chip_bg = "rgba(15,23,42,.56)"
-        chip_border = "rgba(148,163,184,.18)"
-        band = "rgba(15,23,42,.38)"
-        shadow = "0 18px 70px rgba(0,0,0,.55)"
-        shadow_soft = "0 10px 32px rgba(0,0,0,.42)"
-        a1, a2, a3 = (0.18, 0.14, 0.12)
-        neutral_glow = "rgba(255,255,255,0.08)"
-
+    # ---- color math ----
     r1, g1, b1 = _hex_to_rgb(accent)
     r2, g2, b2 = _hex_to_rgb(accent2)
 
-    base = {
-        # ===== theme core =====
-        "--pv-primary": accent,
-        "--pv-accent": accent,
-        "--pv-accent-2": accent2,
-        "--pv-bg1": bg1,
-        "--pv-bg2": bg2,
-        "--pv-text": text,
-        "--pv-muted": muted,
-        "--pv-card": card,
-        "--pv-card-strong": card_strong,
-        "--pv-border": border,
-        "--pv-line": line,
-        "--pv-chip-bg": chip_bg,
-        "--pv-chip-border": chip_border,
-        "--pv-band": band,
-        "--pv-shadow": shadow,
-        "--pv-shadow-soft": shadow_soft,
+    if not is_dark:
+        # 背景（かなり薄く、でも色は感じる）
+        bg1 = _blend_hex(accent, "#ffffff", 0.92)
+        bg2 = _blend_hex(accent2, "#ffffff", 0.94)
 
-        # ===== accent helpers =====
-        "--pv-primary-weak": f"rgba({r1},{g1},{b1},{0.14 if theme == 'light' else 0.18})",
-        "--pv-primary-faint": f"rgba({r1},{g1},{b1},{0.08 if theme == 'light' else 0.12})",
-        "--pv-accent2-weak": f"rgba({r2},{g2},{b2},{0.12 if theme == 'light' else 0.18})",
+        text = "#0f172a"
+        muted = "rgba(15, 23, 42, 0.72)"
+        border = "rgba(255, 255, 255, 0.38)"
+        line = "rgba(15, 23, 42, 0.10)"
 
-        # ===== background glows (depth) =====
-        "--pv-blob1": f"rgba({r1},{g1},{b1},{a1})",
-        "--pv-blob2": f"rgba({r2},{g2},{b2},{a2})",
-        "--pv-blob3": f"rgba({r1},{g1},{b1},{a3})",
-        "--pv-neutral-glow": neutral_glow,
-    }
+        # カード（＝各ブロック枠）をもう少し透明に（体感で約+50%）
+        card = "rgba(255, 255, 255, 0.34)"
+        chip_bg = "rgba(255, 255, 255, 0.36)"
+        chip_border = "rgba(255, 255, 255, 0.32)"
+        shadow = "0 24px 70px rgba(15, 23, 42, 0.12)"
 
-    # 背景（3段階の深み：色の光 + 白い霞 + ベースグラデ）
-    base["--pv-bg-img"] = (
-        "radial-gradient(1100px 780px at 8% 6%, var(--pv-blob1), transparent 62%),"
-        "radial-gradient(1000px 760px at 92% 18%, var(--pv-blob2), transparent 58%),"
-        "radial-gradient(900px 720px at 32% 92%, var(--pv-blob3), transparent 62%),"
-        "radial-gradient(900px 680px at 52% 35%, var(--pv-neutral-glow), transparent 60%),"
-        "linear-gradient(135deg, var(--pv-bg1), var(--pv-bg2))"
+        blob3 = "rgba(255, 255, 255, 0.26)"
+        blob4_hex = _blend_hex(accent2, "#ffffff", 0.55)
+        r4, g4, b4 = _hex_to_rgb(blob4_hex)
+
+        primary_weak = f"rgba({r1}, {g1}, {b1}, 0.14)"
+
+        bg_img = (
+            f"radial-gradient(980px 620px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.18), transparent 60%),"
+            f"radial-gradient(920px 560px at 88% 8%, rgba({r2}, {g2}, {b2}, 0.14), transparent 60%),"
+            f"radial-gradient(820px 520px at 8% 92%, {blob3}, transparent 62%),"
+            f"radial-gradient(760px 520px at 60% 55%, rgba({r4}, {g4}, {b4}, 0.18), transparent 62%),"
+            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
+        )
+
+        blob4 = f"rgba({r4}, {g4}, {b4}, 0.22)"
+
+    else:
+        # ダーク：黒ベタではなく、ほんのり色を乗せる
+        bg1 = _blend_hex("#0b1220", accent, 0.10)
+        bg2 = _blend_hex("#060913", accent2, 0.10)
+
+        text = "rgba(255, 255, 255, 0.92)"
+        muted = "rgba(255, 255, 255, 0.72)"
+        border = "rgba(255, 255, 255, 0.22)"
+        line = "rgba(255, 255, 255, 0.16)"
+
+        card = "rgba(15, 23, 42, 0.40)"
+        chip_bg = "rgba(255, 255, 255, 0.10)"
+        chip_border = "rgba(255, 255, 255, 0.16)"
+        shadow = "0 24px 80px rgba(0, 0, 0, 0.42)"
+
+        blob3 = "rgba(255, 255, 255, 0.10)"
+        blob4_hex = _blend_hex(accent2, "#0b1220", 0.35)
+        r4, g4, b4 = _hex_to_rgb(blob4_hex)
+
+        primary_weak = f"rgba({r1}, {g1}, {b1}, 0.18)"
+
+        bg_img = (
+            f"radial-gradient(980px 620px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.14), transparent 60%),"
+            f"radial-gradient(920px 560px at 88% 8%, rgba({r2}, {g2}, {b2}, 0.12), transparent 60%),"
+            f"radial-gradient(820px 520px at 8% 92%, {blob3}, transparent 62%),"
+            f"radial-gradient(760px 520px at 60% 55%, rgba({r4}, {g4}, {b4}, 0.14), transparent 62%),"
+            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
+        )
+
+        blob4 = f"rgba({r4}, {g4}, {b4}, 0.16)"
+
+    # 文字が埋もれないよう、最低限のコントラストはここで確保
+    #（白テーマでも primary が白になって消える事故を避ける）
+    q_primary = accent
+    q_secondary = accent2
+
+    bg_img_str = " ".join(bg_img)
+
+    return (
+        f"--q-primary: {q_primary};"
+        f"--q-secondary: {q_secondary};"
+        f"--pv-accent: {accent};"
+        f"--pv-accent-2: {accent2};"
+        f"--pv-primary: {accent};"
+        f"--pv-primary-weak: {primary_weak};"
+        f"--pv-text: {text};"
+        f"--pv-muted: {muted};"
+        f"--pv-border: {border};"
+        f"--pv-line: {line};"
+        f"--pv-card: {card};"
+        f"--pv-chip-bg: {chip_bg};"
+        f"--pv-chip-border: {chip_border};"
+        f"--pv-shadow: {shadow};"
+        f"--pv-blob4: {blob4};"
+        f"--pv-bg-img: {bg_img_str};"
     )
-
-    # Quasar (NiceGUI) theme variables (scoped to preview root)
-    base["--q-primary"] = accent
-    base["--q-secondary"] = accent2
-
-    return ";".join([f"{k}:{v}" for k, v in base.items()]) + ";"
-
-
 def render_preview(p: dict, mode: str = "pc") -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
@@ -2374,7 +2593,8 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     root_id = f"pv-root-{mode}"
     theme_style = _preview_glass_style(step1, dark=is_dark)
 
-    # v0.6.84: CSS変数はルート要素の style 属性で直接付与（確実に反映させる）
+    # scope the CSS variables to the preview root (so builder UI won't be affected)
+    ui.html(f"<style>#{root_id}{{{theme_style}}}</style>")
 
     # -------- helpers --------
     SECTION_IDS = {
@@ -2461,39 +2681,38 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
 
-    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f"id={root_id}").style(theme_style):
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f"id={root_id}"):
         # scroll container (header sticky)
         with ui.element("div").classes("pv-scroll"):
             # ----- header -----
             with ui.element("header").classes("pv-topbar pv-topbar-260218"):
-
-                # ハンバーガーメニュー（先に作ってからボタンで開く：未定義事故を防ぐ）
-                with ui.dialog() as nav_dialog:
-                    with ui.card().classes("pv-nav-card"):
-                        ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
-                        for label, sec in [
-                            ("トップ", "top"),
-                            ("お知らせ", "news"),
-                            ("私たちについて", "about"),
-                            ("業務内容", "services"),
-                            ("よくある質問", "faq"),
-                            ("アクセス", "access"),
-                            ("お問い合わせ", "contact"),
-                        ]:
-                            ui.button(
-                                label,
-                                on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
-                            ).props("flat no-caps").classes("pv-nav-item w-full")
-
-                with ui.row().classes("pv-topbar-inner w-full items-center justify-between no-wrap"):
-                    # brand (favicon + name) : 左詰め
+                with ui.row().classes("pv-topbar-inner items-center justify-between no-wrap"):
+                    # brand (favicon + name)
                     with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
                         if favicon_url:
                             ui.image(favicon_url).classes("pv-favicon")
                         ui.label(company_name).classes("pv-brand-name")
 
-                    # menu button : 右詰め
+                    # hamburger menu
+                    # hamburger menu（先にdialogを作ってからボタンで開く）
+                    with ui.dialog() as nav_dialog:
+                        with ui.card().classes("pv-nav-card"):
+                            ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
+                            for label, sec in [
+                                ("トップ", "top"),
+                                ("お知らせ", "news"),
+                                ("私たちについて", "about"),
+                                ("業務内容", "services"),
+                                ("よくある質問", "faq"),
+                                ("アクセス", "access"),
+                                ("お問い合わせ", "contact"),
+                            ]:
+                                ui.button(
+                                    label,
+                                    on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
+                                ).props("flat no-caps").classes("pv-nav-item w-full")
                     ui.button(icon="menu", on_click=nav_dialog.open).props("flat round dense").classes("pv-menu-btn")
+                    # menu opened by on_click
 
             # ----- main -----
             with ui.element("main").classes("pv-main"):
@@ -2506,10 +2725,10 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                 ui.label(sub_catch).classes("pv-hero-sub")
                             with ui.row().classes("pv-cta-row"):
                                 ui.button(primary_cta, on_click=lambda: scroll_to("contact")).props(
-                                    "no-caps unelevated"
+                                    "no-caps unelevated color=primary"
                                 ).classes("pv-btn pv-btn-primary")
                                 ui.button(secondary_cta, on_click=lambda: scroll_to("contact")).props(
-                                    "no-caps unelevated"
+                                    "no-caps outline color=primary"
                                 ).classes("pv-btn pv-btn-secondary")
 
                         with ui.element("div").classes("pv-hero-media"):
@@ -2635,8 +2854,8 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
                         if map_url:
                             ui.button("地図を開く").props(
-                                f'no-caps unelevated type=a href="{map_url}" target="_blank"'
-                            ).classes("pv-btn pv-btn-primary pv-map-btn")
+                                f'no-caps unelevated color=primary type=a href="{map_url}" target="_blank"'
+                            ).classes("pv-btn pv-map-btn")
 
                 # CONTACT
                 with ui.element("section").classes("pv-section pv-contact").props('id="pv-contact"'):
@@ -2651,13 +2870,13 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                         with ui.row().classes("pv-contact-actions"):
                             if phone:
                                 ui.button("電話する").props(
-                                    f'no-caps unelevated type=a href="tel:{phone}"'
+                                    f'no-caps outline color=primary type=a href="tel:{phone}"'
                                 ).classes("pv-btn pv-btn-secondary")
                             if email:
                                 ui.button("メール").props(
-                                    f'no-caps unelevated type=a href="mailto:{email}"'
+                                    f'no-caps outline color=primary type=a href="mailto:{email}"'
                                 ).classes("pv-btn pv-btn-secondary")
-                            ui.button(contact_btn, on_click=lambda: None).props("no-caps unelevated").classes(
+                            ui.button(contact_btn, on_click=lambda: None).props("no-caps unelevated color=primary").classes(
                                 "pv-btn pv-btn-primary"
                             )
 
@@ -2671,14 +2890,13 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             if phone:
                                 ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
                         with ui.element("div").classes("pv-companybar-right"):
-                            ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated").classes("pv-btn pv-btn-primary")
+                            ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated color=primary").classes("pv-btn pv-btn-primary")
 
                 # FOOTER
                 with ui.element("footer").classes("pv-footer"):
                     with ui.element("div").classes("pv-footer-grid"):
                         with ui.element("div"):
                             ui.label(company_name).classes("pv-footer-brand")
-                            ui.label("ページリンク").classes("pv-footer-cap")
                             for label, sec in [
                                 ("トップ", "top"),
                                 ("お知らせ", "news"),
