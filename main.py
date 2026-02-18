@@ -2352,7 +2352,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
 
-    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f'id="{root_id}"'):
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f"id={root_id}"):
         # scroll container (header sticky)
         with ui.element("div").classes("pv-scroll"):
             # ----- header -----
@@ -2365,7 +2365,6 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                         ui.label(company_name).classes("pv-brand-name")
 
                     # hamburger menu
-                    menu_btn = ui.button(icon="menu", on_click=nav_dialog.open).props("flat round dense").classes("pv-menu-btn")
                     with ui.dialog() as nav_dialog:
                         with ui.card().classes("pv-nav-card"):
                             ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
@@ -2382,12 +2381,14 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                     label,
                                     on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
                                 ).props("flat no-caps").classes("pv-nav-item w-full")
+
+                    ui.button(icon="menu", on_click=nav_dialog.open).props("flat round dense").classes("pv-menu-btn")
                     # menu opened by on_click
 
             # ----- main -----
             with ui.element("main").classes("pv-main"):
                 # HERO
-                with ui.element("section").classes("pv-section pv-hero").props('id="pv-top"'):
+                with ui.element("section").classes("pv-section pv-hero").props("id=pv-top"):
                     with ui.element("div").classes("pv-hero-grid"):
                         with ui.element("div").classes("pv-hero-copy"):
                             ui.label(_clean(catch_copy, company_name)).classes("pv-hero-title")
@@ -2403,7 +2404,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
 
                         with ui.element("div").classes("pv-hero-media"):
                             slider_id = f"pv-hero-slider-{mode}"
-                            with ui.element("div").classes("pv-hero-slider").props(f'id="{slider_id}"'):
+                            with ui.element("div").classes("pv-hero-slider").props(f"id={slider_id}"):
                                 with ui.element("div").classes("pv-hero-track"):
                                     for url in hero_urls:
                                         with ui.element("div").classes("pv-hero-slide"):
@@ -2414,7 +2415,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             )
 
                 # NEWS
-                with ui.element("section").classes("pv-section pv-news").props('id="pv-news"'):
+                with ui.element("section").classes("pv-section pv-news").props("id=pv-news"):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("お知らせ").classes("pv-section-title")
                         ui.label("NEWS").classes("pv-section-en")
@@ -2439,7 +2440,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                         ui.button("お知らせ一覧").props("no-caps flat").classes("pv-link-btn")
 
                 # ABOUT
-                with ui.element("section").classes("pv-section pv-about").props('id="pv-about"'):
+                with ui.element("section").classes("pv-section pv-about").props("id=pv-about"):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("私たちについて").classes("pv-section-title")
                         ui.label("ABOUT").classes("pv-section-en")
@@ -2458,7 +2459,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             ui.image(about_image_url).classes("pv-about-img")
 
                 # SERVICES (integrated in philosophy block)
-                with ui.element("section").classes("pv-section pv-services").props('id="pv-services"'):
+                with ui.element("section").classes("pv-section pv-services").props("id=pv-services"):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label(svc_title or "業務内容").classes("pv-section-title")
                         ui.label("SERVICES").classes("pv-section-en")
@@ -2487,7 +2488,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                     ui.label("業務内容の項目を設定してください。").classes("pv-muted")
 
                 # FAQ
-                with ui.element("section").classes("pv-section pv-faq").props('id="pv-faq"'):
+                with ui.element("section").classes("pv-section pv-faq").props("id=pv-faq"):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("よくある質問").classes("pv-section-title")
                         ui.label("FAQ").classes("pv-section-en")
@@ -2511,7 +2512,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             ui.label("よくある質問は準備中です。").classes("pv-muted")
 
                 # ACCESS
-                with ui.element("section").classes("pv-section pv-access").props('id="pv-access"'):
+                with ui.element("section").classes("pv-section pv-access").props("id=pv-access"):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("アクセス").classes("pv-section-title")
                         ui.label("ACCESS").classes("pv-section-en")
@@ -2528,7 +2529,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             ).classes("pv-btn pv-map-btn")
 
                 # CONTACT
-                with ui.element("section").classes("pv-section pv-contact").props('id="pv-contact"'):
+                with ui.element("section").classes("pv-section pv-contact").props("id=pv-contact"):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("お問い合わせ").classes("pv-section-title")
                         ui.label("CONTACT").classes("pv-section-en")
@@ -3116,6 +3117,11 @@ def render_main(u: User) -> None:
                                             if not p:
                                                 ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
                                                 return
+                                            pre_err = _preview_preflight_error()
+                                            if pre_err:
+                                                ui.label("プレビューの準備で問題が見つかりました").classes("text-negative q-pa-md")
+                                                ui.label(pre_err).classes("cvhb-muted q-pa-md")
+                                                return
                                             try:
                                                 render_preview(p, mode="mobile")
                                             except Exception as e:
@@ -3135,6 +3141,11 @@ def render_main(u: User) -> None:
                                         def preview_pc_panel():
                                             if not p:
                                                 ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
+                                                return
+                                            pre_err = _preview_preflight_error()
+                                            if pre_err:
+                                                ui.label("プレビューの準備で問題が見つかりました").classes("text-negative q-pa-md")
+                                                ui.label(pre_err).classes("cvhb-muted q-pa-md")
                                                 return
                                             try:
                                                 render_preview(p, mode="pc")
