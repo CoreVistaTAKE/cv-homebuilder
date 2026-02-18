@@ -1104,6 +1104,57 @@ def inject_global_styles() -> None:
   opacity: 0.62;
   font-size: 0.8rem;
 }
+/* ====== v0.6.83: Theme color clearly visible (Preview 260218) ====== */
+.pv-layout-260218 .pv-section-title{
+  position: relative;
+  padding-left: 12px;
+}
+.pv-layout-260218 .pv-section-title::before{
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.33em;
+  width: 6px;
+  height: 0.92em;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--pv-primary), var(--pv-accent-2));
+  box-shadow: 0 10px 30px rgba(0,0,0,.10);
+}
+
+.pv-layout-260218 .pv-menu-btn .q-icon{
+  color: var(--pv-primary) !important;
+}
+.pv-layout-260218.pv-dark .pv-menu-btn .q-icon{
+  color: rgba(255,255,255,0.92) !important;
+}
+
+.pv-layout-260218 .pv-btn-primary.q-btn{
+  background: linear-gradient(135deg, var(--pv-primary), var(--pv-accent-2)) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: var(--pv-shadow) !important;
+}
+.pv-layout-260218 .pv-btn-primary.q-btn:hover{
+  filter: brightness(1.03);
+}
+
+.pv-layout-260218 .pv-btn-secondary.q-btn{
+  background: rgba(255,255,255,0.78) !important;
+  color: var(--pv-text) !important;
+  border: 1px solid rgba(15,23,42,0.12) !important;
+  box-shadow: var(--pv-shadow-soft) !important;
+}
+.pv-layout-260218.pv-dark .pv-btn-secondary.q-btn{
+  background: rgba(15,23,42,0.56) !important;
+  border-color: rgba(148,163,184,0.18) !important;
+}
+.pv-layout-260218 .pv-btn-secondary.q-btn:hover{
+  background: rgba(255,255,255,0.92) !important;
+}
+.pv-layout-260218.pv-dark .pv-btn-secondary.q-btn:hover{
+  background: rgba(15,23,42,0.66) !important;
+}
+
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
 </style>
@@ -1166,7 +1217,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.82")
+VERSION = read_text_file("VERSION", "0.6.83")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -2166,6 +2217,10 @@ def _preview_accent_hex(primary: str) -> str:
 def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, **_ignore) -> str:
     """Return inline CSS variables for the preview glass theme.
 
+    v0.6.83:
+    - Step1の「ページカラー」が“確実に”プレビューへ効くように、ここでパレットを作る。
+    - 背景は「3段階の深み」が出るように、色の光（グロー）を多層グラデで表現する。
+
     事故防止のため、引数の形を2パターン許容します（互換維持）:
       - step1(dict) を渡す（推奨）
       - primary_color(str) を渡す
@@ -2185,66 +2240,113 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         if dark is None:
             dark = primary_color == "black"
 
+    primary_color = COLOR_MIGRATION.get(primary_color, primary_color)
     theme = "dark" if bool(dark) else "light"
+
+    # 2) アクセント色（1 + 2）と背景ベース（bg1/bg2）
     accent = _preview_accent_hex(primary_color)
 
-    def _hex_to_rgb(h: str) -> tuple[int, int, int]:
-        h = (h or "").lstrip("#")
-        if len(h) != 6:
-            return (0, 0, 0)
-        try:
-            return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-        except Exception:
-            return (0, 0, 0)
+    accent2_map = {
+        "blue": "#7c3aed",    # violet
+        "red": "#f97316",     # orange
+        "green": "#06b6d4",   # cyan
+        "orange": "#ef4444",  # red
+        "purple": "#2563eb",  # blue
+        "grey": "#0ea5e9",    # sky
+        "yellow": "#16a34a",  # green
+        "white": "#2563eb",   # blue
+        "black": "#a78bfa",   # violet
+    }
+    accent2 = accent2_map.get(primary_color, "#7c3aed")
 
-    r, g, b = _hex_to_rgb(accent)
-    blob1_a = 0.18 if theme == "light" else 0.16
-    blob2_a = 0.10 if theme == "light" else 0.10
-    blob3_a = 0.08 if theme == "light" else 0.09
-
-    base = {
-        "--pv-accent": accent,
-        "--pv-bg1": "#f8fafc",
-        "--pv-bg2": "#eef2ff",
-        "--pv-text": "#0f172a",
-        "--pv-muted": "rgba(15,23,42,.62)",
-        "--pv-card": "rgba(255,255,255,.55)",
-        "--pv-border": "rgba(255,255,255,.45)",
-        "--pv-line": "rgba(15,23,42,.10)",
-        "--pv-chip-bg": "rgba(255,255,255,.65)",
-        "--pv-chip-border": "rgba(255,255,255,.55)",
-        "--pv-blob1": f"rgba({r},{g},{b},{blob1_a})",
-        "--pv-blob2": f"rgba({r},{g},{b},{blob2_a})",
-        "--pv-blob3": f"rgba({r},{g},{b},{blob3_a})",
-        "--pv-band": "rgba(255,255,255,.22)",
+    bg_map_light = {
+        "blue": ("#f7fbff", "#eef2ff"),
+        "red": ("#fff7f7", "#fff1f2"),
+        "green": ("#f0fdf4", "#ecfeff"),
+        "orange": ("#fff7ed", "#fffbeb"),
+        "purple": ("#faf5ff", "#eff6ff"),
+        "grey": ("#f8fafc", "#f1f5f9"),
+        "yellow": ("#fffbeb", "#f0fdf4"),
+        "white": ("#ffffff", "#f1f5f9"),
     }
 
-    if theme == "dark":
-        base.update(
-            {
-                "--pv-bg1": "#0b1220",
-                "--pv-bg2": "#0f172a",
-                "--pv-text": "#e2e8f0",
-                "--pv-muted": "rgba(226,232,240,.72)",
-                "--pv-card": "rgba(15,23,42,.62)",
-                "--pv-border": "rgba(148,163,184,.18)",
-                "--pv-line": "rgba(148,163,184,.14)",
-                "--pv-chip-bg": "rgba(15,23,42,.52)",
-                "--pv-chip-border": "rgba(148,163,184,.18)",
-                "--pv-band": "rgba(15,23,42,.35)",
-            }
-        )
+    if theme == "light":
+        bg1, bg2 = bg_map_light.get(primary_color, ("#f8fafc", "#eef2ff"))
+        text = "#0f172a"
+        muted = "rgba(15,23,42,.62)"
+        card = "rgba(255,255,255,.62)"
+        card_strong = "rgba(255,255,255,.78)"
+        border = "rgba(255,255,255,.55)"
+        line = "rgba(15,23,42,.10)"
+        chip_bg = "rgba(255,255,255,.70)"
+        chip_border = "rgba(255,255,255,.58)"
+        band = "rgba(255,255,255,.24)"
+        shadow = "0 18px 60px rgba(15,23,42,.16)"
+        shadow_soft = "0 10px 28px rgba(15,23,42,.10)"
+        a1, a2, a3 = (0.28, 0.22, 0.16)
+        neutral_glow = "rgba(255,255,255,0.38)"
+    else:
+        bg1, bg2 = ("#0b1220", "#0f172a")
+        text = "#e2e8f0"
+        muted = "rgba(226,232,240,.72)"
+        card = "rgba(15,23,42,.66)"
+        card_strong = "rgba(15,23,42,.78)"
+        border = "rgba(148,163,184,.18)"
+        line = "rgba(148,163,184,.14)"
+        chip_bg = "rgba(15,23,42,.56)"
+        chip_border = "rgba(148,163,184,.18)"
+        band = "rgba(15,23,42,.38)"
+        shadow = "0 18px 70px rgba(0,0,0,.55)"
+        shadow_soft = "0 10px 32px rgba(0,0,0,.42)"
+        a1, a2, a3 = (0.18, 0.14, 0.12)
+        neutral_glow = "rgba(255,255,255,0.08)"
 
-    # 背景“画像”＝レイヤーグラデ（外部画像に依存せず、ガラス表現が映える）
+    r1, g1, b1 = _hex_to_rgb(accent)
+    r2, g2, b2 = _hex_to_rgb(accent2)
+
+    base = {
+        # ===== theme core =====
+        "--pv-primary": accent,
+        "--pv-accent": accent,
+        "--pv-accent-2": accent2,
+        "--pv-bg1": bg1,
+        "--pv-bg2": bg2,
+        "--pv-text": text,
+        "--pv-muted": muted,
+        "--pv-card": card,
+        "--pv-card-strong": card_strong,
+        "--pv-border": border,
+        "--pv-line": line,
+        "--pv-chip-bg": chip_bg,
+        "--pv-chip-border": chip_border,
+        "--pv-band": band,
+        "--pv-shadow": shadow,
+        "--pv-shadow-soft": shadow_soft,
+
+        # ===== accent helpers =====
+        "--pv-primary-weak": f"rgba({r1},{g1},{b1},{0.14 if theme == 'light' else 0.18})",
+        "--pv-primary-faint": f"rgba({r1},{g1},{b1},{0.08 if theme == 'light' else 0.12})",
+        "--pv-accent2-weak": f"rgba({r2},{g2},{b2},{0.12 if theme == 'light' else 0.18})",
+
+        # ===== background glows (depth) =====
+        "--pv-blob1": f"rgba({r1},{g1},{b1},{a1})",
+        "--pv-blob2": f"rgba({r2},{g2},{b2},{a2})",
+        "--pv-blob3": f"rgba({r1},{g1},{b1},{a3})",
+        "--pv-neutral-glow": neutral_glow,
+    }
+
+    # 背景（3段階の深み：色の光 + 白い霞 + ベースグラデ）
     base["--pv-bg-img"] = (
-        "radial-gradient(900px 700px at 12% 10%, var(--pv-blob1), transparent 60%),"
-        "radial-gradient(1000px 760px at 92% 28%, var(--pv-blob2), transparent 55%),"
-        "radial-gradient(900px 760px at 30% 95%, var(--pv-blob3), transparent 60%),"
+        "radial-gradient(1100px 780px at 8% 6%, var(--pv-blob1), transparent 62%),"
+        "radial-gradient(1000px 760px at 92% 18%, var(--pv-blob2), transparent 58%),"
+        "radial-gradient(900px 720px at 32% 92%, var(--pv-blob3), transparent 62%),"
+        "radial-gradient(900px 680px at 52% 35%, var(--pv-neutral-glow), transparent 60%),"
         "linear-gradient(135deg, var(--pv-bg1), var(--pv-bg2))"
     )
 
-    # Quasar primary (NiceGUI button color etc.)
+    # Quasar (NiceGUI) theme variables (scoped to preview root)
     base["--q-primary"] = accent
+    base["--q-secondary"] = accent2
 
     return ";".join([f"{k}:{v}" for k, v in base.items()]) + ";"
 
@@ -2405,10 +2507,10 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                 ui.label(sub_catch).classes("pv-hero-sub")
                             with ui.row().classes("pv-cta-row"):
                                 ui.button(primary_cta, on_click=lambda: scroll_to("contact")).props(
-                                    "no-caps unelevated color=primary"
+                                    "no-caps unelevated"
                                 ).classes("pv-btn pv-btn-primary")
                                 ui.button(secondary_cta, on_click=lambda: scroll_to("contact")).props(
-                                    "no-caps outline color=primary"
+                                    "no-caps unelevated"
                                 ).classes("pv-btn pv-btn-secondary")
 
                         with ui.element("div").classes("pv-hero-media"):
@@ -2534,8 +2636,8 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
                         if map_url:
                             ui.button("地図を開く").props(
-                                f'no-caps unelevated color=primary type=a href="{map_url}" target="_blank"'
-                            ).classes("pv-btn pv-map-btn")
+                                f'no-caps unelevated type=a href="{map_url}" target="_blank"'
+                            ).classes("pv-btn pv-btn-primary pv-map-btn")
 
                 # CONTACT
                 with ui.element("section").classes("pv-section pv-contact").props('id="pv-contact"'):
@@ -2550,13 +2652,13 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                         with ui.row().classes("pv-contact-actions"):
                             if phone:
                                 ui.button("電話する").props(
-                                    f'no-caps outline color=primary type=a href="tel:{phone}"'
+                                    f'no-caps unelevated type=a href="tel:{phone}"'
                                 ).classes("pv-btn pv-btn-secondary")
                             if email:
                                 ui.button("メール").props(
-                                    f'no-caps outline color=primary type=a href="mailto:{email}"'
+                                    f'no-caps unelevated type=a href="mailto:{email}"'
                                 ).classes("pv-btn pv-btn-secondary")
-                            ui.button(contact_btn, on_click=lambda: None).props("no-caps unelevated color=primary").classes(
+                            ui.button(contact_btn, on_click=lambda: None).props("no-caps unelevated").classes(
                                 "pv-btn pv-btn-primary"
                             )
 
@@ -2570,7 +2672,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                             if phone:
                                 ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
                         with ui.element("div").classes("pv-companybar-right"):
-                            ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated color=primary").classes("pv-btn pv-btn-primary")
+                            ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated").classes("pv-btn pv-btn-primary")
 
                 # FOOTER
                 with ui.element("footer").classes("pv-footer"):
