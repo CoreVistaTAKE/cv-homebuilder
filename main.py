@@ -109,6 +109,55 @@ def sanitize_error_text(text: str) -> str:
     return s
 
 
+
+def _safe_list(value) -> list:
+    """value を list として安全に扱う（None/単体でも落とさない）。"""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [v for v in value if v is not None]
+    # dict / str / number など単体は list に包む
+    return [value]
+
+
+def _preview_preflight_error() -> Optional[str]:
+    """プレビュー描画前に、必要な定義が揃っているかチェックして事故を減らす。"""
+    try:
+        import inspect
+
+        required = {
+            "_preview_glass_style": "callable",
+            "_safe_list": "callable",
+            "HERO_IMAGE_PRESETS": "dict",
+            "HERO_IMAGE_DEFAULT": "str",
+            "HERO_IMAGE_OPTIONS": "list",
+        }
+        g = globals()
+        for name, kind in required.items():
+            if name not in g:
+                return f"内部定義が見つかりません: {name}"
+            v = g[name]
+            if kind == "callable" and not callable(v):
+                return f"内部定義が不正です: {name}（callableではありません）"
+            if kind == "dict" and not isinstance(v, dict):
+                return f"内部定義が不正です: {name}（dictではありません）"
+            if kind == "str" and not isinstance(v, str):
+                return f"内部定義が不正です: {name}（strではありません）"
+            if kind == "list" and not isinstance(v, list):
+                return f"内部定義が不正です: {name}（listではありません）"
+
+        # 引数ズレ事故（unexpected keyword argument 等）を早期に検知する
+        sig = inspect.signature(g["_preview_glass_style"])
+        if "dark" not in sig.parameters:
+            return "_preview_glass_style に dark 引数がありません"
+        if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            return "_preview_glass_style は **kwargs を受け取る必要があります（互換維持のため）"
+
+        return None
+    except Exception:
+        # preflight 自体が原因で落ちないようにする
+        return None
+
 # =========================
 # [BLK-02] Global UI styles (v0.6.4)
 # =========================
@@ -1635,6 +1684,13 @@ def render_preview(p: dict, mode: str = "sp") -> None:
     step1 = p.get("step1", {}) or {}
     step2 = p.get("step2", {}) or {}
     blocks = p.get("blocks", {}) or {}
+
+    pre_err = _preview_preflight_error()
+    if pre_err:
+        with ui.element("div").classes("cvhb-preview-glass"):
+            ui.label("プレビュー初期化エラー").classes("text-red text-bold")
+            ui.label(pre_err).classes("text-red")
+        return
 
     primary_color = (step1.get("primary_color") or "blue").strip()
     is_dark = primary_color == "black"
