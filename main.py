@@ -675,12 +675,12 @@ def inject_global_styles() -> None:
   z-index: 50;
   padding: 12px 14px;
   backdrop-filter: blur(16px);
-  background: rgba(255,255,255,0.72);
-  border-bottom: 1px solid rgba(255,255,255,0.35);
+  background: linear-gradient(180deg, rgba(255,255,255,0.64), rgba(255,255,255,0.50));
+  border-bottom: 1px solid rgba(255,255,255,0.28);
 }
 
 .pv-layout-260218.pv-dark .pv-topbar-260218{
-  background: rgba(13,16,22,0.72);
+  background: linear-gradient(180deg, rgba(13,16,22,0.74), rgba(13,16,22,0.56));
   border-bottom: 1px solid rgba(255,255,255,0.10);
 }
 
@@ -843,13 +843,16 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-panel-flat{
-  background: rgba(255,255,255,0.70);
+  background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.30));
+  border: 1px solid rgba(255,255,255,0.26);
+  border-radius: 18px;
   backdrop-filter: blur(14px);
   padding: 16px;
 }
 
 .pv-layout-260218.pv-dark .pv-panel-flat{
-  background: rgba(15,18,25,0.48);
+  background: linear-gradient(180deg, rgba(15,18,25,0.62), rgba(15,18,25,0.40));
+  border-color: rgba(255,255,255,0.12);
 }
 
 .pv-layout-260218 .pv-muted{
@@ -1020,8 +1023,8 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-surface-white{
-  background: rgba(255,255,255,0.82);
-  border: 1px solid rgba(255,255,255,0.42);
+  background: linear-gradient(180deg, rgba(255,255,255,0.52), rgba(255,255,255,0.34));
+  border: 1px solid rgba(255,255,255,0.28);
   border-radius: 22px;
   box-shadow: var(--pv-shadow);
   backdrop-filter: blur(16px);
@@ -1029,7 +1032,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-dark .pv-surface-white{
-  background: rgba(12,15,22,0.52);
+  background: linear-gradient(180deg, rgba(12,15,22,0.64), rgba(12,15,22,0.44));
   border-color: rgba(255,255,255,0.12);
 }
 
@@ -1118,8 +1121,8 @@ def inject_global_styles() -> None:
   margin: 0 auto;
   border-radius: 22px;
   padding: 14px 16px;
-  background: rgba(255,255,255,0.58);
-  border: 1px solid rgba(255,255,255,0.28);
+  background: linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.26));
+  border: 1px solid rgba(255,255,255,0.22);
   backdrop-filter: blur(14px);
   display: flex;
   align-items: center;
@@ -1128,7 +1131,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-dark .pv-companybar-inner{
-  background: rgba(13,16,22,0.52);
+  background: linear-gradient(180deg, rgba(13,16,22,0.62), rgba(13,16,22,0.44));
   border-color: rgba(255,255,255,0.12);
 }
 
@@ -1247,6 +1250,73 @@ def inject_global_styles() -> None:
       sc.scrollTo({top: top, behavior: 'smooth'});
     } catch(e){}
   };
+
+  // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
+  // - Previewカード内で「横が全部見える」ように自動で縮小する
+  // - transform(scale) はレイアウトに影響しないため、JS側で left を調整して中央寄せする
+  window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {} };
+
+  window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth){
+    try{
+      const apply = function(){
+        const outer = document.getElementById(outerId);
+        const inner = document.getElementById(innerId);
+        if(!outer || !inner) return;
+
+        const ow = outer.clientWidth || 0;
+        if(ow <= 0) return;
+
+        // inner: absolute + fixed design width
+        inner.style.position = 'absolute';
+        inner.style.top = '0px';
+        inner.style.height = '100%';
+        inner.style.width = designWidth + 'px';
+
+        const scale = Math.min(1, ow / designWidth);
+        inner.style.transformOrigin = 'top left';
+        inner.style.transform = 'scale(' + scale + ')';
+
+        const visualW = designWidth * scale;
+        const left = Math.max(0, (ow - visualW) / 2);
+        inner.style.left = left + 'px';
+      };
+
+      window.__cvhbFit.regs[key] = apply;
+
+      // ResizeObserver (一番安定)
+      try{
+        if(window.ResizeObserver){
+          if(window.__cvhbFit.observers[key]){
+            window.__cvhbFit.observers[key].disconnect();
+            delete window.__cvhbFit.observers[key];
+          }
+          const outer = document.getElementById(outerId);
+          if(outer){
+            const obs = new ResizeObserver(function(){ try{ apply(); }catch(e){} });
+            obs.observe(outer);
+            window.__cvhbFit.observers[key] = obs;
+          }
+        }
+      }catch(e){}
+
+      // fallback: window resize
+      if(!window.__cvhbFitInit){
+        window.__cvhbFitInit = true;
+        window.addEventListener('resize', function(){
+          try{
+            const regs = (window.__cvhbFit && window.__cvhbFit.regs) ? window.__cvhbFit.regs : {};
+            for(const k in regs){
+              try{ regs[k](); }catch(e){}
+            }
+          }catch(e){}
+        });
+      }
+
+      // first run
+      setTimeout(apply, 0);
+    }catch(e){}
+  };
+
 })();
 </script>
 """,
@@ -2651,26 +2721,28 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
         text = "#0f172a"
         muted = "rgba(15, 23, 42, 0.72)"
-        border = "rgba(255, 255, 255, 0.38)"
+        border = "rgba(255, 255, 255, 0.30)"
         line = "rgba(15, 23, 42, 0.10)"
 
         # カード（＝各ブロック枠）をもう少し透明に（体感で約+50%）
-        card = "rgba(255, 255, 255, 0.34)"
-        chip_bg = "rgba(255, 255, 255, 0.36)"
-        chip_border = "rgba(255, 255, 255, 0.32)"
-        shadow = "0 24px 70px rgba(15, 23, 42, 0.12)"
+        card = "linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.18))"
+        chip_bg = "rgba(255, 255, 255, 0.26)"
+        chip_border = "rgba(255, 255, 255, 0.24)"
+        shadow = "0 20px 60px rgba(15, 23, 42, 0.10)"
 
-        blob3 = "rgba(255, 255, 255, 0.26)"
+        blob3 = "rgba(255, 255, 255, 0.22)"
         blob4_hex = _blend_hex(accent2, "#ffffff", 0.55)
         r4, g4, b4 = _hex_to_rgb(blob4_hex)
 
         primary_weak = f"rgba({r1}, {g1}, {b1}, 0.14)"
 
         bg_img = (
-            f"radial-gradient(980px 620px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.18), transparent 60%),"
-            f"radial-gradient(920px 560px at 88% 8%, rgba({r2}, {g2}, {b2}, 0.14), transparent 60%),"
-            f"radial-gradient(820px 520px at 8% 92%, {blob3}, transparent 62%),"
-            f"radial-gradient(760px 520px at 60% 55%, rgba({r4}, {g4}, {b4}, 0.18), transparent 62%),"
+            f"radial-gradient(980px 640px at 14% 12%, rgba({r1}, {g1}, {b1}, 0.17), transparent 62%),"
+            f"radial-gradient(940px 600px at 86% 10%, rgba({r2}, {g2}, {b2}, 0.13), transparent 62%),"
+            f"radial-gradient(320px 320px at 86% 78%, transparent 0%, transparent 60%, rgba({r1}, {g1}, {b1}, 0.18) 61%, rgba({r1}, {g1}, {b1}, 0.18) 62%, transparent 63%),"
+            f"radial-gradient(240px 240px at 18% 70%, rgba({r2}, {g2}, {b2}, 0.10) 0%, rgba({r2}, {g2}, {b2}, 0.10) 38%, transparent 39%),"
+            f"radial-gradient(820px 520px at 10% 92%, {blob3}, transparent 62%),"
+            f"radial-gradient(760px 520px at 62% 56%, rgba({r4}, {g4}, {b4}, 0.18), transparent 64%),"
             f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
         )
 
@@ -2686,22 +2758,24 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         border = "rgba(255, 255, 255, 0.22)"
         line = "rgba(255, 255, 255, 0.16)"
 
-        card = "rgba(15, 23, 42, 0.40)"
-        chip_bg = "rgba(255, 255, 255, 0.10)"
+        card = "linear-gradient(180deg, rgba(15, 23, 42, 0.48), rgba(15, 23, 42, 0.32))"
+        chip_bg = "rgba(255, 255, 255, 0.09)"
         chip_border = "rgba(255, 255, 255, 0.16)"
-        shadow = "0 24px 80px rgba(0, 0, 0, 0.42)"
+        shadow = "0 22px 80px rgba(0, 0, 0, 0.42)"
 
-        blob3 = "rgba(255, 255, 255, 0.10)"
+        blob3 = "rgba(255, 255, 255, 0.09)"
         blob4_hex = _blend_hex(accent2, "#0b1220", 0.35)
         r4, g4, b4 = _hex_to_rgb(blob4_hex)
 
         primary_weak = f"rgba({r1}, {g1}, {b1}, 0.18)"
 
         bg_img = (
-            f"radial-gradient(980px 620px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.14), transparent 60%),"
-            f"radial-gradient(920px 560px at 88% 8%, rgba({r2}, {g2}, {b2}, 0.12), transparent 60%),"
-            f"radial-gradient(820px 520px at 8% 92%, {blob3}, transparent 62%),"
-            f"radial-gradient(760px 520px at 60% 55%, rgba({r4}, {g4}, {b4}, 0.14), transparent 62%),"
+            f"radial-gradient(980px 640px at 14% 12%, rgba({r1}, {g1}, {b1}, 0.13), transparent 62%),"
+            f"radial-gradient(940px 600px at 86% 10%, rgba({r2}, {g2}, {b2}, 0.11), transparent 62%),"
+            f"radial-gradient(320px 320px at 86% 78%, transparent 0%, transparent 60%, rgba({r1}, {g1}, {b1}, 0.14) 61%, rgba({r1}, {g1}, {b1}, 0.14) 62%, transparent 63%),"
+            f"radial-gradient(240px 240px at 18% 70%, rgba({r2}, {g2}, {b2}, 0.08) 0%, rgba({r2}, {g2}, {b2}, 0.08) 38%, transparent 39%),"
+            f"radial-gradient(820px 520px at 10% 92%, {blob3}, transparent 62%),"
+            f"radial-gradient(760px 520px at 62% 56%, rgba({r4}, {g4}, {b4}, 0.12), transparent 64%),"
             f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
         )
 
@@ -3614,7 +3688,7 @@ def render_main(u: User) -> None:
                                 with ui.card().style(
                                     "width: min(100%, 800px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 22px; margin: 0 auto;"
                                 ).props("flat bordered"):
-                                    with ui.element("div").style("height: 100%; overflow: hidden;"):
+                                    with ui.element("div").props("id=pv-fit-mobile").style("height: 100%; overflow: hidden; position: relative; background: transparent;"):
                                         @ui.refreshable
                                         def preview_mobile_panel():
                                             if not p:
@@ -3622,6 +3696,11 @@ def render_main(u: User) -> None:
                                                 return
                                             try:
                                                 render_preview(p, mode="mobile")
+                                                # fit-to-width (design: 720px)
+                                                try:
+                                                    ui.run_javascript("window.cvhbFitRegister && window.cvhbFitRegister(\'pv_mobile\', \'pv-fit-mobile\', \'pv-root-mobile\', 720);")
+                                                except Exception:
+                                                    pass
                                             except Exception as e:
                                                 ui.label("プレビューでエラーが発生しました").classes("text-negative")
                                                 ui.label(sanitize_error_text(e)).classes("cvhb-muted")
@@ -3634,7 +3713,7 @@ def render_main(u: User) -> None:
                                 with ui.card().style(
                                     "width: min(100%, 1200px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 14px; margin: 0 auto;"
                                 ).props("flat bordered"):
-                                    with ui.element("div").style("height: 100%; overflow: hidden; background: transparent;"):
+                                    with ui.element("div").props("id=pv-fit-pc").style("height: 100%; overflow: hidden; position: relative; background: transparent;"):
                                         @ui.refreshable
                                         def preview_pc_panel():
                                             if not p:
@@ -3642,6 +3721,11 @@ def render_main(u: User) -> None:
                                                 return
                                             try:
                                                 render_preview(p, mode="pc")
+                                                # fit-to-width (design: 1920px)
+                                                try:
+                                                    ui.run_javascript("window.cvhbFitRegister && window.cvhbFitRegister(\'pv_pc\', \'pv-fit-pc\', \'pv-root-pc\', 1920);")
+                                                except Exception:
+                                                    pass
                                             except Exception as e:
                                                 ui.label("プレビューでエラーが発生しました").classes("text-negative")
                                                 ui.label(sanitize_error_text(e)).classes("cvhb-muted")
