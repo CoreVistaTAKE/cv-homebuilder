@@ -829,8 +829,9 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-mode-pc .pv-hero-grid{
-  grid-template-columns: 0.92fr 1.08fr;
-  align-items: center;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  align-items: start;
 }
 
 .pv-layout-260218 .pv-hero-title{
@@ -887,7 +888,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-mode-pc .pv-hero-img{
-  height: 380px;
+  height: 420px;
 }
 
 .pv-layout-260218 .pv-news-list{
@@ -1119,8 +1120,12 @@ def inject_global_styles() -> None:
   margin-bottom: 6px;
 }
 
+.pv-layout-260218 .pv-footer-link.q-btn,
+.pv-layout-260218 .pv-footer-link.q-btn .q-btn__content,
+.pv-layout-260218 .pv-footer-link.q-btn .q-btn__content span{
+  color: rgba(255,255,255,0.86) !important;
+}
 .pv-layout-260218 .pv-footer-link.q-btn{
-  color: rgba(255,255,255,0.78) !important;
   justify-content: flex-start;
   padding-left: 0;
 }
@@ -1658,13 +1663,13 @@ COLOR_MIGRATION = {
 HERO_IMAGE_PRESET_URLS = {
     "A: オフィス": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80",
     "B: チーム": "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1200&q=80",
-    "C: 街並み": "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=1200&q=80",
+    "C: 街並み": "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1200&q=80",
 
-    # 福祉テンプレ向けの“雰囲気”プリセット（固定IDよりも壊れにくいUnsplash Sourceを採用）
-    "D: ひかり": "https://source.unsplash.com/1200x800/?light",
-    "E: 森": "https://source.unsplash.com/1200x800/?forest",
-    "F: 手": "https://source.unsplash.com/1200x800/?care,hands",
-    "G: 家": "https://source.unsplash.com/1200x800/?home,house",
+    # 福祉テンプレ向けの“雰囲気”プリセット（※ 302リダイレクトの Unsplash Source をやめ、直URLで安定化）
+    "D: ひかり": "https://images.unsplash.com/photo-1519751138087-5bf79df62d5b?auto=format&fit=crop&w=1200&q=80",
+    "E: 木": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=80",
+    "F: 手": "https://images.unsplash.com/photo-1749065311606-fa115df115af?auto=format&fit=crop&w=1200&q=80",
+    "G: 家": "https://images.unsplash.com/photo-1632927126546-e3e051a0ba6e?auto=format&fit=crop&w=1200&q=80",
 }
 HERO_IMAGE_OPTIONS = list(HERO_IMAGE_PRESET_URLS.keys())
 
@@ -1856,7 +1861,7 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
                 "sub_catch": "体験利用・見学を受付中です",
                 "primary_cta": "体験利用",
                 "secondary_cta": "見学・相談",
-                "hero_image": "E: 森",
+                "hero_image": "E: 木",
                 "about_title": "サービス内容",
                 "about_body": "日中の活動やリハビリ、食事、送迎など、ご利用者さまの毎日が楽しくなるサービスを提供します。はじめての方にも分かりやすいように、ポイントをまとめました。",
                 "points": ["送迎あり", "安心の見守り", "楽しい活動"],
@@ -3005,7 +3010,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                 ("アクセス", "access"),
                                 ("お問い合わせ", "contact"),
                             ]:
-                                ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link")
+                                ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
                         with ui.element("div"):
                             ui.label("連絡先").classes("pv-footer-cap")
                             if address:
