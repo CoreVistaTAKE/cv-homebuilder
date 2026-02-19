@@ -177,8 +177,9 @@ def inject_global_styles() -> None:
     min-height: calc(100vh - 64px);
   }
   .cvhb-container {
-    max-width: 1680px;
-    margin: 0 auto;
+    max-width: 2000px;
+    margin-left: 0;
+    margin-right: auto;
     padding: 16px;
   }
 
@@ -641,6 +642,25 @@ def inject_global_styles() -> None:
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
 }
 
+/* ===== Builder内プレビューの「見やすい幅」(要望) =====
+   スマホ: 750px / PC: 1080px
+   ※カード自体は 800 / 最大1200 にして「余白」を作る
+*/
+.pv-shell.pv-layout-260218.pv-mode-mobile{
+  width: 750px;
+  max-width: 100%;
+  height: 100%;
+  margin: 0 auto;
+}
+
+.pv-shell.pv-layout-260218.pv-mode-pc{
+  width: 1080px;
+  max-width: 100%;
+  height: 100%;
+  margin: 0 auto;
+}
+
+
 .pv-layout-260218 .pv-scroll{
   height: 100%;
   overflow-y: auto;
@@ -665,13 +685,20 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-topbar-inner{
-  max-width: 1080px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
+
+/* ヘッダー内：会社名は左、メニューは右に固定 */
 
 .pv-layout-260218 .pv-brand{
   cursor: pointer;
   gap: 10px;
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
 }
 
 .pv-layout-260218 .pv-favicon{
@@ -691,11 +718,39 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-brand-name{
   font-weight: 800;
   letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pv-layout-260218 .pv-menu-btn{
-  opacity: 0.85;
+  opacity: 0.92;
 }
+
+/* 画像のように「三本線＋MENU（下）」にする */
+.pv-layout-260218 .pv-menu-btn.q-btn{
+  color: var(--pv-text);
+  padding: 6px 8px;
+  min-width: 48px;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-btn__content{
+  flex-direction: column;
+  line-height: 1;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-icon{
+  font-size: 24px;
+  margin: 0;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-btn__content .block{
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
 
 .pv-layout-260218 .pv-nav-card{
   width: min(92vw, 360px);
@@ -2815,7 +2870,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                     label,
                                     on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
                                 ).props("flat no-caps").classes("pv-nav-item w-full")
-                    ui.button(icon="menu", on_click=nav_dialog.open).props("flat round dense").classes("pv-menu-btn")
+                    ui.button("MENU", icon="menu", on_click=nav_dialog.open).props("flat dense no-caps").classes("pv-menu-btn")
                     # menu opened by on_click
 
             # ----- main -----
@@ -3557,7 +3612,7 @@ def render_main(u: User) -> None:
 
                             with ui.tab_panel("mobile"):
                                 with ui.card().style(
-                                    "width: clamp(360px, 44vw, 460px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 22px; margin: 0 auto;"
+                                    "width: min(100%, 800px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 22px; margin: 0 auto;"
                                 ).props("flat bordered"):
                                     with ui.element("div").style("height: 100%; overflow: hidden;"):
                                         @ui.refreshable
@@ -3577,7 +3632,7 @@ def render_main(u: User) -> None:
 
                             with ui.tab_panel("pc"):
                                 with ui.card().style(
-                                    "width: min(100%, 1120px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 14px; margin: 0 auto;"
+                                    "width: min(100%, 1200px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 14px; margin: 0 auto;"
                                 ).props("flat bordered"):
                                     with ui.element("div").style("height: 100%; overflow: hidden; background: transparent;"):
                                         @ui.refreshable
