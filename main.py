@@ -1376,6 +1376,35 @@ def inject_global_styles() -> None:
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
 window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {} };
 
+  // Debug logger (DevTools で必要なときだけONにできる)
+  window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
+  window.cvhbDebugEnable = window.cvhbDebugEnable || function(flag){
+    try{
+      window.__cvhbDebug.enabled = !!flag;
+      if(window.__cvhbDebug.enabled){
+        try{ console.info('[cvhb] debug enabled'); }catch(e){}
+      }
+    }catch(e){}
+  };
+  window.cvhbDebugLog = window.cvhbDebugLog || function(event, data){
+    try{
+      if(!window.__cvhbDebug || !window.__cvhbDebug.enabled) return;
+      const rec = { ts: new Date().toISOString(), event: String(event||''), data: data || null };
+      window.__cvhbDebug.logs.push(rec);
+      if(window.__cvhbDebug.logs.length > 400) window.__cvhbDebug.logs.shift();
+      try{ console.log('[cvhb]', rec.event, rec.data); }catch(e){}
+    }catch(e){}
+  };
+  window.cvhbDebugDump = window.cvhbDebugDump || function(){
+    try{
+      const logs = (window.__cvhbDebug && window.__cvhbDebug.logs) ? window.__cvhbDebug.logs : [];
+      return JSON.stringify(logs, null, 2);
+    }catch(e){
+      return '[]';
+    }
+  };
+
+
 window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth){
   try{
     const safeNum = function(v, fb){
@@ -1390,13 +1419,17 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
       try{
         const outer = document.getElementById(outerId);
         const inner = document.getElementById(innerId);
-        if(!outer || !inner) return;
+        if(!outer || !inner){
+          try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_missing', {key:key, outerId:outerId, innerId:innerId}); }catch(e){}
+          return;
+        }
 
         const rect = outer.getBoundingClientRect();
         const ow = safeNum(rect.width || outer.clientWidth || 0, 0);
 
         // not ready / hidden (0px になりがち) -> 少し待って再計測
         if(ow < 120){
+          try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, tries:tries}); }catch(e){}
           if(tries < 12){
             tries++;
             try{ clearTimeout(window.__cvhbFit.timers[key]); }catch(e){}
@@ -1423,6 +1456,8 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         const visualW = dw * scale;
         const left = Math.max(0, (ow - visualW) / 2);
         inner.style.left = left + 'px';
+
+        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, dw:dw, scale:scale, left:left}); }catch(e){}
       }catch(e){}
     };
 
@@ -1973,61 +2008,144 @@ def new_project_id() -> str:
     return f"p{ts}_{rnd}"
 
 
-def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: bool = False) -> None:
-    """テンプレ初期値を入れる（6ブロック固定のまま）。
+def apply_template_starter_defaults(p: dict, template_id: str) -> None:
+    """業種（テンプレ）を切り替えたときの「初期文言」を入れる。
 
     重要:
-    - force_reset=False:
-        既存案件を壊さないため「空 / サンプル」のみ差し替える（旧案件の互換性用）
-    - force_reset=True:
-        業種変更時。Step3（ページ内容詳細＝ブロックごと）をテンプレ初期値へリセットする
-        ※Step2（会社名/住所/電話など）は維持する
+    - すでにユーザーが編集した内容は、基本的に上書きしない
+    - ただし「サンプル文章」のままの場合は、テンプレに合わせて入れ替える
     """
     try:
-        if not isinstance(p, dict):
-            return
-        data = p.setdefault("data", {})
-        if not isinstance(data, dict):
-            return
+        data = p.get("data") or {}
+        p["data"] = data
 
-        step2 = data.setdefault("step2", {})
-        if not isinstance(step2, dict):
-            step2 = {}
-            data["step2"] = step2
+        step2 = data.get("step2") or {}
+        blocks = data.get("blocks") or {}
+        data["step2"] = step2
+        data["blocks"] = blocks
 
-        blocks = data.setdefault("blocks", {})
-        if not isinstance(blocks, dict):
-            blocks = {}
-            data["blocks"] = blocks
+        hero = blocks.get("hero") or {}
+        philosophy = blocks.get("philosophy") or {}
+        news = blocks.get("news") or {}
+        faq = blocks.get("faq") or {}
+        access = blocks.get("access") or {}
+        contact = blocks.get("contact") or {}
 
-        # ---- Presets（文章は短く、分かりやすく） ----
+        blocks["hero"] = hero
+        blocks["philosophy"] = philosophy
+        blocks["news"] = news
+        blocks["faq"] = faq
+        blocks["access"] = access
+        blocks["contact"] = contact
+
+        services = philosophy.get("services") or {}
+        if not isinstance(services, dict):
+            services = {}
+        philosophy["services"] = services
+
+        def _txt(v) -> str:
+            return str(v or "").strip()
+
+        def set_text(obj: dict, key: str, new_value: str, *, replace_if: Optional[set[str]] = None, startswith: Optional[str] = None) -> None:
+            cur = _txt(obj.get(key))
+            if cur == "":
+                obj[key] = new_value
+                return
+            if replace_if and cur in replace_if:
+                obj[key] = new_value
+                return
+            if startswith and cur.startswith(startswith):
+                obj[key] = new_value
+
+        def set_list(obj: dict, key: str, new_list: list, *, replace_if_lists: Optional[list] = None) -> None:
+            cur = obj.get(key)
+            if not isinstance(cur, list) or len(cur) == 0:
+                obj[key] = new_list
+                return
+            if replace_if_lists and cur in replace_if_lists:
+                obj[key] = new_list
+                return
+            if all(_txt(x) == "" for x in cur):
+                obj[key] = new_list
+
+        def set_services_items(new_items: list, *, replace_if_items_lists: Optional[list] = None) -> None:
+            cur = services.get("items")
+            if not isinstance(cur, list) or len(cur) == 0:
+                services["items"] = new_items
+                return
+
+            if replace_if_items_lists and cur in replace_if_items_lists:
+                services["items"] = new_items
+                return
+
+            # 既存の「サンプル」っぽい形なら入れ替える
+            for it in cur:
+                if isinstance(it, dict) and (
+                    _txt(it.get("title")).startswith("サービス") or _txt(it.get("title")).startswith("項目")
+                ):
+                    services["items"] = new_items
+                    return
+
+            if all(isinstance(it, dict) and _txt(it.get("title")) == "" and _txt(it.get("body")) == "" for it in cur):
+                services["items"] = new_items
+
+        def set_faq_items(new_items: list, *, replace_if_items_lists: Optional[list] = None) -> None:
+            cur = faq.get("items")
+            if not isinstance(cur, list) or len(cur) == 0:
+                faq["items"] = new_items
+                return
+
+            if replace_if_items_lists and cur in replace_if_items_lists:
+                faq["items"] = new_items
+                return
+
+            for it in cur:
+                if isinstance(it, dict) and _txt(it.get("q")).startswith("サンプル"):
+                    faq["items"] = new_items
+                    return
+
+            if all(isinstance(it, dict) and _txt(it.get("q")) == "" and _txt(it.get("a")) == "" for it in cur):
+                faq["items"] = new_items
+
+        # --- 会社テンプレの「サンプル」 ---
+        corp_sample_catch = "スタッフ・利用者の笑顔を守る企業"
+        corp_sample_sub = "地域に寄り添い、安心できるサービスを届けます"
+        corp_sample_points = ["地域密着", "丁寧な対応", "安心の体制"]
+        corp_sample_about_body = "ここに理念や会社の紹介文を書きます。\n（あとで自由に書き換えできます）"
+        corp_sample_svc_title = "業務内容"
+        corp_sample_svc_lead = "提供サービスの概要をここに記載します。"
+        corp_sample_svc_items = [
+            {"title": "サービス1", "body": "内容をここに記載します。"},
+            {"title": "サービス2", "body": "内容をここに記載します。"},
+            {"title": "サービス3", "body": "内容をここに記載します。"},
+        ]
+        corp_sample_faq_items = [
+            {"q": "サンプル：見学はできますか？", "a": "はい。お電話またはメールでお気軽にご連絡ください。"},
+            {"q": "サンプル：費用はどのくらいですか？", "a": "内容により異なります。まずはご要望をお聞かせください。"},
+            {"q": "サンプル：対応エリアはどこまでですか？", "a": "地域により異なります。詳細はお問い合わせください。"},
+        ]
+        corp_sample_contact_message = "まずはお気軽にご相談ください。"
+
+        # --- テンプレ別の初期文言（6ブロックは維持） ---
         presets: dict[str, dict] = {
-            # A) 会社・企業サイト
+            # 会社・企業サイト（基本）
             "corp_v1": {
-                "catch_copy": "",  # 空なら会社名が見出しになる
-                "sub_catch": "地域に寄り添い、安心できるサービスを届けます",
+                "catch_copy": "",
+                "sub_catch": corp_sample_sub,
                 "primary_cta": "お問い合わせ",
                 "secondary_cta": "見学・相談",
                 "hero_image": "A: オフィス",
                 "about_title": "私たちの想い",
-                "about_body": "ここに理念や会社の紹介を書きます。\n（あとで自由に編集できます）",
-                "points": ["地域密着", "丁寧な対応", "安心の体制"],
-                "svc_title": "業務内容",
-                "svc_lead": "提供しているサービスを、分かりやすくまとめます。",
-                "svc_items": [
-                    {"title": "サービス1", "body": "サービスの説明を入力します。"},
-                    {"title": "サービス2", "body": "特徴や強みを簡潔に書きます。"},
-                    {"title": "サービス3", "body": "対象や対応エリアなどを補足します。"},
-                ],
-                "faq_items": [
-                    {"q": "見学はできますか？", "a": "はい、可能です。日程を調整しますので、お問い合わせください。"},
-                    {"q": "費用の目安を知りたいです。", "a": "内容により異なります。まずはご要望をお聞かせください。"},
-                    {"q": "対応エリアはありますか？", "a": "地域により対応が異なります。詳しくはお問い合わせください。"},
-                ],
-                "contact_message": "まずはお気軽にご相談ください。",
+                "about_body": corp_sample_about_body,
+                "points": corp_sample_points,
+                "svc_title": corp_sample_svc_title,
+                "svc_lead": corp_sample_svc_lead,
+                "svc_items": corp_sample_svc_items,
+                "faq_items": corp_sample_faq_items,
+                "contact_message": corp_sample_contact_message,
             },
 
-            # B) 介護福祉（入所系）
+            # 介護福祉（入所系）
             "care_residential_v1": {
                 "catch_copy": "安心して暮らせる、あたたかな住まい",
                 "sub_catch": "見学・入居相談を受け付けています",
@@ -2035,24 +2153,24 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "secondary_cta": "見学・相談",
                 "hero_image": "G: 家",
                 "about_title": "施設紹介",
-                "about_body": "お部屋や共用スペース、食事や日々の過ごし方などをご紹介します。安心してご相談いただけるよう、分かりやすくまとめました。",
-                "points": ["居室・設備", "見守り体制", "医療連携"],
+                "about_body": "お部屋や共用スペース、食事や日々の過ごし方など、施設の雰囲気が伝わるようにご紹介します。安心してご相談いただけるよう、できるだけ分かりやすくまとめました。",
+                "points": ["清潔な居室", "日々の見守り", "医療連携"],
                 "svc_title": "サービス内容",
-                "svc_lead": "生活を支える体制を、3つのポイントでご紹介します。",
+                "svc_lead": "医療連携や介護体制など、安心して生活できるサポートを整えています。",
                 "svc_items": [
-                    {"title": "生活サポート", "body": "食事・服薬・入浴など、日常生活を支えます。"},
-                    {"title": "医療連携", "body": "医療機関と連携し、安心できる体制を整えます。"},
-                    {"title": "レクリエーション", "body": "季節行事や交流の機会を通して、無理なく楽しめる時間をつくります。"},
+                    {"title": "生活サポート", "body": "食事・入浴・服薬など、日常生活を丁寧に支えます。"},
+                    {"title": "医療連携", "body": "協力医療機関と連携し、体調変化に備えます。"},
+                    {"title": "夜間体制", "body": "夜間も見守りを行い、緊急時に対応します。"},
                 ],
                 "faq_items": [
-                    {"q": "見学はできますか？", "a": "はい、可能です。日程を調整しますのでお問い合わせください。"},
-                    {"q": "費用の目安を知りたいです。", "a": "状況により異なります。まずはお気軽にご相談ください。"},
-                    {"q": "入居までの流れを教えてください。", "a": "ご相談→見学→面談→手続き→入居の順に進みます。"},
+                    {"q": "見学はできますか？", "a": "はい、可能です。日程を調整しますので、お電話またはお問い合わせフォームからご連絡ください。"},
+                    {"q": "費用の目安を知りたいです。", "a": "状況により異なります。料金の目安と補足をご案内しますので、お気軽にお問い合わせください。"},
+                    {"q": "入居までの流れを教えてください。", "a": "ご相談→見学→面談→ご契約→ご入居の順に進みます。詳細は個別にご案内します。"},
                 ],
-                "contact_message": "空室状況や費用の目安など、お気軽にお問い合わせください。",
+                "contact_message": "空室状況や費用の目安など、まずはお気軽にお問い合わせください。",
             },
 
-            # C) 介護福祉（通所系）
+            # 介護福祉（通所系）
             "care_day_v1": {
                 "catch_copy": "“できる”が増える毎日へ。",
                 "sub_catch": "体験利用・見学を受付中です",
@@ -2060,24 +2178,24 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "secondary_cta": "見学・相談",
                 "hero_image": "E: 木",
                 "about_title": "サービス内容",
-                "about_body": "提供内容や対象の方を、分かりやすくまとめています。まずは見学・体験をご相談ください。",
-                "points": ["送迎対応", "活動の充実", "安心の見守り"],
+                "about_body": "日中の活動やリハビリ、食事、送迎など、ご利用者さまの毎日が楽しくなるサービスを提供します。はじめての方にも分かりやすいように、ポイントをまとめました。",
+                "points": ["送迎あり", "安心の見守り", "楽しい活動"],
                 "svc_title": "1日の流れ",
-                "svc_lead": "ご利用のイメージが伝わるように、流れを簡潔にご紹介します。",
+                "svc_lead": "ご利用のイメージができるように、1日の流れを簡単にご紹介します。",
                 "svc_items": [
-                    {"title": "午前", "body": "来所→健康チェック→活動"},
-                    {"title": "お昼", "body": "昼食→休憩"},
-                    {"title": "午後", "body": "活動→帰宅（送迎）"},
+                    {"title": "到着・健康チェック", "body": "体調を確認し、無理のない1日を始めます。"},
+                    {"title": "レクリエーション", "body": "季節行事や交流の機会を通して、無理なく楽しむ時間をつくります。"},
+                    {"title": "お帰り（送迎）", "body": "ご自宅まで安全にお送りします。"},
                 ],
                 "faq_items": [
-                    {"q": "体験利用はできますか？", "a": "はい。日程を調整しますのでお問い合わせください。"},
+                    {"q": "体験利用はできますか？", "a": "はい。日程をご相談のうえ、ご案内します。"},
                     {"q": "送迎はありますか？", "a": "地域により対応可能です。詳しくはお問い合わせください。"},
-                    {"q": "持ち物は必要ですか？", "a": "ご利用内容により異なります。事前にご案内します。"},
+                    {"q": "持ち物は必要ですか？", "a": "必要な持ち物は体験前にご案内します。"},
                 ],
-                "contact_message": "見学・体験のご希望など、お気軽にご相談ください。",
+                "contact_message": "体験利用のご希望やご不安な点など、お気軽にご相談ください。",
             },
 
-            # D) 障がい福祉（入所系）
+            # 障がい福祉（入所系 / グループホーム系）
             "disability_residential_v1": {
                 "catch_copy": "安心して暮らせる、あたたかな住まい",
                 "sub_catch": "見学・入居相談を受け付けています",
@@ -2085,14 +2203,14 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "secondary_cta": "見学・相談",
                 "hero_image": "G: 家",
                 "about_title": "事業所の想い",
-                "about_body": "一人ひとりの生活リズムを大切にしながら、安心して暮らせる環境づくりを行っています。支援の考え方を、分かりやすくまとめました。",
-                "points": ["個別支援", "夜間体制", "連携"],
+                "about_body": "私たちは、一人ひとりの生活リズムを大切にしながら、安心して暮らせる環境づくりを行っています。日々の支援の考え方や体制を、分かりやすくまとめました。",
+                "points": ["個別支援", "夜間体制", "医療連携"],
                 "svc_title": "生活サポート内容",
-                "svc_lead": "生活を支える体制を、3つのポイントでご紹介します。",
+                "svc_lead": "食事や服薬、日常生活の支援など、生活を支える体制を整えています。",
                 "svc_items": [
                     {"title": "日常生活支援", "body": "食事・服薬・清掃など、生活の基本を支えます。"},
-                    {"title": "相談支援", "body": "困りごとに寄り添い、必要な支援につなげます。"},
-                    {"title": "連携体制", "body": "医療・関係機関と連携し、安心できる暮らしを支えます。"},
+                    {"title": "相談支援", "body": "困りごとや不安に寄り添い、必要な支援につなげます。"},
+                    {"title": "連携体制", "body": "医療・福祉機関と連携し、安心できる暮らしを支えます。"},
                 ],
                 "faq_items": [
                     {"q": "見学はできますか？", "a": "はい。ご都合に合わせてご案内します。"},
@@ -2102,7 +2220,7 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "contact_message": "空室状況や費用の目安など、まずはお気軽にお問い合わせください。",
             },
 
-            # E) 障がい福祉（通所系）
+            # 障がい福祉（通所系）
             "disability_day_v1": {
                 "catch_copy": "“できる”が増える毎日へ。",
                 "sub_catch": "見学・体験を受付中です",
@@ -2116,7 +2234,7 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "svc_lead": "私たちの支援の強みを、3つのポイントでご紹介します。",
                 "svc_items": [
                     {"title": "活動の充実", "body": "創作や運動など、楽しみながら取り組める活動を用意しています。"},
-                    {"title": "個別支援", "body": "一人ひとりに合わせた支援で、無理なく続けられます。"},
+                    {"title": "個別支援", "body": "一人ひとりに合わせた支援計画で、無理なく続けられます。"},
                     {"title": "連携", "body": "関係機関やご家族と連携し、安心できる体制を整えます。"},
                 ],
                 "faq_items": [
@@ -2127,7 +2245,7 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "contact_message": "見学・体験のご希望など、お気軽にご相談ください。",
             },
 
-            # F) 児童福祉（入所系）
+            # 児童福祉（入所系）
             "child_residential_v1": {
                 "catch_copy": "安心して過ごせる、あたたかな環境",
                 "sub_catch": "見学・ご相談を受け付けています",
@@ -2152,7 +2270,7 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "contact_message": "ご不安な点や手続きのことなど、お気軽にご相談ください。",
             },
 
-            # G) 児童福祉（通所系 / 児発・放デイ）
+            # 児童福祉（通所系 / 児発・放デイ）
             "child_day_v1": {
                 "catch_copy": "“できた”が増える、たのしい毎日。",
                 "sub_catch": "見学・無料相談を受付中です",
@@ -2160,7 +2278,7 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 "secondary_cta": "無料相談",
                 "hero_image": "D: ひかり",
                 "about_title": "私たちの想い",
-                "about_body": "お子さま一人ひとりのペースを大切にしながら、安心して通える環境づくりを行っています。保護者の方にも分かりやすいようにまとめました。",
+                "about_body": "お子さま一人ひとりのペースを大切にしながら、安心して通える環境づくりを行っています。保護者の方にも分かりやすいように、ポイントをまとめました。",
                 "points": ["安心の療育", "丁寧な支援", "保護者支援"],
                 "svc_title": "療育プログラム",
                 "svc_lead": "目的や内容が伝わるように、プログラムのポイントをまとめています。",
@@ -2176,203 +2294,90 @@ def apply_template_starter_defaults(p: dict, template_id: str, *, force_reset: b
                 ],
                 "contact_message": "見学や無料相談など、お気軽にお問い合わせください。",
             },
-
-            # H) 個人事業（現状は会社テンプレ相当）
-            "personal_v1": {},
-
-            # I) その他（フリー6個：現状は会社テンプレ相当、文言だけ軽く変える）
-            "free6_v1": {
-                "catch_copy": "自由に作れる、あなたのホームページ",
-                "sub_catch": "文章も写真も、ここから作れます",
-                "primary_cta": "お問い合わせ",
-                "secondary_cta": "資料請求",
-                "hero_image": "C: 街並み",
-                "about_title": "自由枠1",
-                "about_body": "ここは自由枠です。好きな内容に書き換えられます。",
-                "points": ["ポイント1", "ポイント2", "ポイント3"],
-                "svc_title": "自由枠2",
-                "svc_lead": "ここも自由枠です。項目を入れ替えて使えます。",
-                "svc_items": [
-                    {"title": "自由項目1", "body": "ここに内容を書きます。"},
-                    {"title": "自由項目2", "body": "ここに内容を書きます。"},
-                    {"title": "自由項目3", "body": "ここに内容を書きます。"},
-                ],
-                "faq_items": [
-                    {"q": "ここはFAQです。", "a": "自由に編集できます。"},
-                    {"q": "質問を追加できますか？", "a": "はい。Step3のFAQで追加できます。"},
-                    {"q": "写真は変えられますか？", "a": "はい。ヒーロー画像などを変更できます。"},
-                ],
-                "contact_message": "まずはお気軽にお問い合わせください。",
-            },
         }
 
-        # personal_v1 は corp_v1 を使用（辞書が空ならfallback）
-        if template_id == "welfare_v1":
-            template_id = "care_day_v1"
-        if template_id == "personal_v1":
+        # テンプレIDのゆらぎ（簡易な寄せ）
+        if template_id in {"personal_v1", "free6_v1"}:
             template_id = "corp_v1"
 
-        preset = presets.get(template_id) or presets.get("corp_v1") or {}
-
-        # ---- Helpers ----
-        def _to_str(v: object) -> str:
-            if isinstance(v, str):
-                return v
-            if v is None:
-                return ""
-            return str(v)
-
-        def _deepcopy_list(lst: list) -> list:
-            # list[dict] 程度なので軽い手作りでOK
-            out: list = []
-            for it in lst or []:
-                if isinstance(it, dict):
-                    out.append({k: _to_str(val) for k, val in it.items()})
-                else:
-                    out.append(it)
-            return out
-
-        def set_text(obj: dict, key: str, value: str, *, replace_if=None, startswith=None, overwrite: bool = False) -> None:
-            if not isinstance(obj, dict):
+        preset = presets.get(template_id)
+        if not preset:
+            # welfare_v1 は「Step1だけ福祉」を選んだ状態でも最低限の文言を出すための保険
+            if template_id == "welfare_v1":
+                preset = presets.get("care_day_v1")
+            else:
                 return
-            value = _to_str(value)
-            if overwrite:
-                obj[key] = value
-                return
-            cur = _to_str(obj.get(key, ""))
-            if replace_if and cur in replace_if:
-                obj[key] = value
-                return
-            if startswith and cur.startswith(startswith):
-                obj[key] = value
-                return
-            if not cur.strip():
-                obj[key] = value
 
-        def set_list(obj: dict, key: str, value: list, *, replace_if_lists=None, overwrite: bool = False) -> None:
-            if not isinstance(obj, dict):
-                return
-            if overwrite:
-                obj[key] = _deepcopy_list(value)
-                return
-            cur = obj.get(key)
-            if not isinstance(cur, list):
-                cur = []
-            if replace_if_lists:
-                for rep in replace_if_lists:
-                    if cur == rep:
-                        obj[key] = _deepcopy_list(value)
-                        return
-            if len(cur) == 0:
-                obj[key] = _deepcopy_list(value)
+        def _gather(key: str) -> set[str]:
+            s: set[str] = set()
+            for v in presets.values():
+                vv = _txt(v.get(key))
+                if vv:
+                    s.add(vv)
+            return s
 
-        # ---- Sample values (旧案件で「まだサンプルのまま」を判定する) ----
-        # presets から集めた「初期文」をサンプルとして扱う
-        sample_catches = {v.get("catch_copy", "") for v in presets.values() if isinstance(v, dict) and v.get("catch_copy")}
-        sample_subs = {v.get("sub_catch", "") for v in presets.values() if isinstance(v, dict) and v.get("sub_catch")}
-        sample_about_titles = {v.get("about_title", "") for v in presets.values() if isinstance(v, dict) and v.get("about_title")}
-        sample_about_bodies = {v.get("about_body", "") for v in presets.values() if isinstance(v, dict) and v.get("about_body")}
-        sample_svc_titles = {v.get("svc_title", "") for v in presets.values() if isinstance(v, dict) and v.get("svc_title")}
-        sample_svc_leads = {v.get("svc_lead", "") for v in presets.values() if isinstance(v, dict) and v.get("svc_lead")}
-        sample_contact_messages = {v.get("contact_message", "") for v in presets.values() if isinstance(v, dict) and v.get("contact_message")}
+        # サンプル値集合（テンプレ切替時に入れ替えてよい値）
+        sample_catch = _gather("catch_copy") | {corp_sample_catch}
+        sample_sub = _gather("sub_catch") | {corp_sample_sub}
+        sample_primary = _gather("primary_cta") | {"お問い合わせ", "体験利用", "入居相談", "見学する", "相談する"}
+        sample_secondary = _gather("secondary_cta") | {"見学・相談", "無料相談", "見学する"}
+        sample_about_title = _gather("about_title") | {"私たちの想い", "理念・概要"}
+        sample_about_body = _gather("about_body") | {corp_sample_about_body}
+        sample_points_lists = [v.get("points") for v in presets.values() if isinstance(v.get("points"), list)]
+        sample_svc_title = _gather("svc_title") | {corp_sample_svc_title}
+        sample_svc_lead = _gather("svc_lead") | {corp_sample_svc_lead}
+        sample_svc_items_lists = [v.get("svc_items") for v in presets.values() if isinstance(v.get("svc_items"), list)]
+        sample_faq_items_lists = [v.get("faq_items") for v in presets.values() if isinstance(v.get("faq_items"), list)]
+        sample_contact_msg = _gather("contact_message") | {corp_sample_contact_message}
 
-        # ---- 1) 業種変更時：Step3をリセット ----
-        if force_reset:
-            # 既存の blocks をまるごと作り直す（Step3を確実にリセット）
-            blocks.clear()
+        # --- Step2 ---
+        set_text(step2, "catch_copy", preset.get("catch_copy", ""), replace_if=sample_catch)
 
-            blocks["hero"] = {
-                "sub_catch": preset.get("sub_catch") or presets["corp_v1"]["sub_catch"],
-                "hero_image": preset.get("hero_image") or presets["corp_v1"]["hero_image"],
-                "hero_image_url": "",
-                "hero_image_urls": [],
-                "primary_button_text": preset.get("primary_cta") or presets["corp_v1"]["primary_cta"],
-                "secondary_button_text": preset.get("secondary_cta") or presets["corp_v1"]["secondary_cta"],
-            }
+        # --- Hero ---
+        set_text(hero, "sub_catch", preset.get("sub_catch", corp_sample_sub), replace_if=sample_sub)
+        set_text(hero, "primary_button_text", preset.get("primary_cta", "お問い合わせ"), replace_if=sample_primary)
+        set_text(hero, "secondary_button_text", preset.get("secondary_cta", "見学・相談"), replace_if=sample_secondary)
 
-            blocks["philosophy"] = {
-                "title": preset.get("about_title") or presets["corp_v1"]["about_title"],
-                "body": preset.get("about_body") or presets["corp_v1"]["about_body"],
-                "points": list(preset.get("points") or presets["corp_v1"]["points"]),
-                "image_url": "",
-                "services": {
-                    "title": preset.get("svc_title") or presets["corp_v1"]["svc_title"],
-                    "lead": preset.get("svc_lead") or presets["corp_v1"]["svc_lead"],
-                    "image_url": "",
-                    "items": _deepcopy_list(preset.get("svc_items") or presets["corp_v1"]["svc_items"]),
-                },
-            }
+        # hero image preset は「未設定 or 既存プリセット」のときだけ差し替える
+        # （ユーザーがURL入力している可能性があるため、完全な上書きはしない）
+        if preset.get("hero_image"):
+            cur_hero_img = _txt(hero.get("hero_image"))
+            if cur_hero_img == "" or cur_hero_img in set(HERO_IMAGE_PRESET_URLS.keys()):
+                hero["hero_image"] = preset.get("hero_image")
 
-            blocks["news"] = {
-                "title": "お知らせ",
-                "items": [
-                    {
-                        "date": datetime.now(JST).strftime("%Y-%m-%d"),
-                        "category": "お知らせ",
-                        "title": "サンプル：ホームページを公開しました",
-                        "body": "ここにお知らせ本文を書きます。\n（あとで自由に書き換えできます）",
-                    }
-                ],
-            }
+        # --- About / Philosophy ---
+        set_text(philosophy, "title", preset.get("about_title", "私たちの想い"), replace_if=sample_about_title)
+        set_text(
+            philosophy,
+            "body",
+            preset.get("about_body", corp_sample_about_body),
+            replace_if=sample_about_body,
+            startswith="ここに",
+        )
+        set_list(philosophy, "points", preset.get("points", corp_sample_points), replace_if_lists=sample_points_lists)
 
-            blocks["faq"] = {"title": "よくある質問", "items": _deepcopy_list(preset.get("faq_items") or presets["corp_v1"]["faq_items"])}
+        # --- Services (inside philosophy) ---
+        set_text(services, "title", preset.get("svc_title", corp_sample_svc_title), replace_if=sample_svc_title)
+        set_text(
+            services,
+            "lead",
+            preset.get("svc_lead", corp_sample_svc_lead),
+            replace_if=sample_svc_lead,
+            startswith="提供サービスの概要",
+        )
+        set_services_items(preset.get("svc_items", corp_sample_svc_items), replace_if_items_lists=sample_svc_items_lists)
 
-            blocks["access"] = {"title": "アクセス", "map_url": "", "notes": "（例）〇〇駅から徒歩5分 / 駐車場あり"}
+        # --- FAQ ---
+        set_faq_items(preset.get("faq_items", corp_sample_faq_items), replace_if_items_lists=sample_faq_items_lists)
 
-            blocks["contact"] = {
-                "title": "お問い合わせ",
-                "hours": "平日 9:00〜18:00",
-                "message": preset.get("contact_message") or presets["corp_v1"]["contact_message"],
-                "button_text": preset.get("primary_cta") or "お問い合わせ",
-            }
-
-        # ---- 2) 互換性：空/サンプルだけ差し替える ----
-        # Step2 の catch_copy は「空 or サンプル」だけ差し替え（会社名を上書きしない）
-        set_text(step2, "catch_copy", preset.get("catch_copy", ""), replace_if=sample_catches, overwrite=False)
-
-        hero = blocks.setdefault("hero", {})
-        if isinstance(hero, dict):
-            set_text(hero, "sub_catch", preset.get("sub_catch", ""), replace_if=sample_subs, overwrite=force_reset)
-            set_text(hero, "hero_image", preset.get("hero_image", ""), overwrite=force_reset)
-            set_text(hero, "primary_button_text", preset.get("primary_cta", ""), overwrite=force_reset)
-            set_text(hero, "secondary_button_text", preset.get("secondary_cta", ""), overwrite=force_reset)
-            # URLリストは Step3 なので、force_reset 時は空に寄せる
-            if force_reset:
-                hero["hero_image_urls"] = []
-
-        philosophy = blocks.setdefault("philosophy", {})
-        if isinstance(philosophy, dict):
-            set_text(philosophy, "title", preset.get("about_title", ""), replace_if=sample_about_titles, overwrite=force_reset)
-            set_text(philosophy, "body", preset.get("about_body", ""), replace_if=sample_about_bodies, overwrite=force_reset)
-
-            # points（Step3）
-            desired_points = preset.get("points") or []
-            if isinstance(desired_points, list) and desired_points:
-                if force_reset or not isinstance(philosophy.get("points"), list) or philosophy.get("points") in ([], ["地域密着", "丁寧な対応", "安心の体制"]):
-                    philosophy["points"] = list(desired_points)
-
-            services = philosophy.setdefault("services", {})
-            if isinstance(services, dict):
-                set_text(services, "title", preset.get("svc_title", ""), replace_if=sample_svc_titles, overwrite=force_reset)
-                set_text(services, "lead", preset.get("svc_lead", ""), replace_if=sample_svc_leads, overwrite=force_reset)
-                desired_items = preset.get("svc_items") or []
-                if isinstance(desired_items, list) and desired_items:
-                    if force_reset or not isinstance(services.get("items"), list) or len(services.get("items") or []) == 0:
-                        services["items"] = _deepcopy_list(desired_items)
-
-        faq = blocks.setdefault("faq", {})
-        if isinstance(faq, dict):
-            desired_faq = preset.get("faq_items") or []
-            if isinstance(desired_faq, list) and desired_faq:
-                if force_reset or not isinstance(faq.get("items"), list) or len(faq.get("items") or []) == 0:
-                    faq["items"] = _deepcopy_list(desired_faq)
-
-        contact = blocks.setdefault("contact", {})
-        if isinstance(contact, dict):
-            set_text(contact, "message", preset.get("contact_message", ""), replace_if=sample_contact_messages, overwrite=force_reset)
+        # --- Contact ---
+        set_text(contact, "message", preset.get("contact_message", corp_sample_contact_message), replace_if=sample_contact_msg, startswith="ここに")
+        if _txt(contact.get("button_text")) == "":
+            contact["button_text"] = "お問い合わせ"
 
     except Exception:
-        # テンプレ適用で落ちると致命的なので絶対に落とさない
+        # テンプレ反映でコケても、アプリ全体を落とさない
+        traceback.print_exc()
         return
 
 
@@ -2564,19 +2569,10 @@ def normalize_project(p: dict) -> dict:
     # Ensure keys exist for preview stability
     contact.setdefault("button_text", "お問い合わせ")
 
-    # テンプレ適用（業種変更時のみ Step3 をリセットする）
     applied = step1.get("_applied_template_id")
-    force_reset = bool(step1.pop("_force_reset_blocks", False))
-
-    # 旧案件互換: _applied_template_id が無い案件は、勝手に上書きしない
-    if not applied:
+    if applied != template_id:
+        apply_template_starter_defaults(p, template_id)
         step1["_applied_template_id"] = template_id
-        if force_reset:
-            apply_template_starter_defaults(p, template_id, force_reset=True)
-    else:
-        if applied != template_id:
-            apply_template_starter_defaults(p, template_id, force_reset=force_reset)
-            step1["_applied_template_id"] = template_id
 
     return p
 
@@ -3006,7 +3002,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-blob4: {blob4};"
         f"--pv-bg-img: {bg_img_str};"
     )
-def render_preview(p: dict, mode: str = "pc") -> None:
+def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
     p は「プロジェクト全体(dict)」または p["data"] 相当(dict) のどちらでも受け付ける。
@@ -3026,7 +3022,11 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     # -------- theme --------
     primary_key = str(step1.get("primary_color") or "blue")
     is_dark = primary_key in ("black", "navy")
-    root_id = f"pv-root-{mode}"
+
+    # mode / root id（プレビュー統合のため、root_id を外から差し替え可能にする）
+    mode = str(mode or "mobile").strip() or "mobile"
+    root_id = str(root_id or f"pv-root-{mode}").strip() or f"pv-root-{mode}"
+
     theme_style = _preview_glass_style(step1, dark=is_dark)
 
     # -------- helpers --------
@@ -3114,7 +3114,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
 
-    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f"id={root_id}").style(theme_style):
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f'id="{root_id}"').style(theme_style):
         # scroll container (header sticky)
         with ui.element("div").classes("pv-scroll"):
             # ----- header -----
@@ -3376,54 +3376,16 @@ def render_main(u: User) -> None:
 
     p = get_current_project(u)
 
-    preview_ref = {"refresh_mobile": (lambda: None), "refresh_pc": (lambda: None)}
-
-    # 現在表示しているプレビュー（タブ）の状態
-    preview_state = {"mode": "mobile"}  # "mobile" or "pc"
+    preview_ref = {"refresh": (lambda: None)}
 
     editor_ref = {"refresh": (lambda: None)}
 
-    def refresh_preview(*, force_mode: Optional[str] = None) -> None:
-        """右側プレビューを更新する。
-
-        NOTE:
-        - タブが非表示の時に refresh するとDOMが空になりやすい（環境差あり）ため、
-          基本は「表示中のタブだけ」更新する。
-        """
-        # pv_tabs.value を最優先（タブ切替イベントが環境差で取りこぼれても壊れない）
-        tab_val = None
+    def refresh_preview() -> None:
+        # プレビューは1つに統合（表示モードだけ切替）
         try:
-            tab_val = getattr(pv_tabs, "value", None)
+            preview_ref["refresh"]()
         except Exception:
-            tab_val = None
-        mode = str(force_mode or tab_val or preview_state.get("mode") or "mobile")
-        if mode not in ("mobile", "pc"):
-            mode = "mobile"
-
-        if mode == "pc":
-            try:
-                preview_ref["refresh_pc"]()
-            except Exception:
-                pass
-            # DOM反映を待ってから Fit-to-width を適用
-            try:
-                ui.run_javascript(
-                    "setTimeout(function(){window.cvhbFitRegister && window.cvhbFitRegister('pv_pc','pv-fit-pc','pv-root-pc',1920);}, 120);"
-                )
-            except Exception:
-                pass
-        else:
-            try:
-                preview_ref["refresh_mobile"]()
-            except Exception:
-                pass
-            try:
-                ui.run_javascript(
-                    "setTimeout(function(){window.cvhbFitRegister && window.cvhbFitRegister('pv_mobile','pv-fit-mobile','pv-root-mobile',720);}, 120);"
-                )
-            except Exception:
-                pass
-
+            pass
 
     def save_now() -> None:
         nonlocal p
@@ -3551,9 +3513,10 @@ def render_main(u: User) -> None:
                                                 current_industry = step1.get("industry", "会社サイト（企業）")
 
                                                 def set_industry(value: str) -> None:
+                                                    # 業種変更でテンプレが変わる場合は、Step3（ブロック編集）をリセットする
+                                                    prev_tpl = step1.get("_applied_template_id") or step1.get("template_id") or resolve_template_id(step1) or ""
+
                                                     step1["industry"] = value
-                                                    # 作成途中の業種変更は Step3 をリセットする（注意文と連動）
-                                                    step1["_force_reset_blocks"] = True
 
                                                     # 福祉事業所だけ追加分岐（初期値を入れる）
                                                     if value == "福祉事業所":
@@ -3565,6 +3528,19 @@ def render_main(u: User) -> None:
                                                         step1["welfare_mode"] = ""
 
                                                     step1["template_id"] = resolve_template_id(step1)
+                                                    next_tpl = step1.get("template_id") or ""
+
+                                                    if next_tpl and next_tpl != prev_tpl:
+                                                        try:
+                                                            blocks.clear()
+                                                        except Exception:
+                                                            pass
+                                                        # テンプレ依存の初期文を確実に入れ直すため、サブキャッチもリセット
+                                                        try:
+                                                            step2["catch_copy"] = ""
+                                                        except Exception:
+                                                            pass
+
                                                     update_and_refresh()
                                                     industry_selector.refresh()
 
@@ -3593,16 +3569,36 @@ def render_main(u: User) -> None:
                                                     current_mode = step1.get("welfare_mode") or WELFARE_MODE_PRESETS[0]["value"]
 
                                                     def set_domain(v: str) -> None:
+                                                        prev_tpl = step1.get("_applied_template_id") or step1.get("template_id") or resolve_template_id(step1) or ""
                                                         step1["welfare_domain"] = v
-                                                        step1["_force_reset_blocks"] = True
                                                         step1["template_id"] = resolve_template_id(step1)
+                                                        next_tpl = step1.get("template_id") or ""
+                                                        if next_tpl and next_tpl != prev_tpl:
+                                                            try:
+                                                                blocks.clear()
+                                                            except Exception:
+                                                                pass
+                                                            try:
+                                                                step2["catch_copy"] = ""
+                                                            except Exception:
+                                                                pass
                                                         update_and_refresh()
                                                         industry_selector.refresh()
 
                                                     def set_mode(v: str) -> None:
+                                                        prev_tpl = step1.get("_applied_template_id") or step1.get("template_id") or resolve_template_id(step1) or ""
                                                         step1["welfare_mode"] = v
-                                                        step1["_force_reset_blocks"] = True
                                                         step1["template_id"] = resolve_template_id(step1)
+                                                        next_tpl = step1.get("template_id") or ""
+                                                        if next_tpl and next_tpl != prev_tpl:
+                                                            try:
+                                                                blocks.clear()
+                                                            except Exception:
+                                                                pass
+                                                            try:
+                                                                step2["catch_copy"] = ""
+                                                            except Exception:
+                                                                pass
                                                         update_and_refresh()
                                                         industry_selector.refresh()
 
@@ -3936,94 +3932,100 @@ def render_main(u: User) -> None:
                             ui.label("プレビュー").classes("cvhb-card-title")
                             ui.label("スマホ / PC 切替").classes("cvhb-muted")
 
+                        # プレビュー表示モード（mobile / pc）
+                        preview_mode = {"value": "mobile"}
+
                         with ui.tabs().props("dense").classes("q-mt-sm") as pv_tabs:
                             ui.tab("mobile", label="スマホ", icon="smartphone")
                             ui.tab("pc", label="PC", icon="desktop_windows")
 
-                        # タブ切替：表示モードを覚えて「表示中だけ」更新する
-                        def _pv_tab_change(e) -> None:
+                        # 初期表示（念のため）
+                        try:
+                            pv_tabs.value = preview_mode["value"]
+                        except Exception:
+                            pass
+
+                        def _pv_mode_change(e) -> None:
                             try:
                                 val = str(getattr(e, "value", "") or "")
                             except Exception:
                                 val = ""
                             if val not in ("mobile", "pc"):
                                 val = "mobile"
-                            preview_state["mode"] = val
-                            refresh_preview(force_mode=val)
+                            preview_mode["value"] = val
+                            try:
+                                preview_ref["refresh"]()
+                            except Exception:
+                                pass
 
                         try:
-                            pv_tabs.on("update:model-value", _pv_tab_change)
+                            pv_tabs.on("update:model-value", _pv_mode_change)
                         except Exception:
                             try:
-                                pv_tabs.on("update:modelValue", _pv_tab_change)
+                                pv_tabs.on("update:modelValue", _pv_mode_change)
                             except Exception:
                                 try:
-                                    pv_tabs.on("change", _pv_tab_change)
+                                    pv_tabs.on("change", _pv_mode_change)
                                 except Exception:
                                     pass
 
+                        @ui.refreshable
+                        def preview_panel():
+                            mode = str(preview_mode.get("value") or "mobile")
+                            if mode not in ("mobile", "pc"):
+                                mode = "mobile"
 
-                        with ui.tab_panels(pv_tabs, value="mobile").classes("w-full q-mt-sm"):
+                            design_w = 720 if mode == "mobile" else 1920
+                            frame_w = 800 if mode == "mobile" else 1200
+                            radius = 22 if mode == "mobile" else 14
 
-                            with ui.tab_panel("mobile"):
-                                with ui.card().style(
-                                    "width: min(100%, 800px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 22px; margin: 0 auto;"
-                                ).props("flat bordered"):
-                                    with ui.element("div").props("id=pv-fit-mobile").style("height: 100%; overflow: hidden; position: relative; background: transparent;"):
-                                        @ui.refreshable
-                                        def preview_mobile_panel():
-                                            if not p:
-                                                ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
-                                                return
-                                            try:
-                                                pre = _preview_preflight_error()
-                                                if pre:
-                                                    ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
-                                                    ui.label(pre).classes("cvhb-muted q-pa-md")
-                                                    return
-                                                render_preview(p, mode="mobile")
-                                                # fit-to-width (design: 720px)
-                                                try:
-                                                    ui.run_javascript("setTimeout(function(){window.cvhbFitRegister && window.cvhbFitRegister(\'pv_mobile\', \'pv-fit-mobile\', \'pv-root-mobile\', 720);}, 120);")
-                                                except Exception:
-                                                    pass
-                                            except Exception as e:
-                                                ui.label("プレビューでエラーが発生しました").classes("text-negative")
-                                                ui.label(sanitize_error_text(e)).classes("cvhb-muted")
-                                                traceback.print_exc()
+                            with ui.card().style(
+                                f"width: min(100%, {frame_w}px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
+                            ).props("flat bordered"):
+                                with ui.element("div").props('id="pv-fit"').style(
+                                    "height: 100%; overflow: hidden; position: relative; background: transparent;"
+                                ):
+                                    if not p:
+                                        ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
+                                        return
+                                    try:
+                                        pre = _preview_preflight_error()
+                                        if pre:
+                                            ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
+                                            ui.label(pre).classes("cvhb-muted q-pa-md")
+                                            return
 
-                                        preview_ref["refresh_mobile"] = preview_mobile_panel.refresh
-                                        preview_mobile_panel()
+                                        # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
+                                        render_preview(p, mode=mode, root_id="pv-root")
 
-                            with ui.tab_panel("pc"):
-                                with ui.card().style(
-                                    "width: min(100%, 1200px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: 14px; margin: 0 auto;"
-                                ).props("flat bordered"):
-                                    with ui.element("div").props("id=pv-fit-pc").style("height: 100%; overflow: hidden; position: relative; background: transparent;"):
-                                        @ui.refreshable
-                                        def preview_pc_panel():
-                                            if not p:
-                                                ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
-                                                return
-                                            try:
-                                                pre = _preview_preflight_error()
-                                                if pre:
-                                                    ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
-                                                    ui.label(pre).classes("cvhb-muted q-pa-md")
-                                                    return
-                                                render_preview(p, mode="pc")
-                                                # fit-to-width (design: 1920px)
-                                                try:
-                                                    ui.run_javascript("setTimeout(function(){window.cvhbFitRegister && window.cvhbFitRegister(\'pv_pc\', \'pv-fit-pc\', \'pv-root-pc\', 1920);}, 120);")
-                                                except Exception:
-                                                    pass
-                                            except Exception as e:
-                                                ui.label("プレビューでエラーが発生しました").classes("text-negative")
-                                                ui.label(sanitize_error_text(e)).classes("cvhb-muted")
-                                                traceback.print_exc()
+                                        # fit-to-width (design: 720px / 1920px)
+                                        try:
+                                            ui.run_javascript(
+                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w});"
+                                            )
+                                        except Exception:
+                                            pass
+                                        try:
+                                            ui.run_javascript(
+                                                "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
+                                            )
+                                        except Exception:
+                                            pass
+                                        # optional debug marker (DevTools で有効化したときだけ記録)
+                                        try:
+                                            ui.run_javascript(
+                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}}});"
+                                            )
+                                        except Exception:
+                                            pass
+                                    except Exception as e:
+                                        ui.label("プレビューでエラーが発生しました").classes("text-negative")
+                                        ui.label(sanitize_error_text(e)).classes("cvhb-muted")
+                                        traceback.print_exc()
 
-                                        preview_ref["refresh_pc"] = preview_pc_panel.refresh
-                                        preview_pc_panel()
+                        preview_ref["refresh"] = preview_panel.refresh
+                        preview_panel()
+
 
 
 # =========================
