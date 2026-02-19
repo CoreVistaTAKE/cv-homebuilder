@@ -781,11 +781,11 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-main{
   max-width: 1080px;
   margin: 0 auto;
-  padding: 18px 18px 0;
+  padding: 20px 18px 0;
 }
 
 .pv-layout-260218 .pv-section{
-  margin: 18px 0 28px;
+  margin: 22px 0 34px;
 }
 
 .pv-layout-260218 .pv-section-head{
@@ -797,7 +797,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-section-title{
   font-weight: 900;
-  font-size: 1.08rem;
+  font-size: 1.12rem;
 }
 
 .pv-layout-260218 .pv-section-en{
@@ -894,7 +894,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-hero-title{
   font-weight: 1000;
-  font-size: clamp(1.35rem, 3.4vw, 2.25rem);
+  font-size: clamp(1.45rem, 3.8vw, 2.55rem);
   line-height: 1.18;
   margin-bottom: 6px;
 }
@@ -955,11 +955,11 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-news-item{
   display: grid;
-  grid-template-columns: 110px 92px 1fr;
+  grid-template-columns: 110px 92px 1fr 24px;
   gap: 10px;
   align-items: center;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  border-bottom: 1px solid var(--pv-line);
 }
 
 .pv-layout-260218.pv-dark .pv-news-item{
@@ -991,6 +991,15 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-news-title{
   font-weight: 700;
+}
+
+.pv-layout-260218 .pv-news-arrow{
+  justify-self: end;
+  opacity: 0.45;
+}
+
+.pv-layout-260218.pv-dark .pv-news-arrow{
+  opacity: 0.55;
 }
 
 .pv-layout-260218 .pv-link-btn.q-btn{
@@ -1066,7 +1075,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-service-item{
   padding: 10px 0;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  border-bottom: 1px solid var(--pv-line);
 }
 
 .pv-layout-260218.pv-dark .pv-service-item{
@@ -1080,7 +1089,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-faq-item{
   padding: 12px 0;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  border-bottom: 1px solid var(--pv-line);
 }
 
 .pv-layout-260218.pv-dark .pv-faq-item{
@@ -1143,6 +1152,108 @@ def inject_global_styles() -> None:
   color: var(--pv-muted);
   font-size: 0.85rem;
   margin-top: 2px;
+}
+
+.pv-layout-260218 .pv-mapshot{
+  padding: 0 18px 18px;
+}
+
+.pv-layout-260218 .pv-mapshot-inner{
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.pv-layout-260218 .pv-mapshot-card{
+  padding: 14px;
+}
+
+.pv-layout-260218 .pv-mapshot-head{
+  margin-bottom: 10px;
+}
+
+.pv-layout-260218 .pv-mapshot-label{
+  font-weight: 900;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  opacity: 0.65;
+}
+
+.pv-layout-260218 .pv-mapshot-img-link{
+  display: block;
+  text-decoration: none;
+}
+
+.pv-layout-260218 .pv-mapshot-img{
+  position: relative;
+  height: 220px;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: var(--pv-shadow);
+  background:
+    radial-gradient(520px 220px at 18% 22%, rgba(255,255,255,0.44), transparent 62%),
+    radial-gradient(420px 240px at 88% 18%, rgba(255,255,255,0.28), transparent 62%),
+    linear-gradient(160deg, rgba(255,255,255,0.30), rgba(255,255,255,0.14)),
+    repeating-linear-gradient(0deg, rgba(15,23,42,0.06), rgba(15,23,42,0.06) 1px, transparent 1px, transparent 14px),
+    repeating-linear-gradient(90deg, rgba(15,23,42,0.04), rgba(15,23,42,0.04) 1px, transparent 1px, transparent 18px);
+}
+
+.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
+  height: 280px;
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-img{
+  border-color: rgba(255,255,255,0.12);
+  background:
+    radial-gradient(520px 220px at 18% 22%, rgba(255,255,255,0.14), transparent 62%),
+    radial-gradient(420px 240px at 88% 18%, rgba(255,255,255,0.08), transparent 62%),
+    linear-gradient(160deg, rgba(15,18,25,0.66), rgba(15,18,25,0.42)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.08) 1px, transparent 1px, transparent 14px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.06) 1px, transparent 1px, transparent 18px);
+}
+
+.pv-layout-260218 .pv-mapshot-pin{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -62%);
+  font-size: 46px;
+  color: var(--pv-primary) !important;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.12));
+  opacity: 0.90;
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-pin{
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.32));
+}
+
+.pv-layout-260218 .pv-mapshot-open{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, 42%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.34);
+  border: 1px solid rgba(255,255,255,0.22);
+  color: var(--pv-text);
+  font-weight: 900;
+  font-size: 0.82rem;
+  backdrop-filter: blur(10px);
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-open{
+  background: rgba(15,18,25,0.50);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.86);
+}
+
+.pv-layout-260218 .pv-mapshot-address{
+  margin-top: 10px;
+  color: var(--pv-text);
+  opacity: 0.80;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .pv-layout-260218 .pv-footer{
@@ -1216,24 +1327,33 @@ def inject_global_styles() -> None:
   window.__cvhbHeroIntervals = window.__cvhbHeroIntervals || {};
   window.cvhbInitHeroSlider = window.cvhbInitHeroSlider || function(sliderId, intervalMs){
     try{
-      const slider = document.getElementById(sliderId);
-      if(!slider) return;
-      const track = slider.querySelector('.pv-hero-track');
-      if(!track) return;
-      const slides = track.children ? track.children.length : 0;
-      if(window.__cvhbHeroIntervals[sliderId]){
-        clearInterval(window.__cvhbHeroIntervals[sliderId]);
-        delete window.__cvhbHeroIntervals[sliderId];
-      }
-      if(slides <= 1){
-        track.style.transform = 'translateX(0%)';
-        return;
-      }
-      let idx = 0;
-      window.__cvhbHeroIntervals[sliderId] = setInterval(function(){
-        idx = (idx + 1) % slides;
-        track.style.transform = 'translateX(-' + (idx * 100) + '%)';
-      }, intervalMs || 4600);
+      const run = function(tries){
+        const slider = document.getElementById(sliderId);
+        if(!slider){
+          if(tries < 10) return setTimeout(function(){ run(tries + 1); }, 60);
+          return;
+        }
+        const track = slider.querySelector('.pv-hero-track');
+        if(!track){
+          if(tries < 10) return setTimeout(function(){ run(tries + 1); }, 60);
+          return;
+        }
+        const slides = track.children ? track.children.length : 0;
+        if(window.__cvhbHeroIntervals[sliderId]){
+          clearInterval(window.__cvhbHeroIntervals[sliderId]);
+          delete window.__cvhbHeroIntervals[sliderId];
+        }
+        if(slides <= 1){
+          track.style.transform = 'translateX(0%)';
+          return;
+        }
+        let idx = 0;
+        window.__cvhbHeroIntervals[sliderId] = setInterval(function(){
+          idx = (idx + 1) % slides;
+          track.style.transform = 'translateX(-' + (idx * 100) + '%)';
+        }, intervalMs || 4600);
+      };
+      run(0);
     } catch(e){}
   };
 
@@ -1344,6 +1464,13 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     setTimeout(apply, 240);
   }catch(e){}
 };
+
+  window.cvhbFitApply = window.cvhbFitApply || function(key){
+    try{
+      const regs = (window.__cvhbFit && window.__cvhbFit.regs) ? window.__cvhbFit.regs : null;
+      if(regs && regs[key]) regs[key]();
+    }catch(e){}
+  };
 
 })();
 </script>
@@ -3029,6 +3156,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                     ui.label(date or "----.--.--").classes("pv-news-date")
                                     ui.label(cat).classes("pv-news-cat")
                                     ui.label(title).classes("pv-news-title")
+                                    ui.icon("chevron_right").classes("pv-news-arrow")
                                 if shown >= 4:
                                     break
                             if shown == 0:
@@ -3158,6 +3286,24 @@ def render_preview(p: dict, mode: str = "pc") -> None:
                                 ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
                         with ui.element("div").classes("pv-companybar-right"):
                             ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated color=primary").classes("pv-btn pv-btn-primary")
+
+                # MAPSHOT (only if address is set)
+                if address:
+                    with ui.element("section").classes("pv-mapshot"):
+                        with ui.element("div").classes("pv-mapshot-inner"):
+                            with ui.element("div").classes("pv-panel pv-panel-glass pv-mapshot-card"):
+                                with ui.row().classes("items-center justify-between pv-mapshot-head"):
+                                    ui.label("地図").classes("pv-mapshot-label")
+                                    if map_url:
+                                        ui.button("Googleマップで見る").props(
+                                            f'no-caps outline color=primary type=a href="{map_url}" target="_blank"'
+                                        ).classes("pv-btn pv-btn-secondary")
+                                if map_url:
+                                    with ui.element("a").props(f'href="{map_url}" target="_blank"').classes("pv-mapshot-img-link"):
+                                        with ui.element("div").classes("pv-mapshot-img"):
+                                            ui.icon("place").classes("pv-mapshot-pin")
+                                            ui.label("地図を開く").classes("pv-mapshot-open")
+                                ui.label(address).classes("pv-mapshot-address")
 
                 # FOOTER
                 with ui.element("footer").classes("pv-footer"):
@@ -3717,6 +3863,42 @@ def render_main(u: User) -> None:
                             ui.tab("mobile", label="スマホ", icon="smartphone")
                             ui.tab("pc", label="PC", icon="desktop_windows")
 
+                        # タブ切替時に「Fit-to-width」を再適用（非表示タブは幅0になりがちなので保険）
+                        def _pv_tab_change(e) -> None:
+                            try:
+                                val = str(getattr(e, "value", "") or "")
+                            except Exception:
+                                val = ""
+                            if val == "pc":
+                                try:
+                                    preview_ref["refresh_pc"]()
+                                except Exception:
+                                    pass
+                                try:
+                                    ui.run_javascript("setTimeout(function(){ window.cvhbFitRegister && window.cvhbFitRegister('pv_pc','pv-fit-pc','pv-root-pc',1920); }, 80);")
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    preview_ref["refresh_mobile"]()
+                                except Exception:
+                                    pass
+                                try:
+                                    ui.run_javascript("setTimeout(function(){ window.cvhbFitRegister && window.cvhbFitRegister('pv_mobile','pv-fit-mobile','pv-root-mobile',720); }, 80);")
+                                except Exception:
+                                    pass
+
+                        try:
+                            pv_tabs.on("update:model-value", _pv_tab_change)
+                        except Exception:
+                            try:
+                                pv_tabs.on("update:modelValue", _pv_tab_change)
+                            except Exception:
+                                try:
+                                    pv_tabs.on("change", _pv_tab_change)
+                                except Exception:
+                                    pass
+
                         with ui.tab_panels(pv_tabs, value="mobile").classes("w-full q-mt-sm"):
 
                             with ui.tab_panel("mobile"):
@@ -3730,6 +3912,11 @@ def render_main(u: User) -> None:
                                                 ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
                                                 return
                                             try:
+                                                pre = _preview_preflight_error()
+                                                if pre:
+                                                    ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
+                                                    ui.label(pre).classes("cvhb-muted q-pa-md")
+                                                    return
                                                 render_preview(p, mode="mobile")
                                                 # fit-to-width (design: 720px)
                                                 try:
@@ -3755,6 +3942,11 @@ def render_main(u: User) -> None:
                                                 ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
                                                 return
                                             try:
+                                                pre = _preview_preflight_error()
+                                                if pre:
+                                                    ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
+                                                    ui.label(pre).classes("cvhb-muted q-pa-md")
+                                                    return
                                                 render_preview(p, mode="pc")
                                                 # fit-to-width (design: 1920px)
                                                 try:
