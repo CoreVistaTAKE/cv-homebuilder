@@ -1659,6 +1659,12 @@ HERO_IMAGE_PRESET_URLS = {
     "A: オフィス": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80",
     "B: チーム": "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1200&q=80",
     "C: 街並み": "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=1200&q=80",
+
+    # 福祉テンプレ向けの“雰囲気”プリセット（固定IDよりも壊れにくいUnsplash Sourceを採用）
+    "D: ひかり": "https://source.unsplash.com/1200x800/?light",
+    "E: 森": "https://source.unsplash.com/1200x800/?forest",
+    "F: 手": "https://source.unsplash.com/1200x800/?care,hands",
+    "G: 家": "https://source.unsplash.com/1200x800/?home,house",
 }
 HERO_IMAGE_OPTIONS = list(HERO_IMAGE_PRESET_URLS.keys())
 
@@ -1683,13 +1689,12 @@ def new_project_id() -> str:
 
 
 def apply_template_starter_defaults(p: dict, template_id: str) -> None:
-    """テンプレ切替時の「初期文章」を安全に差し替える。
+    """業種（テンプレ）を切り替えたときの「初期文言」を入れる。
 
-    - 目的: 業種を切り替えたのに文面が変わらず「連携していない」ように見える問題を解消
-    - 方針: すでにユーザーが書いた内容は極力上書きしない（空/サンプルだけ差し替え）
-    - 例外: ここで失敗してもプレビューやアプリ全体が落ちないように握りつぶす
+    重要:
+    - すでにユーザーが編集した内容は、基本的に上書きしない
+    - ただし「サンプル文章」のままの場合は、テンプレに合わせて入れ替える
     """
-
     try:
         data = p.get("data") or {}
         p["data"] = data
@@ -1705,6 +1710,7 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
         faq = blocks.get("faq") or {}
         access = blocks.get("access") or {}
         contact = blocks.get("contact") or {}
+
         blocks["hero"] = hero
         blocks["philosophy"] = philosophy
         blocks["news"] = news
@@ -1713,24 +1719,25 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
         blocks["contact"] = contact
 
         services = philosophy.get("services") or {}
+        if not isinstance(services, dict):
+            services = {}
         philosophy["services"] = services
 
-        # ---------- helpers ----------
         def _txt(v) -> str:
             return str(v or "").strip()
 
-        def set_text(obj: dict, key: str, new_value: str, *, replace_if=None, startswith: Optional[str] = None) -> None:
+        def set_text(obj: dict, key: str, new_value: str, *, replace_if: Optional[set[str]] = None, startswith: Optional[str] = None) -> None:
             cur = _txt(obj.get(key))
             if cur == "":
                 obj[key] = new_value
                 return
-            if replace_if and cur in set(replace_if):
+            if replace_if and cur in replace_if:
                 obj[key] = new_value
                 return
             if startswith and cur.startswith(startswith):
                 obj[key] = new_value
 
-        def set_list(obj: dict, key: str, new_list: list, *, replace_if_lists=None) -> None:
+        def set_list(obj: dict, key: str, new_list: list, *, replace_if_lists: Optional[list] = None) -> None:
             cur = obj.get(key)
             if not isinstance(cur, list) or len(cur) == 0:
                 obj[key] = new_list
@@ -1741,221 +1748,316 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
             if all(_txt(x) == "" for x in cur):
                 obj[key] = new_list
 
-        def set_services_items(new_items: list) -> None:
+        def set_services_items(new_items: list, *, replace_if_items_lists: Optional[list] = None) -> None:
             cur = services.get("items")
             if not isinstance(cur, list) or len(cur) == 0:
                 services["items"] = new_items
                 return
-            # サンプル判定（"サービス1" など）
+
+            if replace_if_items_lists and cur in replace_if_items_lists:
+                services["items"] = new_items
+                return
+
+            # 既存の「サンプル」っぽい形なら入れ替える
             for it in cur:
-                if isinstance(it, dict) and _txt(it.get("title")).startswith("サービス"):
+                if isinstance(it, dict) and (
+                    _txt(it.get("title")).startswith("サービス") or _txt(it.get("title")).startswith("項目")
+                ):
                     services["items"] = new_items
                     return
+
             if all(isinstance(it, dict) and _txt(it.get("title")) == "" and _txt(it.get("body")) == "" for it in cur):
                 services["items"] = new_items
 
-        def set_faq_items(new_items: list) -> None:
+        def set_faq_items(new_items: list, *, replace_if_items_lists: Optional[list] = None) -> None:
             cur = faq.get("items")
             if not isinstance(cur, list) or len(cur) == 0:
                 faq["items"] = new_items
                 return
-            # サンプル判定（"サンプル" で始まる質問が混ざっていたら差し替えOK）
+
+            if replace_if_items_lists and cur in replace_if_items_lists:
+                faq["items"] = new_items
+                return
+
             for it in cur:
                 if isinstance(it, dict) and _txt(it.get("q")).startswith("サンプル"):
                     faq["items"] = new_items
                     return
+
             if all(isinstance(it, dict) and _txt(it.get("q")) == "" and _txt(it.get("a")) == "" for it in cur):
                 faq["items"] = new_items
 
-        # ---------- presets ----------
+        # --- 会社テンプレの「サンプル」 ---
         corp_sample_catch = "スタッフ・利用者の笑顔を守る企業"
         corp_sample_sub = "地域に寄り添い、安心できるサービスを届けます"
         corp_sample_points = ["地域密着", "丁寧な対応", "安心の体制"]
+        corp_sample_about_body = "ここに理念や会社の紹介文を書きます。\n（あとで自由に書き換えできます）"
+        corp_sample_svc_title = "業務内容"
+        corp_sample_svc_lead = "提供サービスの概要をここに記載します。"
+        corp_sample_svc_items = [
+            {"title": "サービス1", "body": "内容をここに記載します。"},
+            {"title": "サービス2", "body": "内容をここに記載します。"},
+            {"title": "サービス3", "body": "内容をここに記載します。"},
+        ]
+        corp_sample_faq_items = [
+            {"q": "サンプル：見学はできますか？", "a": "はい。お電話またはメールでお気軽にご連絡ください。"},
+            {"q": "サンプル：費用はどのくらいですか？", "a": "内容により異なります。まずはご要望をお聞かせください。"},
+            {"q": "サンプル：対応エリアはどこまでですか？", "a": "地域により異なります。詳細はお問い合わせください。"},
+        ]
+        corp_sample_contact_message = "まずはお気軽にご相談ください。"
 
-        presets = {
-            # 介護（入所）
+        # --- テンプレ別の初期文言（6ブロックは維持） ---
+        presets: dict[str, dict] = {
+            # 会社・企業サイト（基本）
+            "corp_v1": {
+                "catch_copy": "",
+                "sub_catch": corp_sample_sub,
+                "primary_cta": "お問い合わせ",
+                "secondary_cta": "見学・相談",
+                "hero_image": "A: オフィス",
+                "about_title": "私たちの想い",
+                "about_body": corp_sample_about_body,
+                "points": corp_sample_points,
+                "svc_title": corp_sample_svc_title,
+                "svc_lead": corp_sample_svc_lead,
+                "svc_items": corp_sample_svc_items,
+                "faq_items": corp_sample_faq_items,
+                "contact_message": corp_sample_contact_message,
+            },
+
+            # 介護福祉（入所系）
             "care_residential_v1": {
                 "catch_copy": "安心して暮らせる、あたたかな住まい",
                 "sub_catch": "見学・入居相談を受け付けています",
                 "primary_cta": "入居相談",
-                "secondary_cta": "見学予約",
+                "secondary_cta": "見学・相談",
                 "hero_image": "G: 家",
                 "about_title": "施設紹介",
                 "about_body": "お部屋や共用スペース、食事や日々の過ごし方など、施設の雰囲気が伝わるようにご紹介します。安心してご相談いただけるよう、できるだけ分かりやすくまとめました。",
-                "points": ["個室・共用設備", "24時間サポート", "医療連携"],
-                "svc_title": "ケア・サポート内容",
-                "svc_lead": "介護体制・健康管理・日常生活のサポートなど、提供しているケアをまとめています。",
+                "points": ["清潔な居室", "日々の見守り", "医療連携"],
+                "svc_title": "サービス内容",
+                "svc_lead": "医療連携や介護体制など、安心して生活できるサポートを整えています。",
                 "svc_items": [
-                    {"title": "日常生活の支援", "body": "食事・入浴・排泄など、毎日の生活を丁寧にサポートします。"},
-                    {"title": "健康管理・医療連携", "body": "体調の変化に気づける体制を整え、必要に応じて医療機関と連携します。"},
-                    {"title": "レクリエーション", "body": "季節行事や交流の機会を通して、無理なく楽しめる時間をつくります。"},
+                    {"title": "生活サポート", "body": "食事・入浴・服薬など、日常生活を丁寧に支えます。"},
+                    {"title": "医療連携", "body": "協力医療機関と連携し、体調変化に備えます。"},
+                    {"title": "夜間体制", "body": "夜間も見守りを行い、緊急時に対応します。"},
                 ],
                 "faq_items": [
                     {"q": "見学はできますか？", "a": "はい、可能です。日程を調整しますので、お電話またはお問い合わせフォームからご連絡ください。"},
-                    {"q": "費用の目安を知りたいです。", "a": "ご状況により異なります。料金の目安と補足をご案内しますので、お気軽にお問い合わせください。"},
+                    {"q": "費用の目安を知りたいです。", "a": "状況により異なります。料金の目安と補足をご案内しますので、お気軽にお問い合わせください。"},
                     {"q": "入居までの流れを教えてください。", "a": "ご相談→見学→面談→ご契約→ご入居の順に進みます。詳細は個別にご案内します。"},
                 ],
                 "contact_message": "空室状況や費用の目安など、まずはお気軽にお問い合わせください。",
             },
-            # 介護（通所）
+
+            # 介護福祉（通所系）
             "care_day_v1": {
-                "catch_copy": "毎日に、楽しみと安心を。デイサービスのご案内",
-                "sub_catch": "見学・体験利用のご相談を受け付けています",
-                "primary_cta": "見学・体験の相談",
-                "secondary_cta": "資料請求",
+                "catch_copy": "“できる”が増える毎日へ。",
+                "sub_catch": "体験利用・見学を受付中です",
+                "primary_cta": "体験利用",
+                "secondary_cta": "見学・相談",
                 "hero_image": "E: 森",
-                "about_title": "私たちの想い",
-                "about_body": "通い慣れた地域で、安心して過ごせる場所を目指しています。お一人おひとりのペースを大切にしながら、日常の楽しみと安全を両立できるようサポートします。",
-                "points": ["送迎サポート", "活動プログラム", "看護・介護体制"],
-                "svc_title": "サービス内容",
-                "svc_lead": "日中の過ごし方や提供サービスを分かりやすくまとめています。",
+                "about_title": "サービス内容",
+                "about_body": "日中の活動やリハビリ、食事、送迎など、ご利用者さまの毎日が楽しくなるサービスを提供します。はじめての方にも分かりやすいように、ポイントをまとめました。",
+                "points": ["送迎あり", "安心の見守り", "楽しい活動"],
+                "svc_title": "1日の流れ",
+                "svc_lead": "ご利用のイメージができるように、1日の流れを簡単にご紹介します。",
                 "svc_items": [
-                    {"title": "入浴・食事", "body": "ご希望や体調に合わせて、安心してご利用いただけるよう支援します。"},
-                    {"title": "機能訓練・体操", "body": "無理のない範囲で、日常生活に必要な動きを保てるようサポートします。"},
-                    {"title": "レクリエーション", "body": "会話や制作活動など、楽しみながら参加できるプログラムをご用意します。"},
+                    {"title": "到着・健康チェック", "body": "体調を確認し、無理のない1日を始めます。"},
+                    {"title": "レクリエーション", "body": "季節行事や交流の機会を通して、無理なく楽しむ時間をつくります。"},
+                    {"title": "お帰り（送迎）", "body": "ご自宅まで安全にお送りします。"},
                 ],
                 "faq_items": [
-                    {"q": "体験利用はできますか？", "a": "はい、可能です。ご都合を伺って日程調整しますので、お気軽にご相談ください。"},
-                    {"q": "送迎はありますか？", "a": "送迎対応の有無・範囲は事業所により異なります。詳細はお問い合わせください。"},
-                    {"q": "利用の持ち物はありますか？", "a": "必要な持ち物はご利用内容により変わります。見学時にご案内します。"},
+                    {"q": "体験利用はできますか？", "a": "はい。日程をご相談のうえ、ご案内します。"},
+                    {"q": "送迎はありますか？", "a": "地域により対応可能です。詳しくはお問い合わせください。"},
+                    {"q": "持ち物は必要ですか？", "a": "必要な持ち物は体験前にご案内します。"},
                 ],
-                "contact_message": "見学・体験・空き状況など、お気軽にご相談ください。",
+                "contact_message": "体験利用のご希望やご不安な点など、お気軽にご相談ください。",
             },
-            # 障がい（入所：グループホームなど）
+
+            # 障がい福祉（入所系 / グループホーム系）
             "disability_residential_v1": {
-                "catch_copy": "安心して暮らせるグループホーム",
+                "catch_copy": "安心して暮らせる、あたたかな住まい",
                 "sub_catch": "見学・入居相談を受け付けています",
                 "primary_cta": "入居相談",
-                "secondary_cta": "見学予約",
-                "hero_image": "F: 手",
+                "secondary_cta": "見学・相談",
+                "hero_image": "G: 家",
                 "about_title": "事業所の想い",
-                "about_body": "一人ひとりの生活リズムと気持ちを大切にし、安心して暮らせる環境づくりを進めています。自立に向けた支援と、あたたかな見守りの両方を大切にしています。",
-                "points": ["夜間体制", "生活スキル支援", "医療・家族連携"],
-                "svc_title": "生活サポート",
-                "svc_lead": "日常生活のサポート内容や体制をまとめています。",
+                "about_body": "私たちは、一人ひとりの生活リズムを大切にしながら、安心して暮らせる環境づくりを行っています。日々の支援の考え方や体制を、分かりやすくまとめました。",
+                "points": ["個別支援", "夜間体制", "医療連携"],
+                "svc_title": "生活サポート内容",
+                "svc_lead": "食事や服薬、日常生活の支援など、生活を支える体制を整えています。",
                 "svc_items": [
-                    {"title": "生活の支援", "body": "食事・家事・身だしなみなど、日々の生活を一緒に整えます。"},
-                    {"title": "服薬・健康管理", "body": "体調の変化を共有し、必要に応じて関係機関と連携します。"},
-                    {"title": "相談・金銭管理", "body": "困りごとの相談や、必要に応じて金銭管理の支援を行います。"},
+                    {"title": "日常生活支援", "body": "食事・服薬・清掃など、生活の基本を支えます。"},
+                    {"title": "相談支援", "body": "困りごとや不安に寄り添い、必要な支援につなげます。"},
+                    {"title": "連携体制", "body": "医療・福祉機関と連携し、安心できる暮らしを支えます。"},
                 ],
                 "faq_items": [
-                    {"q": "対象となる方は？", "a": "サービスの対象や条件は事業所により異なります。まずはご状況をお聞かせください。"},
-                    {"q": "費用の目安を知りたいです。", "a": "ご契約形態により異なります。分かりやすくご説明しますので、お問い合わせください。"},
-                    {"q": "体験入居はできますか？", "a": "対応可否は時期により異なります。ご希望があれば早めにご相談ください。"},
+                    {"q": "見学はできますか？", "a": "はい。ご都合に合わせてご案内します。"},
+                    {"q": "夜間の体制はどうなっていますか？", "a": "夜間も見守り体制を整えています。詳しくはご案内します。"},
+                    {"q": "費用の目安を知りたいです。", "a": "状況により異なりますので、お気軽にお問い合わせください。"},
                 ],
-                "contact_message": "入居のご相談や見学予約など、お気軽にお問い合わせください。",
+                "contact_message": "空室状況や費用の目安など、まずはお気軽にお問い合わせください。",
             },
-            # 障がい（通所：生活介護など）
+
+            # 障がい福祉（通所系）
             "disability_day_v1": {
-                "catch_copy": "日中活動を、もっと安心に、もっと楽しく",
-                "sub_catch": "見学・体験利用のご相談を受け付けています",
-                "primary_cta": "見学・体験の相談",
-                "secondary_cta": "資料請求",
+                "catch_copy": "“できる”が増える毎日へ。",
+                "sub_catch": "見学・体験を受付中です",
+                "primary_cta": "体験利用",
+                "secondary_cta": "見学・相談",
                 "hero_image": "F: 手",
-                "about_title": "支援方針",
-                "about_body": "安心できる環境の中で、活動を通して「できること」を少しずつ増やしていく支援を大切にしています。ご本人のペースを尊重し、日々の充実につながる時間をつくります。",
-                "points": ["活動プログラム", "生活支援", "地域連携"],
-                "svc_title": "活動・支援内容",
-                "svc_lead": "日中の活動内容やサポート体制をまとめています。",
+                "about_title": "サービス概要",
+                "about_body": "対象の方や提供内容など、サービスの概要を分かりやすくまとめています。まずはお気軽に見学・体験をご相談ください。",
+                "points": ["日中活動", "個別支援", "安心の体制"],
+                "svc_title": "特徴",
+                "svc_lead": "私たちの支援の強みを、3つのポイントでご紹介します。",
                 "svc_items": [
-                    {"title": "創作・生産活動", "body": "手作業や制作など、集中して取り組める活動をご用意します。"},
-                    {"title": "生活訓練", "body": "身だしなみや生活スキルなど、日常に役立つ練習を行います。"},
-                    {"title": "余暇・外出", "body": "無理のない範囲で、外出や余暇活動を楽しむ機会をつくります。"},
+                    {"title": "活動の充実", "body": "創作や運動など、楽しみながら取り組める活動を用意しています。"},
+                    {"title": "個別支援", "body": "一人ひとりに合わせた支援計画で、無理なく続けられます。"},
+                    {"title": "連携", "body": "関係機関やご家族と連携し、安心できる体制を整えます。"},
                 ],
                 "faq_items": [
-                    {"q": "見学はできますか？", "a": "はい、可能です。日程調整しますのでお問い合わせください。"},
-                    {"q": "送迎はありますか？", "a": "送迎の有無や範囲は事業所により異なります。詳細はお問い合わせください。"},
-                    {"q": "利用開始までの流れは？", "a": "ご相談→見学→面談→手続き→ご利用開始の順で進みます。状況によりご案内します。"},
+                    {"q": "体験利用はできますか？", "a": "はい。日程をご相談のうえ、ご案内します。"},
+                    {"q": "対象年齢はありますか？", "a": "サービスにより異なります。まずはお問い合わせください。"},
+                    {"q": "送迎はありますか？", "a": "地域により対応可能です。詳しくはお問い合わせください。"},
                 ],
-                "contact_message": "見学・体験・ご利用相談など、お気軽にご連絡ください。",
+                "contact_message": "見学・体験のご希望など、お気軽にご相談ください。",
             },
-            # 児童（入所）
+
+            # 児童福祉（入所系）
             "child_residential_v1": {
-                "catch_copy": "子どもの成長を支える生活の場",
-                "sub_catch": "見学・入所相談を受け付けています",
-                "primary_cta": "入所相談",
-                "secondary_cta": "見学予約",
+                "catch_copy": "安心して過ごせる、あたたかな環境",
+                "sub_catch": "見学・ご相談を受け付けています",
+                "primary_cta": "相談する",
+                "secondary_cta": "見学する",
                 "hero_image": "D: ひかり",
                 "about_title": "施設紹介",
-                "about_body": "生活環境や過ごし方、支援体制についてご紹介します。安心してご相談いただけるよう、できるだけ分かりやすくまとめています。",
-                "points": ["安心の生活環境", "学習・生活支援", "医療・学校連携"],
+                "about_body": "生活環境や支援内容を分かりやすくご紹介します。お子さまやご家族が安心できるよう、丁寧にご案内します。",
+                "points": ["安心の体制", "個別支援", "連携"],
                 "svc_title": "支援内容",
-                "svc_lead": "生活・学習・健康面などの支援内容をまとめています。",
+                "svc_lead": "生活・学習・医療連携など、支援の内容をまとめています。",
                 "svc_items": [
-                    {"title": "生活支援", "body": "安心して日々を過ごせるよう、生活面を丁寧に支えます。"},
-                    {"title": "学習・成長の支援", "body": "お子さまの状況に合わせて、学習や生活スキルの支援を行います。"},
-                    {"title": "関係機関連携", "body": "医療機関・学校・関係機関と連携し、支援の質を高めます。"},
+                    {"title": "生活支援", "body": "日常生活のサポートを行い、安心して過ごせる環境を整えます。"},
+                    {"title": "学習支援", "body": "成長に合わせた学習の機会を提供します。"},
+                    {"title": "連携", "body": "医療・関係機関と連携し、必要な支援につなげます。"},
                 ],
                 "faq_items": [
-                    {"q": "対象となる年齢は？", "a": "対象年齢や受け入れ条件は施設により異なります。まずはご相談ください。"},
-                    {"q": "見学はできますか？", "a": "はい、可能です。ご都合を伺って日程調整します。"},
-                    {"q": "費用について知りたいです。", "a": "ご状況により異なります。目安と補足を分かりやすくご案内します。"},
+                    {"q": "見学はできますか？", "a": "はい。日程を調整してご案内します。"},
+                    {"q": "入所までの流れを教えてください。", "a": "ご相談→見学→面談→手続き→入所の順に進みます。"},
+                    {"q": "費用の目安はありますか？", "a": "状況により異なります。詳しくはお問い合わせください。"},
                 ],
-                "contact_message": "入所相談・見学予約など、お気軽にお問い合わせください。",
+                "contact_message": "ご不安な点や手続きのことなど、お気軽にご相談ください。",
             },
-            # 児童（通所：児発/放デイ）
+
+            # 児童福祉（通所系 / 児発・放デイ）
             "child_day_v1": {
-                "catch_copy": "子どもの「できた！」を増やす療育",
-                "sub_catch": "見学・無料相談 受付中",
-                "primary_cta": "見学・相談",
-                "secondary_cta": "資料請求",
+                "catch_copy": "“できた”が増える、たのしい毎日。",
+                "sub_catch": "見学・無料相談を受付中です",
+                "primary_cta": "見学する",
+                "secondary_cta": "無料相談",
                 "hero_image": "D: ひかり",
                 "about_title": "私たちの想い",
-                "about_body": "お子さまの成長に寄り添い、安心して通える場所づくりを大切にしています。保護者の方の不安や悩みにも丁寧に向き合いながら、日々の「できた」を一緒に増やしていきます。",
-                "points": ["少人数サポート", "個別プログラム", "保護者連携"],
+                "about_body": "お子さま一人ひとりのペースを大切にしながら、安心して通える環境づくりを行っています。保護者の方にも分かりやすいように、ポイントをまとめました。",
+                "points": ["安心の療育", "丁寧な支援", "保護者支援"],
                 "svc_title": "療育プログラム",
-                "svc_lead": "発達段階や特性に合わせた療育内容を分かりやすくまとめています。",
+                "svc_lead": "目的や内容が伝わるように、プログラムのポイントをまとめています。",
                 "svc_items": [
-                    {"title": "コミュニケーション", "body": "遊びや関わりの中で、気持ちの伝え方ややりとりを育てます。"},
-                    {"title": "学習・生活スキル", "body": "身支度や学習の土台づくりなど、日常に役立つ力を伸ばします。"},
-                    {"title": "運動・感覚あそび", "body": "体を動かしながら、感覚統合や姿勢づくりをサポートします。"},
+                    {"title": "生活スキル", "body": "日常生活で必要な力を、遊びの中で育てます。"},
+                    {"title": "コミュニケーション", "body": "やりとりの楽しさを増やし、自信につなげます。"},
+                    {"title": "運動・感覚", "body": "体を動かす活動で、無理なく成長を促します。"},
                 ],
                 "faq_items": [
-                    {"q": "受給者証がなくても相談できますか？", "a": "はい、可能です。状況に応じて手続きの流れもご案内します。"},
-                    {"q": "送迎はありますか？", "a": "送迎の有無・範囲は事業所により異なります。お問い合わせください。"},
-                    {"q": "体験はできますか？", "a": "はい、可能です。まずは見学・相談からお気軽にご連絡ください。"},
+                    {"q": "見学はできますか？", "a": "はい。日程をご相談のうえ、ご案内します。"},
+                    {"q": "受給者証が必要ですか？", "a": "サービスにより必要です。手続きも含めてご案内します。"},
+                    {"q": "料金の目安を知りたいです。", "a": "状況により異なります。まずはお気軽にご相談ください。"},
                 ],
-                "contact_message": "ご不安なことは、まず無料相談からお気軽にどうぞ。",
+                "contact_message": "見学や無料相談など、お気軽にお問い合わせください。",
             },
         }
 
+        # テンプレIDのゆらぎ（簡易な寄せ）
+        if template_id in {"personal_v1", "free6_v1"}:
+            template_id = "corp_v1"
+
         preset = presets.get(template_id)
         if not preset:
-            # welfare_v1 などの中間IDは、通所系の雰囲気で軽く当てる（空/サンプルのみ）
+            # welfare_v1 は「Step1だけ福祉」を選んだ状態でも最低限の文言を出すための保険
             if template_id == "welfare_v1":
                 preset = presets.get("care_day_v1")
             else:
                 return
 
-        # ---------- apply (safe overwrite) ----------
-        set_text(step2, "catch_copy", preset.get("catch_copy", ""), replace_if=["", corp_sample_catch])
+        def _gather(key: str) -> set[str]:
+            s: set[str] = set()
+            for v in presets.values():
+                vv = _txt(v.get(key))
+                if vv:
+                    s.add(vv)
+            return s
 
-        set_text(hero, "sub_catch", preset.get("sub_catch", ""), replace_if=["", corp_sample_sub])
-        set_text(hero, "primary_button_text", preset.get("primary_cta", ""), replace_if=["", "お問い合わせ"])
-        set_text(hero, "secondary_button_text", preset.get("secondary_cta", ""), replace_if=["", "資料請求"])
+        # サンプル値集合（テンプレ切替時に入れ替えてよい値）
+        sample_catch = _gather("catch_copy") | {corp_sample_catch}
+        sample_sub = _gather("sub_catch") | {corp_sample_sub}
+        sample_primary = _gather("primary_cta") | {"お問い合わせ", "体験利用", "入居相談", "見学する", "相談する"}
+        sample_secondary = _gather("secondary_cta") | {"見学・相談", "無料相談", "見学する"}
+        sample_about_title = _gather("about_title") | {"私たちの想い", "理念・概要"}
+        sample_about_body = _gather("about_body") | {corp_sample_about_body}
+        sample_points_lists = [v.get("points") for v in presets.values() if isinstance(v.get("points"), list)]
+        sample_svc_title = _gather("svc_title") | {corp_sample_svc_title}
+        sample_svc_lead = _gather("svc_lead") | {corp_sample_svc_lead}
+        sample_svc_items_lists = [v.get("svc_items") for v in presets.values() if isinstance(v.get("svc_items"), list)]
+        sample_faq_items_lists = [v.get("faq_items") for v in presets.values() if isinstance(v.get("faq_items"), list)]
+        sample_contact_msg = _gather("contact_message") | {corp_sample_contact_message}
 
-        # 画像：未選択 or 既定のままなら差し替え
-        if preset.get("hero_image") and _txt(hero.get("hero_image")) in ("", "A: オフィス"):
-            hero["hero_image"] = preset["hero_image"]
+        # --- Step2 ---
+        set_text(step2, "catch_copy", preset.get("catch_copy", ""), replace_if=sample_catch)
 
-        set_text(philosophy, "title", preset.get("about_title", ""), replace_if=["", "私たちの想い", "理念・概要"])
-        set_text(philosophy, "body", preset.get("about_body", ""), startswith="ここに")
-        set_list(philosophy, "points", preset.get("points", []), replace_if_lists=[corp_sample_points])
+        # --- Hero ---
+        set_text(hero, "sub_catch", preset.get("sub_catch", corp_sample_sub), replace_if=sample_sub)
+        set_text(hero, "primary_button_text", preset.get("primary_cta", "お問い合わせ"), replace_if=sample_primary)
+        set_text(hero, "secondary_button_text", preset.get("secondary_cta", "見学・相談"), replace_if=sample_secondary)
 
-        set_text(services, "title", preset.get("svc_title", ""), replace_if=["", "業務内容"])
-        set_text(services, "lead", preset.get("svc_lead", ""), startswith="ここに")
-        if preset.get("svc_items"):
-            set_services_items(preset["svc_items"])
+        # hero image preset は「未設定 or 既存プリセット」のときだけ差し替える
+        # （ユーザーがURL入力している可能性があるため、完全な上書きはしない）
+        if preset.get("hero_image"):
+            cur_hero_img = _txt(hero.get("hero_image"))
+            if cur_hero_img == "" or cur_hero_img in set(HERO_IMAGE_PRESET_URLS.keys()):
+                hero["hero_image"] = preset.get("hero_image")
 
-        if preset.get("faq_items"):
-            set_faq_items(preset["faq_items"])
+        # --- About / Philosophy ---
+        set_text(philosophy, "title", preset.get("about_title", "私たちの想い"), replace_if=sample_about_title)
+        set_text(
+            philosophy,
+            "body",
+            preset.get("about_body", corp_sample_about_body),
+            replace_if=sample_about_body,
+            startswith="ここに",
+        )
+        set_list(philosophy, "points", preset.get("points", corp_sample_points), replace_if_lists=sample_points_lists)
 
-        set_text(contact, "message", preset.get("contact_message", ""), startswith="ここに")
-        # button_text はユーザーが変えやすいので、空の時だけ埋める
-        set_text(contact, "button_text", contact.get("button_text") or "お問い合わせ", replace_if=[""])
+        # --- Services (inside philosophy) ---
+        set_text(services, "title", preset.get("svc_title", corp_sample_svc_title), replace_if=sample_svc_title)
+        set_text(
+            services,
+            "lead",
+            preset.get("svc_lead", corp_sample_svc_lead),
+            replace_if=sample_svc_lead,
+            startswith="提供サービスの概要",
+        )
+        set_services_items(preset.get("svc_items", corp_sample_svc_items), replace_if_items_lists=sample_svc_items_lists)
+
+        # --- FAQ ---
+        set_faq_items(preset.get("faq_items", corp_sample_faq_items), replace_if_items_lists=sample_faq_items_lists)
+
+        # --- Contact ---
+        set_text(contact, "message", preset.get("contact_message", corp_sample_contact_message), replace_if=sample_contact_msg, startswith="ここに")
+        if _txt(contact.get("button_text")) == "":
+            contact["button_text"] = "お問い合わせ"
 
     except Exception:
-        # ここで落ちるとプレビューや保存に影響するので、必ず握りつぶす
+        # テンプレ反映でコケても、アプリ全体を落とさない
+        traceback.print_exc()
         return
 
 
@@ -2550,7 +2652,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
     q_primary = accent
     q_secondary = accent2
 
-    bg_img_str = " ".join(bg_img)
+    bg_img_str = bg_img
 
     return (
         f"--q-primary: {q_primary};"
@@ -2592,9 +2694,6 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     is_dark = primary_key in ("black", "navy")
     root_id = f"pv-root-{mode}"
     theme_style = _preview_glass_style(step1, dark=is_dark)
-
-    # scope the CSS variables to the preview root (so builder UI won't be affected)
-    ui.html(f"<style>#{root_id}{{{theme_style}}}</style>")
 
     # -------- helpers --------
     SECTION_IDS = {
@@ -2681,7 +2780,7 @@ def render_preview(p: dict, mode: str = "pc") -> None:
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
 
-    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f"id={root_id}"):
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f"id={root_id}").style(theme_style):
         # scroll container (header sticky)
         with ui.element("div").classes("pv-scroll"):
             # ----- header -----
@@ -2926,6 +3025,8 @@ def render_main(u: User) -> None:
 
     preview_ref = {"refresh_mobile": (lambda: None), "refresh_pc": (lambda: None)}
 
+    editor_ref = {"refresh": (lambda: None)}
+
     def refresh_preview() -> None:
         # 表示中のタブがどちらでも更新されるように両方叩く（軽い）
         try:
@@ -3005,8 +3106,16 @@ def render_main(u: User) -> None:
 
                                 def update_and_refresh() -> None:
                                     # Step1の分岐（テンプレID）を常に同期
+                                    before_tpl = step1.get("_applied_template_id") or step1.get("template_id") or ""
                                     step1["template_id"] = resolve_template_id(step1)
                                     set_current_project(p, u)
+                                    after_tpl = step1.get("_applied_template_id") or step1.get("template_id") or ""
+                                    # 業種（テンプレ）を切り替えた瞬間だけ、Step3の入力欄も描き直す
+                                    if after_tpl != before_tpl:
+                                        try:
+                                            editor_ref["refresh"]()
+                                        except Exception:
+                                            pass
                                     refresh_preview()
 
                                 def bind_step2_input(label: str, key: str, hint: str = "") -> None:
@@ -3200,214 +3309,220 @@ def render_main(u: User) -> None:
                                         ui.label("3. ページ内容詳細設定（ブロックごと）").classes("text-h6 q-mb-sm")
                                         ui.label("各ブロックを切り替えて編集できます。迷わないように整理してあります。").classes("cvhb-muted q-mb-md")
 
-                                        with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
-                                            ui.label("ブロック編集（会社テンプレ：6ブロック）").classes("text-subtitle1")
-                                            ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
+                                        @ui.refreshable
+                                        def block_editor_panel():
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                                ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
+                                                ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
 
-                                            with ui.tabs().props("dense").classes("w-full cvhb-block-tabs") as block_tabs:
-                                                ui.tab("hero", label="ヒーロー")
-                                                ui.tab("philosophy", label="理念/概要")
-                                                ui.tab("news", label="お知らせ")
-                                                ui.tab("faq", label="FAQ")
-                                                ui.tab("access", label="アクセス")
-                                                ui.tab("contact", label="お問い合わせ")
+                                                with ui.tabs().props("dense").classes("w-full cvhb-block-tabs") as block_tabs:
+                                                    ui.tab("hero", label="ヒーロー")
+                                                    ui.tab("philosophy", label="理念/概要")
+                                                    ui.tab("news", label="お知らせ")
+                                                    ui.tab("faq", label="FAQ")
+                                                    ui.tab("access", label="アクセス")
+                                                    ui.tab("contact", label="お問い合わせ")
 
-                                            with ui.tab_panels(block_tabs, value="hero").classes("w-full q-mt-md"):
+                                                with ui.tab_panels(block_tabs, value="hero").classes("w-full q-mt-md"):
 
-                                                with ui.tab_panel("hero"):
-                                                    ui.label("ヒーロー（ページ最上部）").classes("text-subtitle1 q-mb-sm")
+                                                    with ui.tab_panel("hero"):
+                                                        ui.label("ヒーロー（ページ最上部）").classes("text-subtitle1 q-mb-sm")
 
-                                                    # hero image preset
-                                                    hero = blocks.setdefault("hero", {})
-                                                    current_preset = hero.get("hero_image", "A: オフィス")
+                                                        # hero image preset
+                                                        hero = blocks.setdefault("hero", {})
+                                                        current_preset = hero.get("hero_image", "A: オフィス")
 
-                                                    def _on_preset_change(e) -> None:
-                                                        hero["hero_image"] = e.value
-                                                        update_and_refresh()
-
-                                                    ui.label("大きい写真 + キャッチコピーのエリアです").classes("cvhb-muted q-mb-sm")
-                                                    ui.radio(HERO_IMAGE_OPTIONS, value=current_preset, on_change=_on_preset_change).props("inline")
-                                                    # スライド画像URL（最大4枚 / 任意）
-                                                    urls = _safe_list(hero.get("hero_image_urls"))
-                                                    # 旧: hero_image_url は 1枚目として扱う
-                                                    _legacy = str(hero.get("hero_image_url") or "").strip()
-                                                    if _legacy:
-                                                        urls = [_legacy] + [u for u in urls if str(u).strip() and str(u).strip() != _legacy]
-                                                    while len(urls) < 4:
-                                                        urls.append("")
-                                                    hero["hero_image_urls"] = urls[:4]
-                                                    ui.label("スライド画像URL（最大4枚 / 任意）").classes("cvhb-muted q-mt-sm")
-                                                    for _i in range(4):
-                                                        def _on_url_change(e, i=_i):
-                                                            uu = _safe_list(hero.get("hero_image_urls"))
-                                                            while len(uu) < 4:
-                                                                uu.append("")
-                                                            uu[i] = str(e.value or "").strip()
-                                                            hero["hero_image_urls"] = uu[:4]
-                                                            # legacy: 1枚目を hero_image_url にも反映
-                                                            hero["hero_image_url"] = hero["hero_image_urls"][0] if hero.get("hero_image_urls") else ""
+                                                        def _on_preset_change(e) -> None:
+                                                            hero["hero_image"] = e.value
                                                             update_and_refresh()
-                                                        ui.input(f"画像URL { _i + 1 }", value=hero["hero_image_urls"][_i], on_change=_on_url_change).props("outlined dense").classes("w-full q-mb-sm")
-                                                    bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
-                                                    bind_block_input("hero", "ボタン1の文言", "primary_button_text")
-                                                    bind_block_input("hero", "ボタン2の文言（任意）", "secondary_button_text")
 
-                                                with ui.tab_panel("philosophy"):
-                                                    ui.label("理念 / 会社概要").classes("text-subtitle1 q-mb-sm")
-                                                    bind_block_input("philosophy", "見出し", "title")
-                                                    bind_block_input("philosophy", "本文", "body", textarea=True)
-                                                    bind_block_input("philosophy", "画像URL（任意）", "image_url", hint="未入力ならデフォルト画像")
+                                                        ui.label("大きい写真 + キャッチコピーのエリアです").classes("cvhb-muted q-mb-sm")
+                                                        ui.radio(HERO_IMAGE_OPTIONS, value=current_preset, on_change=_on_preset_change).props("inline")
+                                                        # スライド画像URL（最大4枚 / 任意）
+                                                        urls = _safe_list(hero.get("hero_image_urls"))
+                                                        # 旧: hero_image_url は 1枚目として扱う
+                                                        _legacy = str(hero.get("hero_image_url") or "").strip()
+                                                        if _legacy:
+                                                            urls = [_legacy] + [u for u in urls if str(u).strip() and str(u).strip() != _legacy]
+                                                        while len(urls) < 4:
+                                                            urls.append("")
+                                                        hero["hero_image_urls"] = urls[:4]
+                                                        ui.label("スライド画像URL（最大4枚 / 任意）").classes("cvhb-muted q-mt-sm")
+                                                        for _i in range(4):
+                                                            def _on_url_change(e, i=_i):
+                                                                uu = _safe_list(hero.get("hero_image_urls"))
+                                                                while len(uu) < 4:
+                                                                    uu.append("")
+                                                                uu[i] = str(e.value or "").strip()
+                                                                hero["hero_image_urls"] = uu[:4]
+                                                                # legacy: 1枚目を hero_image_url にも反映
+                                                                hero["hero_image_url"] = hero["hero_image_urls"][0] if hero.get("hero_image_urls") else ""
+                                                                update_and_refresh()
+                                                            ui.input(f"画像URL { _i + 1 }", value=hero["hero_image_urls"][_i], on_change=_on_url_change).props("outlined dense").classes("w-full q-mb-sm")
+                                                        bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
+                                                        bind_block_input("hero", "ボタン1の文言", "primary_button_text")
+                                                        bind_block_input("hero", "ボタン2の文言（任意）", "secondary_button_text")
 
-                                                    # points
-                                                    ph = blocks.setdefault("philosophy", {})
-                                                    points = ph.setdefault("points", ["", "", ""])
-                                                    if not isinstance(points, list):
-                                                        points = ["", "", ""]
-                                                    while len(points) < 3:
-                                                        points.append("")
-                                                    ph["points"] = points[:3]
+                                                    with ui.tab_panel("philosophy"):
+                                                        ui.label("理念 / 会社概要").classes("text-subtitle1 q-mb-sm")
+                                                        bind_block_input("philosophy", "見出し", "title")
+                                                        bind_block_input("philosophy", "本文", "body", textarea=True)
+                                                        bind_block_input("philosophy", "画像URL（任意）", "image_url", hint="未入力ならデフォルト画像")
 
-                                                    ui.label("ポイント（3つまで）").classes("cvhb-muted q-mt-sm")
+                                                        # points
+                                                        ph = blocks.setdefault("philosophy", {})
+                                                        points = ph.setdefault("points", ["", "", ""])
+                                                        if not isinstance(points, list):
+                                                            points = ["", "", ""]
+                                                        while len(points) < 3:
+                                                            points.append("")
+                                                        ph["points"] = points[:3]
 
-                                                    def update_point(idx: int, val: str) -> None:
-                                                        ph["points"][idx] = val
-                                                        update_and_refresh()
+                                                        ui.label("ポイント（3つまで）").classes("cvhb-muted q-mt-sm")
 
-                                                    for i in range(3):
-                                                        v = ph["points"][i]
-                                                        ui.input(f"ポイント{i+1}", value=v, on_change=lambda e, idx=i: update_point(idx, e.value or "")).props("outlined").classes("w-full q-mb-sm")
+                                                        def update_point(idx: int, val: str) -> None:
+                                                            ph["points"][idx] = val
+                                                            update_and_refresh()
 
-                                                    ui.separator().classes("q-my-md")
-                                                    ui.label("業務内容（プレビューに表示）").classes("text-subtitle2 q-mb-sm")
-                                                    svc = blocks.setdefault("philosophy", {}).setdefault("services", {})
-                                                    if not isinstance(svc, dict):
-                                                        svc = {}
-                                                        blocks["philosophy"]["services"] = svc
-                                                    svc.setdefault("title", "業務内容")
-                                                    svc.setdefault("lead", "提供サービスの概要をここに記載します。")
-                                                    svc.setdefault("image_url", "")
-                                                    items = svc.setdefault("items", [])
-                                                    if not isinstance(items, list):
-                                                        items = []
-                                                        svc["items"] = items
-                                                    while len(items) < 3:
-                                                        items.append({"title": "", "body": ""})
-                                                    svc["items"] = items[:3]
-                                                    ui.input("セクション見出し", value=svc.get("title", ""), on_change=lambda e: (svc.__setitem__("title", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
-                                                    ui.input("導入文", value=svc.get("lead", ""), on_change=lambda e: (svc.__setitem__("lead", e.value or ""), update_and_refresh())).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
-                                                    ui.input("画像URL（任意 / 1枚）", value=svc.get("image_url", ""), on_change=lambda e: (svc.__setitem__("image_url", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
-                                                    ui.label("項目（3つまで）").classes("cvhb-muted q-mt-sm")
-                                                    for i in range(3):
-                                                        it = svc["items"][i]
-                                                        if not isinstance(it, dict):
-                                                            it = {"title": "", "body": ""}
-                                                            svc["items"][i] = it
-                                                        ui.input(
-                                                            f"項目{i+1} タイトル",
-                                                            value=it.get("title", ""),
-                                                            on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("title", e.value or ""), update_and_refresh()),
-                                                        ).props("outlined").classes("w-full q-mb-sm")
-                                                        ui.input(
-                                                            f"項目{i+1} 本文",
-                                                            value=it.get("body", ""),
-                                                            on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("body", e.value or ""), update_and_refresh()),
-                                                        ).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
-                                                with ui.tab_panel("news"):
-                                                    ui.label("お知らせ").classes("text-subtitle1 q-mb-sm")
-                                                    ui.label("最大3件がスマホ側に表示されます（PCは4件まで表示）。").classes("cvhb-muted q-mb-sm")
+                                                        for i in range(3):
+                                                            v = ph["points"][i]
+                                                            ui.input(f"ポイント{i+1}", value=v, on_change=lambda e, idx=i: update_point(idx, e.value or "")).props("outlined").classes("w-full q-mb-sm")
 
-                                                    @ui.refreshable
-                                                    def news_editor():
-                                                        items = blocks.setdefault("news", {}).setdefault("items", [])
+                                                        ui.separator().classes("q-my-md")
+                                                        ui.label("業務内容（プレビューに表示）").classes("text-subtitle2 q-mb-sm")
+                                                        svc = blocks.setdefault("philosophy", {}).setdefault("services", {})
+                                                        if not isinstance(svc, dict):
+                                                            svc = {}
+                                                            blocks["philosophy"]["services"] = svc
+                                                        svc.setdefault("title", "業務内容")
+                                                        svc.setdefault("lead", "提供サービスの概要をここに記載します。")
+                                                        svc.setdefault("image_url", "")
+                                                        items = svc.setdefault("items", [])
                                                         if not isinstance(items, list):
                                                             items = []
-                                                            blocks["news"]["items"] = items
+                                                            svc["items"] = items
+                                                        while len(items) < 3:
+                                                            items.append({"title": "", "body": ""})
+                                                        svc["items"] = items[:3]
+                                                        ui.input("セクション見出し", value=svc.get("title", ""), on_change=lambda e: (svc.__setitem__("title", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
+                                                        ui.input("導入文", value=svc.get("lead", ""), on_change=lambda e: (svc.__setitem__("lead", e.value or ""), update_and_refresh())).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
+                                                        ui.input("画像URL（任意 / 1枚）", value=svc.get("image_url", ""), on_change=lambda e: (svc.__setitem__("image_url", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
+                                                        ui.label("項目（3つまで）").classes("cvhb-muted q-mt-sm")
+                                                        for i in range(3):
+                                                            it = svc["items"][i]
+                                                            if not isinstance(it, dict):
+                                                                it = {"title": "", "body": ""}
+                                                                svc["items"][i] = it
+                                                            ui.input(
+                                                                f"項目{i+1} タイトル",
+                                                                value=it.get("title", ""),
+                                                                on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("title", e.value or ""), update_and_refresh()),
+                                                            ).props("outlined").classes("w-full q-mb-sm")
+                                                            ui.input(
+                                                                f"項目{i+1} 本文",
+                                                                value=it.get("body", ""),
+                                                                on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("body", e.value or ""), update_and_refresh()),
+                                                            ).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
+                                                    with ui.tab_panel("news"):
+                                                        ui.label("お知らせ").classes("text-subtitle1 q-mb-sm")
+                                                        ui.label("最大3件がスマホ側に表示されます（PCは4件まで表示）。").classes("cvhb-muted q-mb-sm")
 
-                                                        def add_item():
-                                                            items.insert(0, {"date": datetime.now(JST).strftime("%Y-%m-%d"), "category": "お知らせ", "title": "", "body": ""})
-                                                            update_and_refresh()
-                                                            news_editor.refresh()
+                                                        @ui.refreshable
+                                                        def news_editor():
+                                                            items = blocks.setdefault("news", {}).setdefault("items", [])
+                                                            if not isinstance(items, list):
+                                                                items = []
+                                                                blocks["news"]["items"] = items
 
-                                                        def delete_item(i: int):
-                                                            try:
-                                                                del items[i]
-                                                            except Exception:
-                                                                pass
-                                                            update_and_refresh()
-                                                            news_editor.refresh()
+                                                            def add_item():
+                                                                items.insert(0, {"date": datetime.now(JST).strftime("%Y-%m-%d"), "category": "お知らせ", "title": "", "body": ""})
+                                                                update_and_refresh()
+                                                                news_editor.refresh()
 
-                                                        def set_field(i: int, key: str, val: str):
-                                                            if i < 0 or i >= len(items):
-                                                                return
-                                                            items[i][key] = val
-                                                            update_and_refresh()
+                                                            def delete_item(i: int):
+                                                                try:
+                                                                    del items[i]
+                                                                except Exception:
+                                                                    pass
+                                                                update_and_refresh()
+                                                                news_editor.refresh()
 
-                                                        ui.button("＋ 追加", on_click=add_item).props("color=primary outline").classes("q-mb-sm")
-                                                        if not items:
-                                                            ui.label("まだお知らせがありません").classes("cvhb-muted")
-                                                        for i, it in enumerate(items):
-                                                            with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
-                                                                with ui.row().classes("items-center justify-between"):
-                                                                    ui.label(f"お知らせ #{i+1}").classes("text-body1")
-                                                                    ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
-                                                                ui.input("日付", value=it.get("date",""), on_change=lambda e, idx=i: set_field(idx, "date", e.value or "")).props("outlined type=date").classes("w-full q-mb-sm")
-                                                                ui.input("カテゴリ", value=it.get("category",""), on_change=lambda e, idx=i: set_field(idx, "category", e.value or "")).props("outlined").classes("w-full q-mb-sm")
-                                                                ui.input("タイトル", value=it.get("title",""), on_change=lambda e, idx=i: set_field(idx, "title", e.value or "")).props("outlined").classes("w-full q-mb-sm")
-                                                                ui.input("本文", value=it.get("body",""), on_change=lambda e, idx=i: set_field(idx, "body", e.value or "")).props("outlined type=textarea autogrow").classes("w-full")
-                                                    news_editor()
-                                                    # refresh hook not needed; update_and_refresh will refresh preview
+                                                            def set_field(i: int, key: str, val: str):
+                                                                if i < 0 or i >= len(items):
+                                                                    return
+                                                                items[i][key] = val
+                                                                update_and_refresh()
 
-                                                with ui.tab_panel("faq"):
-                                                    ui.label("FAQ").classes("text-subtitle1 q-mb-sm")
-                                                    ui.label("Q&Aを編集できます。").classes("cvhb-muted q-mb-sm")
+                                                            ui.button("＋ 追加", on_click=add_item).props("color=primary outline").classes("q-mb-sm")
+                                                            if not items:
+                                                                ui.label("まだお知らせがありません").classes("cvhb-muted")
+                                                            for i, it in enumerate(items):
+                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                                    with ui.row().classes("items-center justify-between"):
+                                                                        ui.label(f"お知らせ #{i+1}").classes("text-body1")
+                                                                        ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
+                                                                    ui.input("日付", value=it.get("date",""), on_change=lambda e, idx=i: set_field(idx, "date", e.value or "")).props("outlined type=date").classes("w-full q-mb-sm")
+                                                                    ui.input("カテゴリ", value=it.get("category",""), on_change=lambda e, idx=i: set_field(idx, "category", e.value or "")).props("outlined").classes("w-full q-mb-sm")
+                                                                    ui.input("タイトル", value=it.get("title",""), on_change=lambda e, idx=i: set_field(idx, "title", e.value or "")).props("outlined").classes("w-full q-mb-sm")
+                                                                    ui.input("本文", value=it.get("body",""), on_change=lambda e, idx=i: set_field(idx, "body", e.value or "")).props("outlined type=textarea autogrow").classes("w-full")
+                                                        news_editor()
+                                                        # refresh hook not needed; update_and_refresh will refresh preview
 
-                                                    @ui.refreshable
-                                                    def faq_editor():
-                                                        items = blocks.setdefault("faq", {}).setdefault("items", [])
-                                                        if not isinstance(items, list):
-                                                            items = []
-                                                            blocks["faq"]["items"] = items
+                                                    with ui.tab_panel("faq"):
+                                                        ui.label("FAQ").classes("text-subtitle1 q-mb-sm")
+                                                        ui.label("Q&Aを編集できます。").classes("cvhb-muted q-mb-sm")
 
-                                                        def add_item():
-                                                            items.append({"q": "", "a": ""})
-                                                            update_and_refresh()
-                                                            faq_editor.refresh()
+                                                        @ui.refreshable
+                                                        def faq_editor():
+                                                            items = blocks.setdefault("faq", {}).setdefault("items", [])
+                                                            if not isinstance(items, list):
+                                                                items = []
+                                                                blocks["faq"]["items"] = items
 
-                                                        def delete_item(i: int):
-                                                            try:
-                                                                del items[i]
-                                                            except Exception:
-                                                                pass
-                                                            update_and_refresh()
-                                                            faq_editor.refresh()
+                                                            def add_item():
+                                                                items.append({"q": "", "a": ""})
+                                                                update_and_refresh()
+                                                                faq_editor.refresh()
 
-                                                        def set_field(i: int, key: str, val: str):
-                                                            if i < 0 or i >= len(items):
-                                                                return
-                                                            items[i][key] = val
-                                                            update_and_refresh()
+                                                            def delete_item(i: int):
+                                                                try:
+                                                                    del items[i]
+                                                                except Exception:
+                                                                    pass
+                                                                update_and_refresh()
+                                                                faq_editor.refresh()
 
-                                                        ui.button("＋ 追加", on_click=add_item).props("color=primary outline").classes("q-mb-sm")
-                                                        if not items:
-                                                            ui.label("まだFAQがありません").classes("cvhb-muted")
-                                                        for i, it in enumerate(items):
-                                                            with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
-                                                                with ui.row().classes("items-center justify-between"):
-                                                                    ui.label(f"FAQ #{i+1}").classes("text-body1")
-                                                                    ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
-                                                                ui.input("質問（Q）", value=it.get("q",""), on_change=lambda e, idx=i: set_field(idx, "q", e.value or "")).props("outlined").classes("w-full q-mb-sm")
-                                                                ui.input("回答（A）", value=it.get("a",""), on_change=lambda e, idx=i: set_field(idx, "a", e.value or "")).props("outlined type=textarea autogrow").classes("w-full")
-                                                    faq_editor()
+                                                            def set_field(i: int, key: str, val: str):
+                                                                if i < 0 or i >= len(items):
+                                                                    return
+                                                                items[i][key] = val
+                                                                update_and_refresh()
 
-                                                with ui.tab_panel("access"):
-                                                    ui.label("アクセス").classes("text-subtitle1 q-mb-sm")
-                                                    bind_block_input("access", "地図URL（任意）", "map_url", hint="空欄なら「住所」から自動生成します。")
-                                                    bind_block_input("access", "補足（任意）", "notes", textarea=True)
+                                                            ui.button("＋ 追加", on_click=add_item).props("color=primary outline").classes("q-mb-sm")
+                                                            if not items:
+                                                                ui.label("まだFAQがありません").classes("cvhb-muted")
+                                                            for i, it in enumerate(items):
+                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                                    with ui.row().classes("items-center justify-between"):
+                                                                        ui.label(f"FAQ #{i+1}").classes("text-body1")
+                                                                        ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
+                                                                    ui.input("質問（Q）", value=it.get("q",""), on_change=lambda e, idx=i: set_field(idx, "q", e.value or "")).props("outlined").classes("w-full q-mb-sm")
+                                                                    ui.input("回答（A）", value=it.get("a",""), on_change=lambda e, idx=i: set_field(idx, "a", e.value or "")).props("outlined type=textarea autogrow").classes("w-full")
+                                                        faq_editor()
 
-                                                with ui.tab_panel("contact"):
-                                                    ui.label("お問い合わせ").classes("text-subtitle1 q-mb-sm")
-                                                    bind_block_input("contact", "受付時間（任意）", "hours")
-                                                    bind_block_input("contact", "メッセージ（任意）", "message", textarea=True)
+                                                    with ui.tab_panel("access"):
+                                                        ui.label("アクセス").classes("text-subtitle1 q-mb-sm")
+                                                        bind_block_input("access", "地図URL（任意）", "map_url", hint="空欄なら「住所」から自動生成します。")
+                                                        bind_block_input("access", "補足（任意）", "notes", textarea=True)
+
+                                                    with ui.tab_panel("contact"):
+                                                        ui.label("お問い合わせ").classes("text-subtitle1 q-mb-sm")
+                                                        bind_block_input("contact", "受付時間（任意）", "hours")
+                                                        bind_block_input("contact", "メッセージ（任意）", "message", textarea=True)
+
+                                        editor_ref["refresh"] = block_editor_panel.refresh
+                                        block_editor_panel()
+
 
                                     # -----------------
                                     # Step 4 / 5
