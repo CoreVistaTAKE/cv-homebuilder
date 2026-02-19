@@ -1252,70 +1252,98 @@ def inject_global_styles() -> None:
   };
 
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
-  // - Previewカード内で「横が全部見える」ように自動で縮小する
-  // - transform(scale) はレイアウトに影響しないため、JS側で left を調整して中央寄せする
-  window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {} };
+// - Previewカード内で「横が全部見える」ように自動で縮小する
+// - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {} };
 
-  window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth){
-    try{
-      const apply = function(){
+window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth){
+  try{
+    const safeNum = function(v, fb){
+      v = Number(v);
+      if(!isFinite(v)) return fb || 0;
+      return v;
+    };
+    const dw = Math.max(1, safeNum(designWidth, 1));
+
+    let tries = 0;
+    const apply = function(){
+      try{
         const outer = document.getElementById(outerId);
         const inner = document.getElementById(innerId);
         if(!outer || !inner) return;
 
-        const ow = outer.clientWidth || 0;
-        if(ow <= 0) return;
+        const rect = outer.getBoundingClientRect();
+        const ow = safeNum(rect.width || outer.clientWidth || 0, 0);
+
+        // not ready / hidden (0px になりがち) -> 少し待って再計測
+        if(ow < 120){
+          if(tries < 12){
+            tries++;
+            try{ clearTimeout(window.__cvhbFit.timers[key]); }catch(e){}
+            window.__cvhbFit.timers[key] = setTimeout(apply, 60);
+          }
+          return;
+        }
 
         // inner: absolute + fixed design width
         inner.style.position = 'absolute';
         inner.style.top = '0px';
         inner.style.height = '100%';
-        inner.style.width = designWidth + 'px';
+        inner.style.width = dw + 'px';
+        inner.style.maxWidth = 'none';
+        inner.style.visibility = 'visible';
+        inner.style.opacity = '1';
 
-        const scale = Math.min(1, ow / designWidth);
+        const rawScale = ow / dw;
+        const scale = Math.max(0.01, Math.min(1, rawScale));
+
         inner.style.transformOrigin = 'top left';
         inner.style.transform = 'scale(' + scale + ')';
 
-        const visualW = designWidth * scale;
+        const visualW = dw * scale;
         const left = Math.max(0, (ow - visualW) / 2);
         inner.style.left = left + 'px';
-      };
-
-      window.__cvhbFit.regs[key] = apply;
-
-      // ResizeObserver (一番安定)
-      try{
-        if(window.ResizeObserver){
-          if(window.__cvhbFit.observers[key]){
-            window.__cvhbFit.observers[key].disconnect();
-            delete window.__cvhbFit.observers[key];
-          }
-          const outer = document.getElementById(outerId);
-          if(outer){
-            const obs = new ResizeObserver(function(){ try{ apply(); }catch(e){} });
-            obs.observe(outer);
-            window.__cvhbFit.observers[key] = obs;
-          }
-        }
       }catch(e){}
+    };
 
-      // fallback: window resize
-      if(!window.__cvhbFitInit){
-        window.__cvhbFitInit = true;
-        window.addEventListener('resize', function(){
-          try{
-            const regs = (window.__cvhbFit && window.__cvhbFit.regs) ? window.__cvhbFit.regs : {};
-            for(const k in regs){
-              try{ regs[k](); }catch(e){}
-            }
-          }catch(e){}
-        });
+    window.__cvhbFit.regs[key] = apply;
+
+    // ResizeObserver (一番安定)
+    try{
+      if(window.ResizeObserver){
+        if(window.__cvhbFit.observers[key]){
+          window.__cvhbFit.observers[key].disconnect();
+          delete window.__cvhbFit.observers[key];
+        }
+        const outer = document.getElementById(outerId);
+        if(outer){
+          const obs = new ResizeObserver(function(){ try{ apply(); }catch(e){} });
+          obs.observe(outer);
+          window.__cvhbFit.observers[key] = obs;
+        }
       }
-
-      // first run
-      setTimeout(apply, 0);
     }catch(e){}
-  };
+
+    // fallback: window resize
+    if(!window.__cvhbFitInit){
+      window.__cvhbFitInit = true;
+      window.addEventListener('resize', function(){
+        try{
+          const regs = (window.__cvhbFit && window.__cvhbFit.regs) ? window.__cvhbFit.regs : {};
+          for(const k in regs){
+            try{ regs[k](); }catch(e){}
+          }
+        }catch(e){}
+      });
+    }
+
+    // first runs (layout settle)
+    apply();
+    try{ requestAnimationFrame(apply); }catch(e){}
+    setTimeout(apply, 60);
+    setTimeout(apply, 240);
+  }catch(e){}
+};
 
 })();
 </script>
@@ -2737,14 +2765,17 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         primary_weak = f"rgba({r1}, {g1}, {b1}, 0.14)"
 
         bg_img = (
-            f"radial-gradient(980px 640px at 14% 12%, rgba({r1}, {g1}, {b1}, 0.17), transparent 62%),"
-            f"radial-gradient(940px 600px at 86% 10%, rgba({r2}, {g2}, {b2}, 0.13), transparent 62%),"
-            f"radial-gradient(320px 320px at 86% 78%, transparent 0%, transparent 60%, rgba({r1}, {g1}, {b1}, 0.18) 61%, rgba({r1}, {g1}, {b1}, 0.18) 62%, transparent 63%),"
-            f"radial-gradient(240px 240px at 18% 70%, rgba({r2}, {g2}, {b2}, 0.10) 0%, rgba({r2}, {g2}, {b2}, 0.10) 38%, transparent 39%),"
-            f"radial-gradient(820px 520px at 10% 92%, {blob3}, transparent 62%),"
-            f"radial-gradient(760px 520px at 62% 56%, rgba({r4}, {g4}, {b4}, 0.18), transparent 64%),"
-            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
-        )
+    f"radial-gradient(1000px 720px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.16), transparent 62%),"
+    f"radial-gradient(920px 680px at 90% 12%, rgba({r2}, {g2}, {b2}, 0.12), transparent 62%),"
+    f"radial-gradient(760px 520px at 58% 52%, rgba({r4}, {g4}, {b4}, 0.16), transparent 64%),"
+    f"radial-gradient(860px 560px at 12% 92%, rgba(255, 255, 255, 0.22), transparent 64%),"
+    f"radial-gradient(520px 520px at 84% 20%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.00) 72%),"
+    f"radial-gradient(420px 420px at 18% 72%, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.00) 70%),"
+    f"radial-gradient(360px 360px at 86% 78%, rgba(255, 255, 255, 0.00) 52%, rgba(255, 255, 255, 0.32) 56%, rgba(255, 255, 255, 0.00) 68%),"
+    f"radial-gradient(280px 280px at 22% 38%, rgba({r2}, {g2}, {b2}, 0.10) 0%, rgba({r2}, {g2}, {b2}, 0.10) 36%, transparent 37%),"
+    f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
+)
+
 
         blob4 = f"rgba({r4}, {g4}, {b4}, 0.22)"
 
@@ -2770,14 +2801,17 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         primary_weak = f"rgba({r1}, {g1}, {b1}, 0.18)"
 
         bg_img = (
-            f"radial-gradient(980px 640px at 14% 12%, rgba({r1}, {g1}, {b1}, 0.13), transparent 62%),"
-            f"radial-gradient(940px 600px at 86% 10%, rgba({r2}, {g2}, {b2}, 0.11), transparent 62%),"
-            f"radial-gradient(320px 320px at 86% 78%, transparent 0%, transparent 60%, rgba({r1}, {g1}, {b1}, 0.14) 61%, rgba({r1}, {g1}, {b1}, 0.14) 62%, transparent 63%),"
-            f"radial-gradient(240px 240px at 18% 70%, rgba({r2}, {g2}, {b2}, 0.08) 0%, rgba({r2}, {g2}, {b2}, 0.08) 38%, transparent 39%),"
-            f"radial-gradient(820px 520px at 10% 92%, {blob3}, transparent 62%),"
-            f"radial-gradient(760px 520px at 62% 56%, rgba({r4}, {g4}, {b4}, 0.12), transparent 64%),"
-            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
-        )
+    f"radial-gradient(1000px 720px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.12), transparent 62%),"
+    f"radial-gradient(920px 680px at 90% 12%, rgba({r2}, {g2}, {b2}, 0.10), transparent 62%),"
+    f"radial-gradient(760px 520px at 58% 52%, rgba({r4}, {g4}, {b4}, 0.12), transparent 64%),"
+    f"radial-gradient(860px 560px at 12% 92%, rgba(255, 255, 255, 0.08), transparent 66%),"
+    f"radial-gradient(520px 520px at 84% 20%, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.00) 72%),"
+    f"radial-gradient(420px 420px at 18% 72%, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.00) 70%),"
+    f"radial-gradient(360px 360px at 86% 78%, rgba(255, 255, 255, 0.00) 52%, rgba(255, 255, 255, 0.12) 56%, rgba(255, 255, 255, 0.00) 68%),"
+    f"radial-gradient(280px 280px at 22% 38%, rgba({r2}, {g2}, {b2}, 0.08) 0%, rgba({r2}, {g2}, {b2}, 0.08) 36%, transparent 37%),"
+    f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
+)
+
 
         blob4 = f"rgba({r4}, {g4}, {b4}, 0.16)"
 
@@ -3291,6 +3325,7 @@ def render_main(u: User) -> None:
                                         with ui.card().classes("q-pa-sm rounded-borders q-mb-sm w-full").props("flat bordered"):
                                             ui.label("業種を選んでください").classes("text-subtitle1")
                                             ui.label("※v1.0 は「会社・企業サイト」をまず商用ラインまで仕上げます。").classes("cvhb-muted q-mb-sm")
+                                            ui.label("※作成途中の業種変更は、3.ページ内容詳細設定（ブロックごと）がリセットされます。").classes("text-negative text-caption q-mb-sm")
 
                                             @ui.refreshable
                                             def industry_selector():
