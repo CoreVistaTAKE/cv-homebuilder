@@ -1374,7 +1374,7 @@ def inject_global_styles() -> None:
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, gen: {} };
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -1391,7 +1391,7 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {} };
       if(!window.__cvhbDebug || !window.__cvhbDebug.enabled) return;
       const rec = { ts: new Date().toISOString(), event: String(event||''), data: data || null };
       window.__cvhbDebug.logs.push(rec);
-      if(window.__cvhbDebug.logs.length > 400) window.__cvhbDebug.logs.shift();
+      if(window.__cvhbDebug.logs.length > 600) window.__cvhbDebug.logs.shift();
       try{ console.log('[cvhb]', rec.event, rec.data); }catch(e){}
     }catch(e){}
   };
@@ -1401,6 +1401,28 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {} };
       return JSON.stringify(logs, null, 2);
     }catch(e){
       return '[]';
+    }
+  };
+  // 現象再現時に DOM状態も一緒に採取できる（任意）
+  window.cvhbDebugSnapshot = window.cvhbDebugSnapshot || function(){
+    try{
+      const outer = document.getElementById('pv-fit');
+      const inner = document.getElementById('pv-root');
+      const cs = outer ? window.getComputedStyle(outer) : null;
+      const snap = {
+        has_outer: !!outer,
+        has_inner: !!inner,
+        outer_clientWidth: outer ? outer.clientWidth : null,
+        outer_offsetWidth: outer ? outer.offsetWidth : null,
+        outer_rectWidth: outer ? outer.getBoundingClientRect().width : null,
+        outer_display: cs ? cs.display : null,
+        outer_visibility: cs ? cs.visibility : null,
+        outer_position: cs ? cs.position : null,
+      };
+      try{ window.cvhbDebugLog && window.cvhbDebugLog('snapshot', snap); }catch(e){}
+      return snap;
+    }catch(e){
+      return null;
     }
   };
 
@@ -1414,9 +1436,32 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     };
     const dw = Math.max(1, safeNum(designWidth, 1));
 
+    // register 世代管理（古いタイマーが新しいDOMに触って事故るのを防ぐ）
+    try{
+      window.__cvhbFit.gen = window.__cvhbFit.gen || {};
+      window.__cvhbFit.gen[key] = (window.__cvhbFit.gen[key] || 0) + 1;
+    }catch(e){}
+    const myGen = (window.__cvhbFit.gen && window.__cvhbFit.gen[key]) ? window.__cvhbFit.gen[key] : 0;
+
+    // 古いタイマーは無効化
+    try{
+      if(window.__cvhbFit.timers && window.__cvhbFit.timers[key]){
+        clearTimeout(window.__cvhbFit.timers[key]);
+        delete window.__cvhbFit.timers[key];
+      }
+    }catch(e){}
+
     let tries = 0;
+    const MAX_TRIES = 60;   // 余裕を持たせる（遅い端末でも安定）
+    const DELAY_MS = 80;
+
     const apply = function(){
       try{
+        // stale guard
+        try{
+          if(window.__cvhbFit.gen && window.__cvhbFit.gen[key] !== myGen) return;
+        }catch(e){}
+
         const outer = document.getElementById(outerId);
         const inner = document.getElementById(innerId);
         if(!outer || !inner){
@@ -1424,16 +1469,41 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           return;
         }
 
+        // outer が content-driven で 0px になる事故を防止
+        try{
+          outer.style.width = '100%';
+          outer.style.display = 'block';
+        }catch(e){}
+
         const rect = outer.getBoundingClientRect();
-        const ow = safeNum(rect.width || outer.clientWidth || 0, 0);
+        const ow = Math.max(
+          safeNum(rect.width, 0),
+          safeNum(outer.clientWidth, 0),
+          safeNum(outer.offsetWidth, 0)
+        );
 
         // not ready / hidden (0px になりがち) -> 少し待って再計測
-        if(ow < 120){
+        if(ow <= 0){
           try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, tries:tries}); }catch(e){}
-          if(tries < 12){
+          if(tries < MAX_TRIES){
             tries++;
             try{ clearTimeout(window.__cvhbFit.timers[key]); }catch(e){}
-            window.__cvhbFit.timers[key] = setTimeout(apply, 60);
+            window.__cvhbFit.timers[key] = setTimeout(apply, DELAY_MS);
+          }else{
+            // fallback: とにかく見える状態に戻す（scale は諦める）
+            try{
+              inner.style.position = 'relative';
+              inner.style.top = '0px';
+              inner.style.left = '0px';
+              inner.style.width = '100%';
+              inner.style.height = '100%';
+              inner.style.maxWidth = 'none';
+              inner.style.transformOrigin = 'top left';
+              inner.style.transform = 'none';
+              inner.style.visibility = 'visible';
+              inner.style.opacity = '1';
+            }catch(e){}
+            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, dw:dw}); }catch(e){}
           }
           return;
         }
@@ -1463,21 +1533,24 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
 
     window.__cvhbFit.regs[key] = apply;
 
-    // ResizeObserver (一番安定)
-    try{
-      if(window.ResizeObserver){
+    // ResizeObserver (一番安定) - outer の生成タイミングがズレても拾えるように遅延でも試す
+    const ensureObserver = function(){
+      try{
+        if(!window.ResizeObserver) return;
+        const outer = document.getElementById(outerId);
+        if(!outer) return;
+
         if(window.__cvhbFit.observers[key]){
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
-        const outer = document.getElementById(outerId);
-        if(outer){
-          const obs = new ResizeObserver(function(){ try{ apply(); }catch(e){} });
-          obs.observe(outer);
-          window.__cvhbFit.observers[key] = obs;
-        }
-      }
-    }catch(e){}
+        const obs = new ResizeObserver(function(){ try{ apply(); }catch(e){} });
+        obs.observe(outer);
+        window.__cvhbFit.observers[key] = obs;
+      }catch(e){}
+    };
+    try{ ensureObserver(); }catch(e){}
+    setTimeout(function(){ try{ ensureObserver(); }catch(e){} }, 120);
 
     // fallback: window resize
     if(!window.__cvhbFitInit){
@@ -1497,6 +1570,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     try{ requestAnimationFrame(apply); }catch(e){}
     setTimeout(apply, 60);
     setTimeout(apply, 240);
+    setTimeout(apply, 600);
   }catch(e){}
 };
 
@@ -3983,7 +4057,7 @@ def render_main(u: User) -> None:
                                 f"width: min(100%, {frame_w}px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             ).props("flat bordered"):
                                 with ui.element("div").props('id="pv-fit"').style(
-                                    "height: 100%; overflow: hidden; position: relative; background: transparent;"
+                                    "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
                                 ):
                                     if not p:
                                         ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
