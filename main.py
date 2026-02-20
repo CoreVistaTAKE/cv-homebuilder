@@ -1427,16 +1427,39 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, ge
   };
 
 
-window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth, minWidth, maxWidth){
+window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designConfig){
   try{
     const safeNum = function(v, fb){
       v = Number(v);
       if(!isFinite(v)) return fb || 0;
       return v;
     };
-    const dwReq = Math.max(1, safeNum(designWidth, 1));
-    const minW = Math.max(0, safeNum(minWidth, 0));
-    const maxW = Math.max(0, safeNum(maxWidth, 0));
+    // design config:
+    // - number: design width
+    // - object: { designW, minW, maxW }
+    let dwBase = 1;
+    let minW = 0;
+    let maxW = 0;
+    try{
+      if(typeof designConfig === 'object' && designConfig){
+        if(designConfig.designW != null) dwBase = safeNum(designConfig.designW, 1);
+        else if(designConfig.dw != null) dwBase = safeNum(designConfig.dw, 1);
+        else if(designConfig.width != null) dwBase = safeNum(designConfig.width, 1);
+        else dwBase = safeNum(designConfig, 1);
+
+        if(designConfig.minW != null) minW = safeNum(designConfig.minW, 0);
+        if(designConfig.maxW != null) maxW = safeNum(designConfig.maxW, 0);
+      }else{
+        dwBase = safeNum(designConfig, 1);
+      }
+    }catch(e){
+      dwBase = safeNum(designConfig, 1);
+      minW = 0;
+      maxW = 0;
+    }
+    dwBase = Math.max(1, dwBase);
+    if(maxW > 0) dwBase = Math.min(dwBase, maxW);
+
 
     // register 世代管理（古いタイマーが新しいDOMに触って事故るのを防ぐ）
     try{
@@ -1483,6 +1506,19 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           safeNum(outer.clientWidth, 0),
           safeNum(outer.offsetWidth, 0)
         );
+        const oh = Math.max(
+          safeNum(rect.height, 0),
+          safeNum(outer.clientHeight, 0),
+          safeNum(outer.offsetHeight, 0)
+        );
+
+        // pick effective design width:
+        // - usually use dwBase
+        // - but if outer is too narrow, lock to minW to avoid "too small to read"
+        let dw = dwBase;
+        if(minW > 0 && ow > 0 && ow < minW) dw = minW;
+        if(maxW > 0 && dw > maxW) dw = maxW;
+        dw = Math.max(1, dw);
 
         // not ready / hidden (0px になりがち) -> 少し待って再計測
         if(ow <= 0){
@@ -1505,43 +1541,38 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
               inner.style.visibility = 'visible';
               inner.style.opacity = '1';
             }catch(e){}
-            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, dw_req:dwReq, minW:minW||0, maxW:maxW||0}); }catch(e){}
+            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, dwBase:dwBase, minW:minW, maxW:maxW}); }catch(e){}
           }
           return;
         }
 
-        // inner: absolute + fixed design width（PCは 1920 だが、狭い画面では最小 1280 を確保）
-        // - dwReq : 目標のデザイン幅（例：SP=720 / PC=1920）
-        // - minW/maxW : 任意（PC=1280..1920 のように下限/上限を指定できる）
-        let dwUsed = dwReq;
-        try{
-          if(maxW && maxW > 0) dwUsed = Math.min(dwUsed, maxW);
-          if(minW && minW > 0){
-            // 画面が狭いのに 1920 をそのまま縮小すると「小さくなりすぎる」ので、最小幅で止める
-            if(ow < minW) dwUsed = minW;
-            dwUsed = Math.max(dwUsed, minW);
-          }
-        }catch(e){}
-
+        // inner: absolute + fixed design width
         inner.style.position = 'absolute';
         inner.style.top = '0px';
         inner.style.height = '100%';
-        inner.style.width = dwUsed + 'px';
+        inner.style.width = dw + 'px';
         inner.style.maxWidth = 'none';
         inner.style.visibility = 'visible';
         inner.style.opacity = '1';
 
-        const rawScale = ow / dwUsed;
+        const rawScale = ow / dw;
         const scale = Math.max(0.01, Math.min(1, rawScale));
+
+        // keep visual height stable (so 2000px frame really shows ~2000px even when scaled)
+        if(oh > 0){
+          inner.style.height = (oh / scale) + 'px';
+        }else{
+          inner.style.height = '100%';
+        }
 
         inner.style.transformOrigin = 'top left';
         inner.style.transform = 'scale(' + scale + ')';
 
-        const visualW = dwUsed * scale;
+        const visualW = dw * scale;
         const left = Math.max(0, (ow - visualW) / 2);
         inner.style.left = left + 'px';
 
-        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, scale:scale, left:left}); }catch(e){}
+        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, oh:oh, dwBase:dwBase, dw:dw, minW:minW, maxW:maxW, scale:scale, left:left}); }catch(e){}
       }catch(e){}
     };
 
@@ -4063,17 +4094,19 @@ def render_main(u: User) -> None:
                             if mode not in ("mobile", "pc"):
                                 mode = "mobile"
 
-                            # デザイン上の横幅（SP=720 / PC=1920）
-                            # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
-                            # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
+                            # device design widths:
+                            # - mobile: 720px fixed
+                            # - pc: 1920px (but preview may lock to min 1280px when scaled down)
                             design_w = 720 if mode == "mobile" else 1920
-                            fit_min_w = 720 if mode == "mobile" else 1280
-                            fit_max_w = 720 if mode == "mobile" else 1920
+                            min_w = 720 if mode == "mobile" else 1280
+                            max_w = 720 if mode == "mobile" else 1920
+                            fit_cfg = json.dumps({"designW": design_w, "minW": min_w, "maxW": max_w})
+
                             frame_w = 800 if mode == "mobile" else 1200
                             radius = 22 if mode == "mobile" else 14
 
                             with ui.card().style(
-                                f"width: min(100%, {frame_w}px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
+                                f"width: min(100%, {frame_w}px); height: 2000px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             ).props("flat bordered"):
                                 with ui.element("div").props('id="pv-fit"').style(
                                     "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
@@ -4094,7 +4127,7 @@ def render_main(u: User) -> None:
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
+                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {fit_cfg});"
                                             )
                                         except Exception:
                                             pass
@@ -4107,7 +4140,7 @@ def render_main(u: User) -> None:
                                         # optional debug marker (DevTools で有効化したときだけ記録)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}}});"
+                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {min_w}, maxW: {max_w}}});"
                                             )
                                         except Exception:
                                             pass
