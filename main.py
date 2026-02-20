@@ -1427,14 +1427,16 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, ge
   };
 
 
-window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth){
+window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth, minWidth, maxWidth){
   try{
     const safeNum = function(v, fb){
       v = Number(v);
       if(!isFinite(v)) return fb || 0;
       return v;
     };
-    const dw = Math.max(1, safeNum(designWidth, 1));
+    const dwReq = Math.max(1, safeNum(designWidth, 1));
+    const minW = Math.max(0, safeNum(minWidth, 0));
+    const maxW = Math.max(0, safeNum(maxWidth, 0));
 
     // register 世代管理（古いタイマーが新しいDOMに触って事故るのを防ぐ）
     try{
@@ -1503,31 +1505,43 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
               inner.style.visibility = 'visible';
               inner.style.opacity = '1';
             }catch(e){}
-            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, dw:dw}); }catch(e){}
+            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, dw_req:dwReq, minW:minW||0, maxW:maxW||0}); }catch(e){}
           }
           return;
         }
 
-        // inner: absolute + fixed design width
+        // inner: absolute + fixed design width（PCは 1920 だが、狭い画面では最小 1280 を確保）
+        // - dwReq : 目標のデザイン幅（例：SP=720 / PC=1920）
+        // - minW/maxW : 任意（PC=1280..1920 のように下限/上限を指定できる）
+        let dwUsed = dwReq;
+        try{
+          if(maxW && maxW > 0) dwUsed = Math.min(dwUsed, maxW);
+          if(minW && minW > 0){
+            // 画面が狭いのに 1920 をそのまま縮小すると「小さくなりすぎる」ので、最小幅で止める
+            if(ow < minW) dwUsed = minW;
+            dwUsed = Math.max(dwUsed, minW);
+          }
+        }catch(e){}
+
         inner.style.position = 'absolute';
         inner.style.top = '0px';
         inner.style.height = '100%';
-        inner.style.width = dw + 'px';
+        inner.style.width = dwUsed + 'px';
         inner.style.maxWidth = 'none';
         inner.style.visibility = 'visible';
         inner.style.opacity = '1';
 
-        const rawScale = ow / dw;
+        const rawScale = ow / dwUsed;
         const scale = Math.max(0.01, Math.min(1, rawScale));
 
         inner.style.transformOrigin = 'top left';
         inner.style.transform = 'scale(' + scale + ')';
 
-        const visualW = dw * scale;
+        const visualW = dwUsed * scale;
         const left = Math.max(0, (ow - visualW) / 2);
         inner.style.left = left + 'px';
 
-        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, dw:dw, scale:scale, left:left}); }catch(e){}
+        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, scale:scale, left:left}); }catch(e){}
       }catch(e){}
     };
 
@@ -4049,7 +4063,12 @@ def render_main(u: User) -> None:
                             if mode not in ("mobile", "pc"):
                                 mode = "mobile"
 
+                            # デザイン上の横幅（SP=720 / PC=1920）
+                            # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
+                            # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
                             design_w = 720 if mode == "mobile" else 1920
+                            fit_min_w = 720 if mode == "mobile" else 1280
+                            fit_max_w = 720 if mode == "mobile" else 1920
                             frame_w = 800 if mode == "mobile" else 1200
                             radius = 22 if mode == "mobile" else 14
 
@@ -4075,7 +4094,7 @@ def render_main(u: User) -> None:
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w});"
+                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
                                             )
                                         except Exception:
                                             pass
@@ -4088,7 +4107,7 @@ def render_main(u: User) -> None:
                                         # optional debug marker (DevTools で有効化したときだけ記録)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}}});"
+                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}}});"
                                             )
                                         except Exception:
                                             pass
