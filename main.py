@@ -7,6 +7,9 @@ import re
 import secrets
 import stat
 import traceback
+import asyncio
+import mimetypes
+import inspect
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -119,6 +122,80 @@ def _safe_list(value) -> list:
     # dict / str / number など単体は list に包む
     return [value]
 
+
+
+def _short_name(name: str, keep: int = 5) -> str:
+    """Shorten filename for UI: keep first N chars and add ellipsis."""
+    try:
+        s = str(name or "").strip()
+    except Exception:
+        s = ""
+    if not s:
+        return ""
+    if len(s) <= keep:
+        return s
+    return s[:keep] + "…"
+
+
+def _guess_mime(filename: str, default: str = "image/png") -> str:
+    """Best-effort MIME guess from filename."""
+    try:
+        mt, _ = mimetypes.guess_type(filename or "")
+        return mt or default
+    except Exception:
+        return default
+
+
+async def _read_upload_bytes(content) -> bytes:
+    """Read bytes from NiceGUI upload content safely (supports sync/async)."""
+    if content is None:
+        return b""
+    # Starlette UploadFile has async .read(); sometimes we may get bytes directly.
+    try:
+        read_fn = getattr(content, "read", None)
+    except Exception:
+        read_fn = None
+
+    try:
+        if callable(read_fn):
+            data = read_fn()
+            if inspect.isawaitable(data):
+                data = await data
+        else:
+            data = content
+        if data is None:
+            return b""
+        if isinstance(data, (bytes, bytearray)):
+            return bytes(data)
+        # last resort: try bytes()
+        return bytes(data)
+    except Exception:
+        return b""
+
+
+async def _upload_event_to_data_url(e) -> tuple[str, str]:
+    """Convert a NiceGUI upload event into (data_url, filename)."""
+    try:
+        fname = str(getattr(e, "name", "") or "")
+    except Exception:
+        fname = ""
+    try:
+        mime = str(getattr(e, "type", "") or "")
+    except Exception:
+        mime = ""
+    content = getattr(e, "content", None)
+    data = await _read_upload_bytes(content)
+    if not data:
+        return "", fname
+    if not mime:
+        mime = _guess_mime(fname, "image/png")
+    try:
+        b64 = base64.b64encode(data).decode("ascii")
+    except Exception:
+        b64 = ""
+    if not b64:
+        return "", fname
+    return f"data:{mime};base64,{b64}", fname
 
 def _preview_preflight_error() -> Optional[str]:
     """プレビュー描画前に、必要な定義が揃っているかチェックして事故を減らす。"""
@@ -642,20 +719,25 @@ def inject_global_styles() -> None:
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
 }
 
-/* ===== Builder内プレビュー（Fit-to-widthを使う） =====
-   - スマホ: デザイン幅 720px（固定）
-   - PC: デザイン幅 1920px（縮小表示。プレビュー枠が狭い場合は 1280px を下限にする）
-   ※ 実際の横幅は JS の Fit-to-width が inline style で制御します。
-   ※ ここでは「JSが万一効かなかった時でも表示が崩れない」安全策として 100% にしています。
+/* ===== Builder内プレビューの基準幅（重要） =====
+   - スマホ: 720px
+   - PC: 1920px（プレビューは縮小表示／最低1280px）
+   ※ 実際の幅は JS の fit 関数が style.width で制御します。
+      ここで max-width:100% を付けると「PCもスマホも同じ」に見える原因になるので付けません。
 */
-.pv-shell.pv-layout-260218.pv-mode-mobile,
-.pv-shell.pv-layout-260218.pv-mode-pc{
-  width: 100%;
-  max-width: 100%;
+.pv-shell.pv-layout-260218.pv-mode-mobile{
+  width: 720px;      /* JS未適用時のフォールバック */
+  max-width: none;
   height: 100%;
-  margin: 0 auto;
+  margin: 0;
 }
 
+.pv-shell.pv-layout-260218.pv-mode-pc{
+  width: 1920px;     /* JS未適用時のフォールバック */
+  max-width: none;
+  height: 100%;
+  margin: 0;
+}
 
 .pv-layout-260218 .pv-scroll{
   height: 100%;
@@ -775,15 +857,9 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-main{
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 20px 18px 0;
-}
-
-/* PC(1920) で作る前提：中身の最大幅も広げる（縮小しても“スマホと同じ”に見えないように） */
-.pv-layout-260218.pv-mode-pc .pv-main{
-  max-width: 1440px;
-  padding: 24px 26px 0;
 }
 
 .pv-layout-260218 .pv-section{
@@ -924,6 +1000,14 @@ def inject_global_styles() -> None:
   box-shadow: var(--pv-shadow);
   background: rgba(255,255,255,0.20);
 }
+.pv-layout-260218.pv-mode-mobile .pv-hero-slider{
+  height: 240px;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-slider{
+  height: 420px;
+}
+
 
 .pv-layout-260218.pv-dark .pv-hero-slider{
   border-color: rgba(255,255,255,0.12);
@@ -932,24 +1016,23 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-hero-track{
   display: flex;
-  transition: transform 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  will-change: transform;
+  height: 100%;
+  transition: transform 500ms ease;
 }
 
 .pv-layout-260218 .pv-hero-slide{
   flex: 0 0 100%;
+  height: 100%;
+  position: relative;
 }
 
 .pv-layout-260218 .pv-hero-img{
   width: 100%;
-  height: 240px;
-  display: block;
+  height: 100%;
   object-fit: cover;
+  display: block;
 }
 
-.pv-layout-260218.pv-mode-pc .pv-hero-img{
-  height: 420px;
-}
 
 .pv-layout-260218 .pv-news-list{
   margin-top: 6px;
@@ -1128,7 +1211,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-companybar-inner{
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   border-radius: 22px;
   padding: 14px 16px;
@@ -1139,10 +1222,6 @@ def inject_global_styles() -> None:
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.pv-layout-260218.pv-mode-pc .pv-companybar-inner{
-  max-width: 1440px;
 }
 
 .pv-layout-260218.pv-dark .pv-companybar-inner{
@@ -1165,12 +1244,8 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-mapshot-inner{
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
-}
-
-.pv-layout-260218.pv-mode-pc .pv-mapshot-inner{
-  max-width: 1440px;
 }
 
 .pv-layout-260218 .pv-mapshot-card{
@@ -1275,7 +1350,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-footer-grid{
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   display: grid;
   grid-template-columns: 1fr;
@@ -1283,8 +1358,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-mode-pc .pv-footer-grid{
-  max-width: 1440px;
-  grid-template-columns: 1.2fr 0.8fr;
+  grid-template-columns: 1fr;
 }
 
 .pv-layout-260218 .pv-footer-brand{
@@ -1320,14 +1394,10 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-footer-copy{
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 12px auto 0;
   opacity: 0.62;
   font-size: 0.8rem;
-}
-
-.pv-layout-260218.pv-mode-pc .pv-footer-copy{
-  max-width: 1440px;
 }
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
@@ -1340,34 +1410,51 @@ def inject_global_styles() -> None:
 <script>
 (function(){
   window.__cvhbHeroIntervals = window.__cvhbHeroIntervals || {};
-  window.cvhbInitHeroSlider = window.cvhbInitHeroSlider || function(sliderId, intervalMs){
+  window.cvhbInitHeroSlider = function(sliderId, axis, intervalMs){
     try{
-      const run = function(tries){
-        const slider = document.getElementById(sliderId);
-        if(!slider){
-          if(tries < 10) return setTimeout(function(){ run(tries + 1); }, 60);
-          return;
-        }
-        const track = slider.querySelector('.pv-hero-track');
-        if(!track){
-          if(tries < 10) return setTimeout(function(){ run(tries + 1); }, 60);
-          return;
-        }
-        const slides = track.children ? track.children.length : 0;
-        if(window.__cvhbHeroIntervals[sliderId]){
-          clearInterval(window.__cvhbHeroIntervals[sliderId]);
-          delete window.__cvhbHeroIntervals[sliderId];
-        }
-        if(slides <= 1){
-          track.style.transform = 'translateX(0%)';
-          return;
-        }
-        let idx = 0;
-        window.__cvhbHeroIntervals[sliderId] = setInterval(function(){
-          idx = (idx + 1) % slides;
+      // backward compatible: (sliderId, intervalMs)
+      if(typeof axis === 'number' && (intervalMs === undefined || intervalMs === null)){
+        intervalMs = axis;
+        axis = 'x';
+      }
+      const slider = document.getElementById(sliderId);
+      if(!slider) return;
+      const track = slider.querySelector('.pv-hero-track');
+      const slides = slider.querySelectorAll('.pv-hero-slide');
+      if(!track || !slides || slides.length <= 1) return;
+
+      const dots = slider.querySelectorAll('.pv-hero-dot');
+      let idx = 0;
+      const useAxis = (String(axis || 'x').toLowerCase() === 'y') ? 'y' : 'x';
+
+      // stack direction (PC=横, スマホ=縦)
+      try{
+        track.style.flexDirection = (useAxis === 'y') ? 'column' : 'row';
+      } catch(e){}
+
+      const apply = () => {
+        if(useAxis === 'y'){
+          track.style.transform = 'translateY(-' + (idx * 100) + '%)';
+        } else {
           track.style.transform = 'translateX(-' + (idx * 100) + '%)';
-        }, intervalMs || 4600);
+        }
+        try{
+          dots.forEach((d,i)=>{ if(i===idx) d.classList.add('is-active'); else d.classList.remove('is-active'); });
+        } catch(e){}
       };
+
+      try{
+        dots.forEach((d,i)=> d.addEventListener('click', ()=>{ idx=i; apply(); }));
+      } catch(e){}
+
+      const ms = (intervalMs && intervalMs > 0) ? intervalMs : 4500;
+      let timer = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);
+      slider.addEventListener('mouseenter', ()=>{ if(timer){ window.clearInterval(timer); timer=null; } });
+      slider.addEventListener('mouseleave', ()=>{ if(!timer){ timer = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);} });
+
+      apply();
+    } catch(e){}
+  };
       run(0);
     } catch(e){}
   };
@@ -1625,7 +1712,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.81")
+VERSION = read_text_file("VERSION", "0.6.94")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -2096,6 +2183,20 @@ HERO_IMAGE_DEFAULT = HERO_IMAGE_PRESET_URLS.get("A: オフィス") or next(iter(
 # Alias for backward compatibility
 HERO_IMAGE_PRESETS = HERO_IMAGE_PRESET_URLS
 
+# Default favicon (data URL). Used when user doesn't upload one.
+DEFAULT_FAVICON_SVG = """<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>
+  <defs>
+    <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+      <stop offset='0' stop-color='#6aa8ff'/>
+      <stop offset='1' stop-color='#8bf2d2'/>
+    </linearGradient>
+  </defs>
+  <rect x='4' y='4' width='56' height='56' rx='14' fill='url(#g)'/>
+  <text x='32' y='40' text-anchor='middle' font-family='Arial, sans-serif' font-size='22' font-weight='700' fill='rgba(0,0,0,0.70)'>CV</text>
+</svg>"""
+DEFAULT_FAVICON_DATA_URL = "data:image/svg+xml;base64," + base64.b64encode(DEFAULT_FAVICON_SVG.encode("utf-8")).decode("ascii")
+
+
 
 def project_dir(project_id: str) -> str:
     return f"{SFTP_PROJECTS_DIR}/{project_id}"
@@ -2543,6 +2644,7 @@ def normalize_project(p: dict) -> dict:
     # step2
     step2.setdefault("company_name", "")
     step2.setdefault("favicon_url", "")
+    step2.setdefault("favicon_filename", "")
     step2.setdefault("catch_copy", "")
     step2.setdefault("phone", "")
     step2.setdefault("address", "")
@@ -2550,20 +2652,79 @@ def normalize_project(p: dict) -> dict:
 
     # blocks
     hero = blocks.setdefault("hero", {})
-    hero.setdefault("sub_catch", "地域に寄り添い、安心できるサービスを届けます")
-    hero.setdefault("hero_image", "A: オフィス")
+    # 4枚固定（プリセット or アップロード）
+    DEFAULT_CHOICES = ["A: オフィス", "B: チーム", "C: 街並み", "D: ひかり"]
     hero.setdefault("hero_image_url", "")
-    hero.setdefault("primary_button_text", "お問い合わせ")
-    hero.setdefault("secondary_button_text", "見学・相談")
-    # hero: 最大4枚までのスライド画像（任意）
     hero.setdefault("hero_image_urls", [])
-    hero["hero_image_urls"] = _safe_list(hero.get("hero_image_urls"))
-    # 旧: hero_image_url を 1枚目として扱う
-    _h1 = str(hero.get("hero_image_url") or "").strip()
-    if _h1:
-        hero["hero_image_urls"] = [_h1] + [u for u in hero["hero_image_urls"] if str(u).strip() and str(u).strip() != _h1]
-    # 空を除去 & 最大4枚
-    hero["hero_image_urls"] = [str(u).strip() for u in hero["hero_image_urls"] if str(u).strip()][:4]
+    hero.setdefault("hero_slide_choices", [])
+    hero.setdefault("hero_upload_names", [])
+
+    hero_urls_raw = hero.get("hero_image_urls", [])
+    if not isinstance(hero_urls_raw, list):
+        hero_urls_raw = []
+
+    # legacy single url -> slide[0]
+    legacy_one = str(hero.get("hero_image_url") or "").strip()
+    if legacy_one and not hero_urls_raw:
+        hero_urls_raw = [legacy_one]
+
+    hero_urls = []
+    for u in hero_urls_raw[:4]:
+        if isinstance(u, str):
+            hero_urls.append(u.strip())
+        else:
+            hero_urls.append("")
+    while len(hero_urls) < 4:
+        hero_urls.append("")
+
+    # choices
+    choices = hero.get("hero_slide_choices", [])
+    if not isinstance(choices, list):
+        choices = []
+    rev = {v: k for k, v in HERO_IMAGE_PRESET_URLS.items()}
+    norm_choices: list[str] = []
+    for i in range(4):
+        ch = ""
+        if i < len(choices) and isinstance(choices[i], str):
+            ch = choices[i].strip()
+        if ch in HERO_IMAGE_PRESET_URLS or ch == "オリジナル":
+            norm_choices.append(ch)
+            continue
+        # infer from existing url
+        u = hero_urls[i].strip()
+        if u and u in rev:
+            norm_choices.append(rev[u])
+        elif u:
+            norm_choices.append("オリジナル")
+        else:
+            norm_choices.append(DEFAULT_CHOICES[i])
+
+    # upload names (UI only)
+    upload_names = hero.get("hero_upload_names", [])
+    if not isinstance(upload_names, list):
+        upload_names = []
+    while len(upload_names) < 4:
+        upload_names.append("")
+    upload_names = [str(n)[:120] for n in upload_names[:4]]
+
+    # resolve urls (always length 4)
+    resolved: list[str] = []
+    for i in range(4):
+        ch = norm_choices[i]
+        if ch == "オリジナル":
+            u = hero_urls[i].strip()
+            if u:
+                resolved.append(u)
+            else:
+                resolved.append(HERO_IMAGE_PRESET_URLS.get(DEFAULT_CHOICES[i], HERO_IMAGE_DEFAULT))
+        else:
+            resolved.append(HERO_IMAGE_PRESET_URLS.get(ch, HERO_IMAGE_PRESET_URLS.get(DEFAULT_CHOICES[i], HERO_IMAGE_DEFAULT)))
+
+    hero["hero_slide_choices"] = norm_choices
+    hero["hero_image_urls"] = resolved
+    hero["hero_upload_names"] = upload_names
+    hero["hero_image_url"] = resolved[0] if resolved else ""
+    hero.setdefault("hero_image", norm_choices[0] if norm_choices else DEFAULT_CHOICES[0])  # legacy
 
     philosophy = blocks.setdefault("philosophy", {})
     philosophy.setdefault("title", "私たちの想い")
@@ -2576,6 +2737,7 @@ def normalize_project(p: dict) -> dict:
     philosophy["points"] = pts[:3]
     # philosophy: 画像（任意）
     philosophy.setdefault("image_url", "")
+    philosophy.setdefault("image_upload_name", "")
 
     # services: 業務内容（philosophyブロック内に統合 / 6ブロック固定のまま）
     services = philosophy.setdefault(
@@ -2597,6 +2759,7 @@ def normalize_project(p: dict) -> dict:
     services.setdefault("title", "業務内容")
     services.setdefault("lead", "提供サービスの概要をここに記載します。")
     services.setdefault("image_url", "")
+    services.setdefault("image_upload_name", "")
     items = services.get("items")
     if not isinstance(items, list):
         items = []
@@ -3153,7 +3316,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
     # -------- content --------
     company_name = _clean(step2.get("company_name"), "会社名")
-    favicon_url = _clean(step2.get("favicon_url"))
+    favicon_url = _clean(step2.get("favicon_url")) or DEFAULT_FAVICON_DATA_URL
     catch_copy = _clean(step2.get("catch_copy"))
     phone = _clean(step2.get("phone"))
     email = _clean(step2.get("email"))
@@ -3275,8 +3438,9 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                         with ui.element("div").classes("pv-hero-slide"):
                                             ui.image(url).classes("pv-hero-img")
                             # init slider (auto)
+                            axis = "y" if mode == "mobile" else "x"
                             ui.run_javascript(
-                                f"window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}')"
+                                f"window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',4500)"
                             )
 
                 # NEWS
@@ -3462,14 +3626,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 ("お問い合わせ", "contact"),
                             ]:
                                 ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
-                        with ui.element("div"):
-                            ui.label("連絡先").classes("pv-footer-cap")
-                            if address:
-                                ui.label(address).classes("pv-footer-text")
-                            if phone:
-                                ui.label(f"TEL: {phone}").classes("pv-footer-text")
-                            if email:
-                                ui.label(f"MAIL: {email}").classes("pv-footer-text")
                     ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
 def render_main(u: User) -> None:
     inject_global_styles()
@@ -3641,6 +3797,9 @@ def render_main(u: User) -> None:
                                                         # テンプレ依存の初期文を確実に入れ直すため、サブキャッチもリセット
                                                         try:
                                                             step2["catch_copy"] = ""
+                                                            step2["sub_catch"] = ""
+                                                            step2["primary_cta"] = ""
+                                                            step2["secondary_cta"] = ""
                                                         except Exception:
                                                             pass
 
@@ -3683,6 +3842,9 @@ def render_main(u: User) -> None:
                                                                 pass
                                                             try:
                                                                 step2["catch_copy"] = ""
+                                                                step2["sub_catch"] = ""
+                                                                step2["primary_cta"] = ""
+                                                                step2["secondary_cta"] = ""
                                                             except Exception:
                                                                 pass
                                                         update_and_refresh()
@@ -3700,6 +3862,9 @@ def render_main(u: User) -> None:
                                                                 pass
                                                             try:
                                                                 step2["catch_copy"] = ""
+                                                                step2["sub_catch"] = ""
+                                                                step2["primary_cta"] = ""
+                                                                step2["secondary_cta"] = ""
                                                             except Exception:
                                                                 pass
                                                         update_and_refresh()
@@ -3787,7 +3952,43 @@ def render_main(u: User) -> None:
                                             ui.label("会社の基本情報").classes("text-subtitle1 q-mb-sm")
 
                                             bind_step2_input("会社名", "company_name")
-                                            bind_step2_input("ファビコンURL（任意）", "favicon_url", hint="ブラウザタブのアイコン用（32x32推奨）")
+                                            # ファビコン（アップロード仕様）
+                                            ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
+                                            ui.label("未設定ならデフォルトを使用します（32×32推奨）").classes("cvhb-muted")
+
+                                            async def _on_upload_favicon(e):
+                                                try:
+                                                    data_url, fname = await _upload_event_to_data_url(e)
+                                                    if not data_url:
+                                                        return
+                                                    step2["favicon_url"] = data_url
+                                                    step2["favicon_filename"] = _short_name(fname)
+                                                    update_and_refresh()
+                                                    favicon_editor.refresh()
+                                                except Exception:
+                                                    pass
+
+                                            def _clear_favicon():
+                                                try:
+                                                    step2["favicon_url"] = ""
+                                                    step2["favicon_filename"] = ""
+                                                except Exception:
+                                                    pass
+                                                update_and_refresh()
+                                                favicon_editor.refresh()
+
+                                            @ui.refreshable
+                                            def favicon_editor():
+                                                cur = str(step2.get("favicon_url") or "").strip()
+                                                name = str(step2.get("favicon_filename") or "").strip()
+                                                show_url = cur or DEFAULT_FAVICON_DATA_URL
+                                                with ui.row().classes("items-center q-gutter-sm"):
+                                                    ui.image(show_url).style("width:32px;height:32px;border-radius:6px;")
+                                                    ui.upload(on_upload=_on_upload_favicon, auto_upload=True).props("accept=image/*")
+                                                    ui.button("クリア", on_click=_clear_favicon).props("outline dense")
+                                                ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+
+                                            favicon_editor()
                                             bind_step2_input("キャッチコピー", "catch_copy")
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
@@ -3819,101 +4020,272 @@ def render_main(u: User) -> None:
                                                     with ui.tab_panel("hero"):
                                                         ui.label("ヒーロー（ページ最上部）").classes("text-subtitle1 q-mb-sm")
 
-                                                        # hero image preset
-                                                        hero = blocks.setdefault("hero", {})
-                                                        current_preset = hero.get("hero_image", "A: オフィス")
+                                                        # ヒーロー画像（4枚固定：プリセット or オリジナルアップロード）
+                                                        DEFAULT_CHOICES = ["A: オフィス", "B: チーム", "C: 街並み", "D: ひかり"]
+                                                        hero.setdefault("hero_slide_choices", DEFAULT_CHOICES.copy())
+                                                        hero.setdefault("hero_upload_names", ["", "", "", ""])
+                                                        hero.setdefault("hero_image_urls", hero.get("hero_image_urls") or [])
 
-                                                        def _on_preset_change(e) -> None:
-                                                            hero["hero_image"] = e.value
+                                                        def _normalize_hero_slides():
+                                                            cc = _safe_list(hero.get("hero_slide_choices"))
+                                                            uu = _safe_list(hero.get("hero_image_urls"))
+                                                            nn = _safe_list(hero.get("hero_upload_names"))
+                                                            # ensure length 4
+                                                            while len(cc) < 4:
+                                                                cc.append(DEFAULT_CHOICES[len(cc)])
+                                                            cc = cc[:4]
+                                                            while len(uu) < 4:
+                                                                idx = len(uu)
+                                                                choice = str(cc[idx] or "").strip()
+                                                                if choice and choice != "オリジナル":
+                                                                    uu.append(HERO_IMAGE_PRESET_URLS.get(choice, HERO_IMAGE_PRESET_URLS.get(DEFAULT_CHOICES[idx], HERO_IMAGE_DEFAULT)))
+                                                                else:
+                                                                    uu.append(HERO_IMAGE_PRESET_URLS.get(DEFAULT_CHOICES[idx], HERO_IMAGE_DEFAULT))
+                                                            uu = uu[:4]
+                                                            while len(nn) < 4:
+                                                                nn.append("")
+                                                            nn = nn[:4]
+                                                            hero["hero_slide_choices"] = cc
+                                                            hero["hero_image_urls"] = uu
+                                                            hero["hero_upload_names"] = nn
+                                                            hero["hero_image_url"] = uu[0] if uu else ""
+                                                            hero["hero_image"] = cc[0] if cc else DEFAULT_CHOICES[0]
+
+                                                        _normalize_hero_slides()
+
+                                                        def _set_slide_choice(i: int, val: str):
+                                                            _normalize_hero_slides()
+                                                            cc = hero["hero_slide_choices"]
+                                                            uu = hero["hero_image_urls"]
+                                                            nn = hero["hero_upload_names"]
+                                                            cc[i] = val
+                                                            if val != "オリジナル":
+                                                                uu[i] = HERO_IMAGE_PRESET_URLS.get(val, HERO_IMAGE_PRESET_URLS.get(DEFAULT_CHOICES[i], HERO_IMAGE_DEFAULT))
+                                                                nn[i] = ""
+                                                            else:
+                                                                if not str(uu[i] or "").strip():
+                                                                    uu[i] = HERO_IMAGE_PRESET_URLS.get(DEFAULT_CHOICES[i], HERO_IMAGE_DEFAULT)
+                                                            hero["hero_slide_choices"] = cc
+                                                            hero["hero_image_urls"] = uu
+                                                            hero["hero_upload_names"] = nn
+                                                            hero["hero_image_url"] = uu[0] if uu else ""
+                                                            hero["hero_image"] = cc[0] if cc else DEFAULT_CHOICES[0]
                                                             update_and_refresh()
+                                                            hero_slides_editor.refresh()
 
-                                                        ui.label("大きい写真 + キャッチコピーのエリアです").classes("cvhb-muted q-mb-sm")
-                                                        ui.radio(HERO_IMAGE_OPTIONS, value=current_preset, on_change=_on_preset_change).props("inline")
-                                                        # スライド画像URL（最大4枚 / 任意）
-                                                        urls = _safe_list(hero.get("hero_image_urls"))
-                                                        # 旧: hero_image_url は 1枚目として扱う
-                                                        _legacy = str(hero.get("hero_image_url") or "").strip()
-                                                        if _legacy:
-                                                            urls = [_legacy] + [u for u in urls if str(u).strip() and str(u).strip() != _legacy]
-                                                        while len(urls) < 4:
-                                                            urls.append("")
-                                                        hero["hero_image_urls"] = urls[:4]
-                                                        ui.label("スライド画像URL（最大4枚 / 任意）").classes("cvhb-muted q-mt-sm")
-                                                        for _i in range(4):
-                                                            def _on_url_change(e, i=_i):
-                                                                uu = _safe_list(hero.get("hero_image_urls"))
-                                                                while len(uu) < 4:
-                                                                    uu.append("")
-                                                                uu[i] = str(e.value or "").strip()
-                                                                hero["hero_image_urls"] = uu[:4]
-                                                                # legacy: 1枚目を hero_image_url にも反映
+                                                        async def _on_upload_slide(e, i: int):
+                                                            try:
+                                                                data_url, fname = await _upload_event_to_data_url(e)
+                                                                if not data_url:
+                                                                    return
+                                                                _normalize_hero_slides()
+                                                                hero["hero_slide_choices"][i] = "オリジナル"
+                                                                hero["hero_image_urls"][i] = data_url
+                                                                hero["hero_upload_names"][i] = _short_name(fname)
                                                                 hero["hero_image_url"] = hero["hero_image_urls"][0] if hero.get("hero_image_urls") else ""
+                                                                hero["hero_image"] = hero["hero_slide_choices"][0] if hero.get("hero_slide_choices") else DEFAULT_CHOICES[0]
                                                                 update_and_refresh()
-                                                            ui.input(f"画像URL { _i + 1 }", value=hero["hero_image_urls"][_i], on_change=_on_url_change).props("outlined dense").classes("w-full q-mb-sm")
+                                                                hero_slides_editor.refresh()
+                                                            except Exception:
+                                                                pass
+
+                                                        def _clear_slide_upload(i: int):
+                                                            try:
+                                                                _normalize_hero_slides()
+                                                                hero["hero_slide_choices"][i] = DEFAULT_CHOICES[i]
+                                                                hero["hero_image_urls"][i] = HERO_IMAGE_PRESET_URLS.get(DEFAULT_CHOICES[i], HERO_IMAGE_DEFAULT)
+                                                                hero["hero_upload_names"][i] = ""
+                                                                hero["hero_image_url"] = hero["hero_image_urls"][0] if hero.get("hero_image_urls") else ""
+                                                                hero["hero_image"] = hero["hero_slide_choices"][0] if hero.get("hero_slide_choices") else DEFAULT_CHOICES[0]
+                                                            except Exception:
+                                                                pass
+                                                            update_and_refresh()
+                                                            hero_slides_editor.refresh()
+
+                                                        @ui.refreshable
+                                                        def hero_slides_editor():
+                                                            _normalize_hero_slides()
+                                                            cc = hero["hero_slide_choices"]
+                                                            uu = hero["hero_image_urls"]
+                                                            nn = hero["hero_upload_names"]
+                                                            ui.label("ヒーロー画像（4枚固定）").classes("text-body1")
+                                                            ui.label("スマホ：縦スライド／PC：横スライド").classes("cvhb-muted")
+                                                            for _i in range(4):
+                                                                with ui.card().classes("q-pa-sm q-mb-sm").props("flat bordered"):
+                                                                    ui.label(f"画像{_i+1}").classes("text-subtitle2")
+                                                                    def _on_choice(e, i=_i):
+                                                                        _set_slide_choice(i, e.value)
+                                                                    ui.radio(HERO_IMAGE_OPTIONS + ["オリジナル"], value=cc[_i], on_change=_on_choice).props("inline")
+                                                                    if cc[_i] == "オリジナル":
+                                                                        async def _upload_handler(e, i=_i):
+                                                                            await _on_upload_slide(e, i)
+                                                                        with ui.row().classes("items-center q-gutter-sm"):
+                                                                            ui.upload(on_upload=_upload_handler, auto_upload=True).props("accept=image/*")
+                                                                            ui.button("クリア", on_click=lambda i=_i: _clear_slide_upload(i)).props("outline dense")
+                                                                            ui.label(f"ファイル: {nn[_i] or '未アップロード'}").classes("cvhb-muted")
+                                                                    else:
+                                                                        ui.label(f"選択中: {cc[_i]}").classes("cvhb-muted")
+
+                                                        hero_slides_editor()
                                                         bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
                                                         bind_block_input("hero", "ボタン1の文言", "primary_button_text")
                                                         bind_block_input("hero", "ボタン2の文言（任意）", "secondary_button_text")
 
                                                     with ui.tab_panel("philosophy"):
-                                                        ui.label("理念 / 会社概要").classes("text-subtitle1 q-mb-sm")
-                                                        bind_block_input("philosophy", "見出し", "title")
-                                                        bind_block_input("philosophy", "本文", "body", textarea=True)
-                                                        bind_block_input("philosophy", "画像URL（任意）", "image_url", hint="未入力ならデフォルト画像")
-
-                                                        # points
+                                                        # 理念/概要（必須）
                                                         ph = blocks.setdefault("philosophy", {})
-                                                        points = ph.setdefault("points", ["", "", ""])
-                                                        if not isinstance(points, list):
+                                                        ph.setdefault("title", "")
+                                                        ph.setdefault("body", "")
+                                                        ph.setdefault("image_url", "")
+                                                        ph.setdefault("image_upload_name", "")
+                                                        bind_dict_input(ph, "見出し（必須）", "title", hint="例：私たちについて")
+                                                        bind_dict_input(ph, "本文（必須）", "body", hint="例：私たちは、〜")
+
+                                                        # 画像（アップロード仕様）
+                                                        ui.label("画像（任意）").classes("text-body1 q-mt-sm")
+                                                        ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
+
+                                                        async def _on_upload_ph_image(e):
+                                                            try:
+                                                                data_url, fname = await _upload_event_to_data_url(e)
+                                                                if not data_url:
+                                                                    return
+                                                                ph["image_url"] = data_url
+                                                                ph["image_upload_name"] = _short_name(fname)
+                                                                update_and_refresh()
+                                                                ph_image_editor.refresh()
+                                                            except Exception:
+                                                                pass
+
+                                                        def _clear_ph_image():
+                                                            try:
+                                                                ph["image_url"] = ""
+                                                                ph["image_upload_name"] = ""
+                                                            except Exception:
+                                                                pass
+                                                            update_and_refresh()
+                                                            ph_image_editor.refresh()
+
+                                                        @ui.refreshable
+                                                        def ph_image_editor():
+                                                            cur = str(ph.get("image_url") or "").strip()
+                                                            name = str(ph.get("image_upload_name") or "").strip()
+                                                            with ui.row().classes("items-center q-gutter-sm"):
+                                                                ui.upload(on_upload=_on_upload_ph_image, auto_upload=True).props("accept=image/*")
+                                                                ui.button("クリア", on_click=_clear_ph_image).props("outline dense")
+                                                                ui.label(f"現在: {'デフォルト(E: 木)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+
+                                                        ph_image_editor()
+
+                                                        # 要点（任意 / 3つまで）
+                                                        ui.label("要点（任意 / 3つまで）").classes("text-body1 q-mt-sm")
+                                                        points = _safe_list(ph.get("points"))
+                                                        if not points:
                                                             points = ["", "", ""]
                                                         while len(points) < 3:
                                                             points.append("")
-                                                        ph["points"] = points[:3]
+                                                        points = points[:3]
+                                                        ph["points"] = points
 
-                                                        ui.label("ポイント（3つまで）").classes("cvhb-muted q-mt-sm")
-
-                                                        def update_point(idx: int, val: str) -> None:
-                                                            ph["points"][idx] = val
+                                                        def _set_point(i: int, v: str):
+                                                            ps = _safe_list(ph.get("points"))
+                                                            while len(ps) < 3:
+                                                                ps.append("")
+                                                            ps[i] = v
+                                                            ph["points"] = ps[:3]
                                                             update_and_refresh()
 
                                                         for i in range(3):
-                                                            v = ph["points"][i]
-                                                            ui.input(f"ポイント{i+1}", value=v, on_change=lambda e, idx=i: update_point(idx, e.value or "")).props("outlined").classes("w-full q-mb-sm")
+                                                            ui.input(f"要点{i+1}", value=points[i], on_change=lambda e, i=i: _set_point(i, e.value)).props("dense")
 
-                                                        ui.separator().classes("q-my-md")
-                                                        ui.label("業務内容（プレビューに表示）").classes("text-subtitle2 q-mb-sm")
-                                                        svc = blocks.setdefault("philosophy", {}).setdefault("services", {})
-                                                        if not isinstance(svc, dict):
-                                                            svc = {}
-                                                            blocks["philosophy"]["services"] = svc
-                                                        svc.setdefault("title", "業務内容")
-                                                        svc.setdefault("lead", "提供サービスの概要をここに記載します。")
+                                                        ui.separator().classes("q-mt-md q-mb-sm")
+
+                                                        # 業務内容（追加・削除可）
+                                                        ui.label("業務内容（追加・削除できます / 最大6）").classes("text-body1")
+                                                        svc = ph.setdefault("services", {})
+                                                        svc.setdefault("title", "")
+                                                        svc.setdefault("lead", "")
                                                         svc.setdefault("image_url", "")
-                                                        items = svc.setdefault("items", [])
-                                                        if not isinstance(items, list):
-                                                            items = []
+                                                        svc.setdefault("image_upload_name", "")
+                                                        bind_dict_input(svc, "業務内容：タイトル（任意）", "title", hint="例：業務内容")
+                                                        bind_dict_input(svc, "業務内容：リード文（任意）", "lead", hint="例：提供サービスの概要")
+
+                                                        ui.label("業務内容：画像（任意）").classes("text-body2 q-mt-sm")
+                                                        ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
+
+                                                        async def _on_upload_svc_image(e):
+                                                            try:
+                                                                data_url, fname = await _upload_event_to_data_url(e)
+                                                                if not data_url:
+                                                                    return
+                                                                svc["image_url"] = data_url
+                                                                svc["image_upload_name"] = _short_name(fname)
+                                                                update_and_refresh()
+                                                                svc_image_editor.refresh()
+                                                            except Exception:
+                                                                pass
+
+                                                        def _clear_svc_image():
+                                                            try:
+                                                                svc["image_url"] = ""
+                                                                svc["image_upload_name"] = ""
+                                                            except Exception:
+                                                                pass
+                                                            update_and_refresh()
+                                                            svc_image_editor.refresh()
+
+                                                        @ui.refreshable
+                                                        def svc_image_editor():
+                                                            cur = str(svc.get("image_url") or "").strip()
+                                                            name = str(svc.get("image_upload_name") or "").strip()
+                                                            with ui.row().classes("items-center q-gutter-sm"):
+                                                                ui.upload(on_upload=_on_upload_svc_image, auto_upload=True).props("accept=image/*")
+                                                                ui.button("クリア", on_click=_clear_svc_image).props("outline dense")
+                                                                ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+
+                                                        svc_image_editor()
+
+                                                        @ui.refreshable
+                                                        def svc_items_editor():
+                                                            items = svc.get("items", [])
+                                                            if not isinstance(items, list):
+                                                                items = []
+                                                            items = [it for it in items if isinstance(it, dict)]
                                                             svc["items"] = items
-                                                        while len(items) < 3:
-                                                            items.append({"title": "", "body": ""})
-                                                        svc["items"] = items[:3]
-                                                        ui.input("セクション見出し", value=svc.get("title", ""), on_change=lambda e: (svc.__setitem__("title", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
-                                                        ui.input("導入文", value=svc.get("lead", ""), on_change=lambda e: (svc.__setitem__("lead", e.value or ""), update_and_refresh())).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
-                                                        ui.input("画像URL（任意 / 1枚）", value=svc.get("image_url", ""), on_change=lambda e: (svc.__setitem__("image_url", e.value or ""), update_and_refresh())).props("outlined").classes("w-full q-mb-sm")
-                                                        ui.label("項目（3つまで）").classes("cvhb-muted q-mt-sm")
-                                                        for i in range(3):
-                                                            it = svc["items"][i]
-                                                            if not isinstance(it, dict):
-                                                                it = {"title": "", "body": ""}
-                                                                svc["items"][i] = it
-                                                            ui.input(
-                                                                f"項目{i+1} タイトル",
-                                                                value=it.get("title", ""),
-                                                                on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("title", e.value or ""), update_and_refresh()),
-                                                            ).props("outlined").classes("w-full q-mb-sm")
-                                                            ui.input(
-                                                                f"項目{i+1} 本文",
-                                                                value=it.get("body", ""),
-                                                                on_change=lambda e, idx=i: (svc["items"][idx].__setitem__("body", e.value or ""), update_and_refresh()),
-                                                            ).props("outlined type=textarea autogrow").classes("w-full q-mb-sm")
+
+                                                            def _add_item():
+                                                                items2 = svc.get("items", [])
+                                                                if not isinstance(items2, list):
+                                                                    items2 = []
+                                                                if len(items2) >= 6:
+                                                                    return
+                                                                items2.append({"title": "", "body": ""})
+                                                                svc["items"] = items2
+                                                                update_and_refresh()
+                                                                svc_items_editor.refresh()
+
+                                                            with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
+                                                                ui.button("＋ 追加", on_click=_add_item).props("outline dense")
+                                                                ui.label("※最大6件").classes("cvhb-muted")
+
+                                                            for idx, item in enumerate(items):
+                                                                with ui.card().classes("q-pa-sm q-mb-sm").props("flat bordered"):
+                                                                    with ui.row().classes("items-center justify-between"):
+                                                                        ui.label(f"項目{idx+1}").classes("text-subtitle2")
+                                                                        def _del(i=idx):
+                                                                            items2 = svc.get("items", [])
+                                                                            if not isinstance(items2, list):
+                                                                                return
+                                                                            if 0 <= i < len(items2):
+                                                                                items2.pop(i)
+                                                                                svc["items"] = items2
+                                                                                update_and_refresh()
+                                                                                svc_items_editor.refresh()
+                                                                        ui.button("削除", on_click=_del).props("outline dense color=negative")
+                                                                    ui.input("タイトル", value=item.get("title", ""), on_change=lambda e, it=item: (it.__setitem__("title", e.value), update_and_refresh())).props("dense")
+                                                                    ui.textarea("本文", value=item.get("body", ""), on_change=lambda e, it=item: (it.__setitem__("body", e.value), update_and_refresh())).props("dense")
+
+                                                        svc_items_editor()
                                                     with ui.tab_panel("news"):
                                                         ui.label("お知らせ").classes("text-subtitle1 q-mb-sm")
                                                         ui.label("最大3件がスマホ側に表示されます（PCは4件まで表示）。").classes("cvhb-muted q-mb-sm")
@@ -4088,7 +4460,7 @@ def render_main(u: User) -> None:
                             radius = 22 if mode == "mobile" else 14
 
                             with ui.card().style(
-                                f"width: min(100%, {frame_w}px); height: clamp(720px, 86vh, 980px); overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
+                                f"width: min(100%, {frame_w}px); height: 2000px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             ).props("flat bordered"):
                                 with ui.element("div").props('id="pv-fit"').style(
                                     "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
