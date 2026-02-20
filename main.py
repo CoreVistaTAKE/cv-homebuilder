@@ -1455,9 +1455,6 @@ def inject_global_styles() -> None:
       apply();
     } catch(e){}
   };
-      run(0);
-    } catch(e){}
-  };
 
   window.cvhbPreviewScrollTo = window.cvhbPreviewScrollTo || function(rootId, targetId){
     try{
@@ -4003,6 +4000,8 @@ def render_main(u: User) -> None:
 
                                         @ui.refreshable
                                         def block_editor_panel():
+                                            # NameError防止：Step3のヒーロー編集で hero 変数を必ず定義してから使う
+                                            hero = blocks.setdefault("hero", {}) if isinstance(blocks, dict) else {}
                                             with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                                 ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
                                                 ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
