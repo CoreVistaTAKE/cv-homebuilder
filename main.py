@@ -1709,7 +1709,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.94")
+VERSION = read_text_file("VERSION", "0.6.95")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -2495,11 +2495,57 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
                 ],
                 "contact_message": "見学や無料相談など、お気軽にお問い合わせください。",
             },
+            "personal_v1": {
+                "catch_copy": "あなたの想いを、丁寧に届けます",
+                "sub_catch": "まずは無料相談から。お気軽にご連絡ください。",
+                "primary_cta": "お問い合わせ",
+                "secondary_cta": "相談する",
+                "hero_image": "F: 手",
+                "about_title": "自己紹介",
+                "about_body": "ここに自己紹介や活動内容を書きます。\n（あとで自由に書き換えできます）",
+                "about_points": ["丁寧な対応", "柔軟な提案", "分かりやすい説明"],
+                "svc_title": "メニュー",
+                "svc_lead": "できることを分かりやすくまとめました。",
+                "svc_image": "F: 手",
+                "svc_items": [
+                    {"title": "メニュー1", "body": "内容をここに記載します。"},
+                    {"title": "メニュー2", "body": "内容をここに記載します。"},
+                    {"title": "メニュー3", "body": "内容をここに記載します。"},
+                ],
+                "faq_items": [
+                    {"q": "相談だけでも大丈夫ですか？", "a": "はい。まずは状況を伺い、最適な進め方をご提案します。"},
+                    {"q": "対応エリアはどこですか？", "a": "オンライン／対面どちらも対応可能です。詳しくはお問い合わせください。"},
+                    {"q": "料金の目安を教えてください。", "a": "内容により異なります。ご要望を伺い、お見積りをご案内します。"},
+                ],
+                "contact_message": "まずはお気軽にご相談ください。",
+            },
+            "free6_v1": {
+                "catch_copy": "あなたのサイトを、ここから作れます",
+                "sub_catch": "自由に編集して、あなたの内容に合わせましょう。",
+                "primary_cta": "お問い合わせ",
+                "secondary_cta": "相談する",
+                "hero_image": "G: 家",
+                "about_title": "自由枠（ここにタイトル）",
+                "about_body": "このエリアは自由に使えます。\n（例：サービス紹介／実績／料金／施設紹介 など）",
+                "about_points": ["ポイント1（自由）", "ポイント2（自由）", "ポイント3（自由）"],
+                "svc_title": "自由枠（追加・削除できます）",
+                "svc_lead": "FAQのように、項目を追加・削除して使えます。",
+                "svc_image": "F: 手",
+                "svc_items": [
+                    {"title": "項目1", "body": "内容をここに記載します。"},
+                    {"title": "項目2", "body": "内容をここに記載します。"},
+                    {"title": "項目3", "body": "内容をここに記載します。"},
+                ],
+                "faq_items": [
+                    {"q": "ここは自由に編集できますか？", "a": "はい。文章や項目を自由に書き換えできます。"},
+                    {"q": "項目は追加できますか？", "a": "「＋追加」から増やせます（最大6件）。"},
+                    {"q": "公開前に確認できますか？", "a": "右側プレビューでいつでも確認できます。"},
+                ],
+                "contact_message": "ご相談はお気軽にどうぞ。",
+            },
         }
 
-        # テンプレIDのゆらぎ（簡易な寄せ）
-        if template_id in {"personal_v1", "free6_v1"}:
-            template_id = "corp_v1"
+        # personal_v1 / free6_v1 は専用プリセットを使う（corpへ寄せない）
 
         preset = presets.get(template_id)
         if not preset:
@@ -2602,10 +2648,26 @@ def normalize_project(p: dict) -> dict:
     p.setdefault("created_by", p.get("created_by") or "")
     p.setdefault("updated_by", p.get("updated_by") or "")
 
-    data = p.setdefault("data", {})
-    step1 = data.setdefault("step1", {})
-    step2 = data.setdefault("step2", {})
-    blocks = data.setdefault("blocks", {})
+    # --- schema guard: 古い/壊れた project.json でも落ちないように型を強制 ---
+    data = p.get("data")
+    if not isinstance(data, dict):
+        data = {}
+        p["data"] = data
+
+    step1 = data.get("step1")
+    if not isinstance(step1, dict):
+        step1 = {}
+        data["step1"] = step1
+
+    step2 = data.get("step2")
+    if not isinstance(step2, dict):
+        step2 = {}
+        data["step2"] = step2
+
+    blocks = data.get("blocks")
+    if not isinstance(blocks, dict):
+        blocks = {}
+        data["blocks"] = blocks
 
     # step1
     industry = step1.get("industry", "会社サイト（企業）")
@@ -3749,6 +3811,27 @@ def render_main(u: User) -> None:
                                     if hint:
                                         inp.props(f"hint={hint}")
 
+                                def bind_dict_input(target: dict, label: str, field: str, *, textarea: bool = False, hint: str = "") -> None:
+                                    """Bind ui.input directly to a dict field (used for nested blocks like philosophy/services)."""
+                                    if not isinstance(target, dict):
+                                        return
+                                    val = target.get(field, "")
+
+                                    def _on_change(e):
+                                        try:
+                                            target[field] = e.value or ""
+                                        except Exception:
+                                            pass
+                                        update_and_refresh()
+
+                                    props = "outlined"
+                                    if textarea:
+                                        props += " type=textarea autogrow"
+                                    inp = ui.input(label, value=val, on_change=_on_change).props(props).classes("w-full q-mb-sm")
+                                    if hint:
+                                        inp.props(f"hint={hint}")
+
+
                                 with ui.tab_panels(step_tabs, value="s1").classes("w-full"):
 
                                     # -----------------
@@ -4000,8 +4083,6 @@ def render_main(u: User) -> None:
 
                                         @ui.refreshable
                                         def block_editor_panel():
-                                            # NameError防止：Step3のヒーロー編集で hero 変数を必ず定義してから使う
-                                            hero = blocks.setdefault("hero", {}) if isinstance(blocks, dict) else {}
                                             with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                                 ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
                                                 ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
@@ -4017,6 +4098,7 @@ def render_main(u: User) -> None:
                                                 with ui.tab_panels(block_tabs, value="hero").classes("w-full q-mt-md"):
 
                                                     with ui.tab_panel("hero"):
+                                                        hero = blocks.setdefault("hero", {})
                                                         ui.label("ヒーロー（ページ最上部）").classes("text-subtitle1 q-mb-sm")
 
                                                         # ヒーロー画像（4枚固定：プリセット or オリジナルアップロード）
@@ -4383,7 +4465,14 @@ def render_main(u: User) -> None:
                                                         bind_block_input("contact", "メッセージ（任意）", "message", textarea=True)
 
                                         editor_ref["refresh"] = block_editor_panel.refresh
-                                        block_editor_panel()
+                                        try:
+                                            block_editor_panel()
+                                        except Exception as e:
+                                            # Step3 が壊れても、全体（特にプレビュー）を落とさない
+                                            ui.label("ブロック編集の描画でエラーが発生しました").classes("text-negative")
+                                            ui.label("プレビュー表示は継続します。").classes("cvhb-muted")
+                                            ui.label(sanitize_error_text(e)).classes("cvhb-muted")
+                                            traceback.print_exc()
 
 
                                     # -----------------
@@ -4684,6 +4773,9 @@ def index():
                 print("[fatal] render failed:", sanitize_error_text(e))
                 print(traceback.format_exc())
 
+                # 途中まで描画されたUIが残ると混乱するので、いったんクリアしてから復旧UIを出す
+                root.clear()
+
                 render_header(current_user())
 
                 with ui.element("div").classes("cvhb-container"):
@@ -4697,6 +4789,60 @@ def index():
                         with ui.row().classes("q-gutter-sm q-mt-md"):
                             ui.button("ログアウト", on_click=logout).props("color=negative flat")
                             ui.button("トップへ戻る", on_click=lambda: navigate_to("/")).props("flat")
+
+                    # --- fallback: 画面描画で落ちても「プレビューだけ」は表示する ---
+                    try:
+                        u_fallback = current_user()
+                        p_fallback = get_current_project(u_fallback) if u_fallback else None
+                    except Exception as e2:
+                        u_fallback = None
+                        p_fallback = None
+                        ui.separator().classes("q-my-lg")
+                        ui.label("プレビュー（復旧モード）").classes("text-subtitle2")
+                        ui.label("案件の取得に失敗しました").classes("text-negative")
+                        ui.label(sanitize_error_text(e2)).classes("text-caption")
+                        traceback.print_exc()
+
+                    if p_fallback:
+                        ui.separator().classes("q-my-lg")
+                        ui.label("プレビュー（復旧モード）").classes("text-subtitle2")
+                        try:
+                            mode = app.storage.user.get("preview_mode", "mobile")
+                            design_w = 720 if mode == "mobile" else 1920
+                            fit_min_w = 720 if mode == "mobile" else 1280
+                            fit_max_w = 720 if mode == "mobile" else 1920
+
+                            with ui.card().classes("w-full").props("bordered"):
+                                with ui.element("div").classes("w-full").style(
+                                    f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
+                                    "margin:0 auto; overflow:hidden; padding:12px;"
+                                ):
+                                    with ui.element("div").props('id="pv-fit"').style(
+                                        f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
+                                        "margin:0 auto; overflow:hidden;"
+                                        "border-radius:18px;"
+                                        "border:1px solid rgba(0,0,0,0.10);"
+                                        "background:rgba(255,255,255,0.35);"
+                                    ):
+                                        try:
+                                            render_preview(p_fallback, mode=mode, root_id="pv-root")
+                                        except Exception as e3:
+                                            ui.label("プレビュー描画でエラーが発生しました").classes("text-negative")
+                                            ui.label(sanitize_error_text(e3)).classes("text-caption")
+                                            traceback.print_exc()
+
+                            ui.run_javascript(
+                                f"""
+try {{
+  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w});
+  window.cvhbFitApply && window.cvhbFitApply('pv');
+}} catch (e) {{ console.warn('[cvhb] fit error', e); }}
+"""
+                            )
+                        except Exception as e4:
+                            ui.label("プレビュー（復旧モード）でエラーが発生しました").classes("text-negative")
+                            ui.label(sanitize_error_text(e4)).classes("text-caption")
+                            traceback.print_exc()
 
     root_refresh()
 
