@@ -3659,15 +3659,22 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             shown = news_items[:3]
                             with ui.element("div").classes("pv-news-list"):
                                 for it in shown:
-                                    date = _clean(it.get("date"))
-                                    cat = _clean(it.get("category"))
-                                    title = _clean(it.get("title"), "お知らせ")
+                                    # it は dict を想定するが、古いデータで str が混ざっても落とさない
+                                    if isinstance(it, dict):
+                                        date = _clean(it.get("date"))
+                                        cat = _clean(it.get("category"))
+                                        title = _clean(it.get("title"), "お知らせ")
+                                    else:
+                                        date = ""
+                                        cat = ""
+                                        title = _clean(it, "お知らせ")
+
                                     with ui.element("div").classes("pv-news-item"):
                                         with ui.row().classes("items-center no-wrap pv-news-meta"):
                                             if date:
                                                 ui.label(date).classes("pv-news-date")
                                             if cat:
-                                                ui.element("span").classes("pv-chip").text(cat)
+                                                ui.label(cat).classes("pv-chip")
                                         ui.label(title).classes("pv-news-title")
                         ui.button("お知らせ一覧", on_click=lambda: None).props("flat no-caps color=primary").classes("pv-link-btn q-mt-sm")
 
@@ -3687,7 +3694,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 for pt in about_points:
                                     pt = _clean(pt)
                                     if pt:
-                                        ui.element("li").text(pt)
+                                        with ui.element("li"):
+                                            ui.label(pt)
 
                     # image
                     if about_image_url:
@@ -3706,8 +3714,13 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         if svc_items:
                             with ui.element("div").classes("pv-service-grid"):
                                 for item in svc_items:
-                                    t = _clean(item.get("title"))
-                                    b = _clean(item.get("body"))
+                                    # item は dict を想定するが、古いデータで str が混ざっても落とさない
+                                    if isinstance(item, dict):
+                                        t = _clean(item.get("title"))
+                                        b = _clean(item.get("body"))
+                                    else:
+                                        t = _clean(item)
+                                        b = ""
                                     if not t and not b:
                                         continue
                                     with ui.element("div").classes("pv-service-card"):
@@ -3734,8 +3747,13 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         else:
                             with ui.element("div").classes("pv-faq-list"):
                                 for it in faq_items:
-                                    q = _clean(it.get("q"))
-                                    a = _clean(it.get("a"))
+                                    # it は dict を想定するが、古いデータで str が混ざっても落とさない
+                                    if isinstance(it, dict):
+                                        q = _clean(it.get("q"))
+                                        a = _clean(it.get("a"))
+                                    else:
+                                        q = _clean(it)
+                                        a = ""
                                     if not q and not a:
                                         continue
                                     with ui.element("div").classes("pv-faq-item"):
