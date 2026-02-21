@@ -671,7 +671,7 @@ def inject_global_styles() -> None:
 
         /* News / FAQ lists */
         .pv-news-item, .pv-faq-item {
-          padding: 10px 0;
+          padding: 12px 6px;
           border-bottom: 1px solid var(--pv-line);
         }
         .pv-news-item:last-child, .pv-faq-item:last-child { border-bottom: none; }
@@ -1010,6 +1010,7 @@ def inject_global_styles() -> None:
   padding: 12px 12px;
   border-radius: 16px;
   border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.18);
   background: linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.28));
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
   backdrop-filter: blur(14px);
@@ -1220,6 +1221,12 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-news-title{
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-news-empty{
+  opacity: 0;
 }
 
 .pv-layout-260218 .pv-news-arrow{
@@ -1340,13 +1347,13 @@ def inject_global_styles() -> None:
 }
 
 
-/* ====== Access: 地図枠（画像風）+ 地図を開くリンク（v0.6.992） ====== */
+/* ====== Access: 地図枠（画像風）+ 地図を開くリンク（v0.6.993） ====== */
 .pv-layout-260218 .pv-mapframe{
   margin-top: 12px;
   border-radius: 18px;
   overflow: hidden;
   position: relative;
-  height: 230px;
+  height: 250px;
   border: 1px solid rgba(255,255,255,0.22);
   background:
     linear-gradient(135deg, var(--pv-primary-weak), rgba(255,255,255,0.18)),
@@ -1354,10 +1361,10 @@ def inject_global_styles() -> None:
     repeating-linear-gradient(90deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 22px);
 }
 .pv-layout-260218.pv-mode-mobile .pv-mapframe{
-  height: 200px;
+  height: 220px;
 }
 .pv-layout-260218.pv-mode-pc .pv-mapframe{
-  height: 260px;
+  height: 300px;
 }
 .pv-layout-260218.pv-dark .pv-mapframe{
   border-color: rgba(255,255,255,0.12);
@@ -1371,6 +1378,26 @@ def inject_global_styles() -> None:
   text-decoration: none;
   color: inherit;
 }
+.pv-layout-260218 .pv-mapframe-badge{
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  background: rgba(255,255,255,0.66);
+  border: 1px solid rgba(255,255,255,0.28);
+  color: var(--pv-text);
+  backdrop-filter: blur(10px);
+}
+.pv-layout-260218.pv-dark .pv-mapframe-badge{
+  background: rgba(0,0,0,0.32);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.90);
+}
+
 .pv-layout-260218 .pv-mapframe-pin{
   position: absolute;
   left: 50%;
@@ -1389,7 +1416,17 @@ def inject_global_styles() -> None:
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.20);
+  backdrop-filter: blur(10px);
 }
+.pv-layout-260218.pv-dark .pv-mapframe-bottom{
+  background: rgba(0,0,0,0.22);
+  border-color: rgba(255,255,255,0.12);
+}
+
 .pv-layout-260218 .pv-mapframe-label{
   font-weight: 900;
   color: var(--pv-text);
@@ -3777,8 +3814,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             with ui.row().classes("items-center justify-between"):
                                 ui.label("まだお知らせがありません").classes("pv-muted")
                         else:
-                            # show latest 3
-                            shown = news_items[:3]
+                            # show latest (mobile:3 / pc:4)
+                            shown = news_items[:3] if mode == "mobile" else news_items[:4]
                             with ui.element("div").classes("pv-news-list"):
                                 for it in shown:
                                     # it は dict を想定するが、古いデータで str が混ざっても落とさない
@@ -3792,13 +3829,16 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                         title = _clean(it, "お知らせ")
 
                                     with ui.element("div").classes("pv-news-item"):
-                                        with ui.row().classes("items-center no-wrap pv-news-meta"):
-                                            if date:
-                                                ui.label(date).classes("pv-news-date")
-                                            if cat:
-                                                ui.label(cat).classes("pv-chip")
+                                        d_el = ui.label(date or "").classes("pv-news-date")
+                                        if not date:
+                                            d_el.classes("pv-news-empty")
+                                        c_el = ui.label(cat or "").classes("pv-news-cat")
+                                        if not cat:
+                                            c_el.classes("pv-news-empty")
                                         ui.label(title).classes("pv-news-title")
-                        ui.button("お知らせ一覧", on_click=lambda: None).props("flat no-caps color=primary").classes("pv-link-btn q-mt-sm")
+                                        ui.icon("chevron_right").classes("pv-news-arrow")
+                        with ui.row().classes("justify-end"):
+                            ui.button("お知らせ一覧", on_click=lambda: None).props("flat no-caps color=primary").classes("pv-link-btn")
 
                 # ABOUT
                 with ui.element("section").classes("pv-section").props('id="pv-about"'):
@@ -3806,9 +3846,10 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         ui.label(about_title).classes("pv-section-title")
                         ui.label("ABOUT").classes("pv-section-en")
 
+                    # 並び：見出し → 画像 → 要点 → 本文
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
-                        if about_body:
-                            ui.label(about_body).classes("pv-bodytext")
+                        if about_image_url:
+                            ui.image(about_image_url).classes("pv-about-img q-mb-sm")
 
                         # points (cards)
                         if about_points:
@@ -3820,10 +3861,10 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                     with ui.element("div").classes("pv-point-card"):
                                         ui.label(pt).classes("pv-point-text")
 
-                    # image
-                    if about_image_url:
-                        with ui.element("div").classes("pv-image-wrap"):
-                            ui.image(about_image_url).classes("pv-image")
+                        if about_body:
+                            ui.label(about_body).classes("pv-bodytext q-mt-sm")
+                        else:
+                            ui.label("ここに文章が入ります。").classes("pv-muted q-mt-sm")
 
                 # SERVICES
                 with ui.element("section").classes("pv-section").props('id="pv-services"'):
@@ -3831,11 +3872,16 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         ui.label(svc_title).classes("pv-section-title")
                         ui.label("SERVICE").classes("pv-section-en")
 
+                    # 並び：業務内容タイトル → 画像 → リード文 → 項目
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
+                        if svc_image_url:
+                            ui.image(svc_image_url).classes("pv-services-img q-mb-sm")
+
                         if svc_lead:
                             ui.label(svc_lead).classes("pv-bodytext")
+
                         if svc_items:
-                            with ui.element("div").classes("pv-service-grid"):
+                            with ui.element("div").classes("pv-service-list q-mt-sm"):
                                 for item in svc_items:
                                     # item は dict を想定するが、古いデータで str が混ざっても落とさない
                                     if isinstance(item, dict):
@@ -3846,17 +3892,13 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                         b = ""
                                     if not t and not b:
                                         continue
-                                    with ui.element("div").classes("pv-service-card"):
+                                    with ui.element("div").classes("pv-service-item"):
                                         if t:
                                             ui.label(t).classes("pv-service-title")
                                         if b:
                                             ui.label(b).classes("pv-muted")
                         else:
                             ui.label("業務内容を入力すると、ここに表示されます。").classes("pv-muted")
-
-                    if svc_image_url:
-                        with ui.element("div").classes("pv-image-wrap"):
-                            ui.image(svc_image_url).classes("pv-image")
 
                 # FAQ
                 with ui.element("section").classes("pv-section").props('id="pv-faq"'):
@@ -3901,15 +3943,17 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
 
                         # 地図（住所がある時は「画像風の枠」+「地図を開く」リンクを必ず出す）
-                        if address and map_url:
-                            with ui.element("a").props(f'href="{map_url}" target="_blank" rel="noopener"').classes("pv-mapframe-link"):
+                        if address:
+                            _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
+                            with ui.element("a").props(f'href="{_murl}" target="_blank" rel="noopener"').classes("pv-mapframe-link"):
                                 with ui.element("div").classes("pv-mapframe"):
+                                    ui.label("MAP").classes("pv-mapframe-badge")
                                     ui.icon("place").classes("pv-mapframe-pin")
                                     with ui.element("div").classes("pv-mapframe-bottom"):
                                         ui.label(address).classes("pv-mapframe-label")
                                         ui.label("地図を開く").classes("pv-mapframe-open")
 
-                            with ui.element("a").props(f'href="{map_url}" target="_blank" rel="noopener"').classes("pv-map-openlink"):
+                            with ui.element("a").props(f'href="{_murl}" target="_blank" rel="noopener"').classes("pv-map-openlink"):
                                 ui.icon("open_in_new")
                                 ui.label("地図を開く（Googleマップ）")
 
@@ -4507,8 +4551,7 @@ def render_main(u: User) -> None:
                                                         ph.setdefault("image_url", "")
                                                         ph.setdefault("image_upload_name", "")
                                                         bind_dict_input(ph, "見出し（必須）", "title", hint="例：私たちについて")
-                                                        bind_dict_input(ph, "本文（必須）", "body", hint="例：私たちは、〜")
-
+                                                        
                                                         # 画像（アップロード仕様）
                                                         ui.label("画像（任意）").classes("text-body1 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
@@ -4566,6 +4609,10 @@ def render_main(u: User) -> None:
                                                         for i in range(3):
                                                             ui.input(f"要点{i+1}", value=points[i], on_change=lambda e, i=i: _set_point(i, e.value)).props("dense")
 
+                                                        bind_dict_input(ph, "本文（必須）", "body", textarea=True, hint="例：私たちは、〜")
+
+
+
                                                         ui.separator().classes("q-mt-md q-mb-sm")
 
                                                         # 業務内容（追加・削除可）
@@ -4576,8 +4623,7 @@ def render_main(u: User) -> None:
                                                         svc.setdefault("image_url", "")
                                                         svc.setdefault("image_upload_name", "")
                                                         bind_dict_input(svc, "業務内容：タイトル（任意）", "title", hint="例：業務内容")
-                                                        bind_dict_input(svc, "業務内容：リード文（任意）", "lead", hint="例：提供サービスの概要")
-
+                                                        
                                                         ui.label("業務内容：画像（任意）").classes("text-body2 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
 
@@ -4612,6 +4658,9 @@ def render_main(u: User) -> None:
                                                                 ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         svc_image_editor()
+
+
+                                                        bind_dict_input(svc, "業務内容：リード文（任意）", "lead", textarea=True, hint="例：提供サービスの概要")
 
                                                         @ui.refreshable
                                                         def svc_items_editor():
@@ -4743,7 +4792,7 @@ def render_main(u: User) -> None:
 
                                                     with ui.tab_panel("access"):
                                                         ui.label("アクセス").classes("text-subtitle1 q-mb-sm")
-                                                        bind_block_input("access", "地図URL（任意）", "map_url", hint="空欄なら「住所」から自動生成します。")
+                                                        ui.label("※ 住所は「2. 基本情報設定」の住所を使います").classes("cvhb-muted q-mb-sm")
                                                         bind_block_input("access", "補足（任意）", "notes", textarea=True)
 
                                                     with ui.tab_panel("contact"):
