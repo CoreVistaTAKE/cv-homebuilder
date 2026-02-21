@@ -269,30 +269,71 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
 
 
 async def _read_upload_bytes(content) -> bytes:
-    """Read bytes from NiceGUI upload content safely (supports sync/async)."""
+    """Read bytes from NiceGUI upload content safely (supports sync/async).
+
+    v0.6.997:
+    - 画像の「読み込み位置」が末尾になって 0バイトになることがあるため、
+      先に seek(0) で先頭に戻してから読み込みます。
+    - content / content.file どちらでも読めるようにフォールバックします。
+    """
     if content is None:
         return b""
-    # Starlette UploadFile has async .read(); sometimes we may get bytes directly.
+
+    # 1) try rewind (UploadFile-like)
+    try:
+        seek_fn = getattr(content, "seek", None)
+    except Exception:
+        seek_fn = None
+    try:
+        if callable(seek_fn):
+            r = seek_fn(0)
+            if inspect.isawaitable(r):
+                await r
+    except Exception:
+        pass
+
+    # 2) try rewind underlying file too
+    try:
+        fobj = getattr(content, "file", None)
+    except Exception:
+        fobj = None
+    try:
+        if fobj is not None and hasattr(fobj, "seek"):
+            fobj.seek(0)
+    except Exception:
+        pass
+
+    # 3) read bytes
     try:
         read_fn = getattr(content, "read", None)
     except Exception:
         read_fn = None
 
     try:
+        data = None
+
         if callable(read_fn):
             data = read_fn()
             if inspect.isawaitable(data):
                 data = await data
+        elif fobj is not None and hasattr(fobj, "read"):
+            data = fobj.read()
         else:
             data = content
+
         if data is None:
             return b""
-        if isinstance(data, (bytes, bytearray)):
+        if isinstance(data, (bytes, bytearray, memoryview)):
             return bytes(data)
+
         # last resort: try bytes()
-        return bytes(data)
+        try:
+            return bytes(data)
+        except Exception:
+            return b""
     except Exception:
         return b""
+
 
 
 async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
@@ -1283,8 +1324,11 @@ def inject_global_styles() -> None:
   padding: 16px 18px;
   border-radius: 16px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   backdrop-filter: blur(12px);
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.84));
+  background: linear-gradient(180deg, rgba(255,255,255,0.90), rgba(255,255,255,0.78));
   border: 1px solid rgba(0,0,0,0.06);
   border-top: 5px solid var(--pv-primary);
   box-shadow: 0 20px 52px rgba(0,0,0,0.14);
@@ -1336,6 +1380,12 @@ def inject_global_styles() -> None:
 }
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
   font-size: 1.75rem;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title,
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{
+  width: 100%;
+  text-align: center;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
   margin-top: 8px;
@@ -2273,7 +2323,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.995")
+VERSION = read_text_file("VERSION", "0.6.997")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
