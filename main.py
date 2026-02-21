@@ -1709,7 +1709,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.95")
+VERSION = read_text_file("VERSION", "0.6.97")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3698,12 +3698,28 @@ def render_main(u: User) -> None:
 
     editor_ref = {"refresh": (lambda: None)}
 
-    def refresh_preview() -> None:
-        # プレビューは1つに統合（表示モードだけ切替）
+    def refresh_preview(reason: str = "") -> None:
+        """プレビュー更新を安全に行う（失敗しても画面全体は落とさない）。
+
+        重要: ここで例外を握りつぶすと、refreshable が空になったまま復旧できず、
+        「プレビューが真っ白」の原因になります。
+        """
         try:
             preview_ref["refresh"]()
-        except Exception:
-            pass
+        except Exception as e:
+            traceback.print_exc()
+            # 画面にも最低限だけ出す（秘密情報は sanitize 済み）
+            try:
+                ui.notify(f"プレビュー更新でエラー: {sanitize_error_text(e)}", type="negative")
+            except Exception:
+                pass
+            # DevTools 用ログ（有効化されている時だけ）
+            try:
+                ui.run_javascript(
+                    f"window.cvhbDebugLog && window.cvhbDebugLog('preview_refresh_error', {{msg: {json.dumps(sanitize_error_text(e))}, reason: {json.dumps(str(reason or ''))}}});"
+                )
+            except Exception:
+                pass
 
     def save_now() -> None:
         nonlocal p
@@ -4516,10 +4532,7 @@ def render_main(u: User) -> None:
                             if val not in ("mobile", "pc"):
                                 val = "mobile"
                             preview_mode["value"] = val
-                            try:
-                                preview_ref["refresh"]()
-                            except Exception:
-                                pass
+                            refresh_preview("pv_mode_change")
 
                         try:
                             pv_tabs.on("update:model-value", _pv_mode_change)
@@ -4532,67 +4545,100 @@ def render_main(u: User) -> None:
                                 except Exception:
                                     pass
 
-                        @ui.refreshable
-                        def preview_panel():
-                            mode = str(preview_mode.get("value") or "mobile")
-                            if mode not in ("mobile", "pc"):
-                                mode = "mobile"
+                        # --- 右プレビュー（安全版） ---
+                        # refreshable の例外で DOM が消える事故が起きやすいので、
+                        # ここは「コンテナを clear → 再描画」で安定させる。
+                        preview_host = ui.element("div").classes("w-full")
+                        preview_render_state = {"rendering": False, "pending": False, "pending_reason": ""}
 
-                            # デザイン上の横幅（SP=720 / PC=1920）
-                            # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
-                            # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
-                            design_w = 720 if mode == "mobile" else 1920
-                            fit_min_w = 720 if mode == "mobile" else 1280
-                            fit_max_w = 720 if mode == "mobile" else 1920
-                            frame_w = 800 if mode == "mobile" else 1200
-                            radius = 22 if mode == "mobile" else 14
+                        def rebuild_preview(reason: str = "") -> None:
+                            # 連打・多重発火の対策（描画中なら「あとで1回だけ」やり直す）
+                            if preview_render_state.get("rendering"):
+                                preview_render_state["pending"] = True
+                                preview_render_state["pending_reason"] = str(reason or "")
+                                return
+                            preview_render_state["rendering"] = True
+                            try:
+                                preview_host.clear()
+                                mode = str(preview_mode.get("value") or "mobile")
+                                if mode not in ("mobile", "pc"):
+                                    mode = "mobile"
 
-                            with ui.card().style(
-                                f"width: min(100%, {frame_w}px); height: 2000px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
-                            ).props("flat bordered"):
-                                with ui.element("div").props('id="pv-fit"').style(
-                                    "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
-                                ):
-                                    if not p:
-                                        ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
-                                        return
-                                    try:
-                                        pre = _preview_preflight_error()
-                                        if pre:
-                                            ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
-                                            ui.label(pre).classes("cvhb-muted q-pa-md")
-                                            return
+                                # デザイン上の横幅（SP=720 / PC=1920）
+                                # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
+                                # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
+                                design_w = 720 if mode == "mobile" else 1920
+                                fit_min_w = 720 if mode == "mobile" else 1280
+                                fit_max_w = 720 if mode == "mobile" else 1920
+                                frame_w = 800 if mode == "mobile" else 1200
+                                radius = 22 if mode == "mobile" else 14
 
-                                        # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
-                                        render_preview(p, mode=mode, root_id="pv-root")
+                                with preview_host:
+                                    with ui.card().style(
+                                        f"width: min(100%, {frame_w}px); height: 2000px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
+                                    ).props("flat bordered"):
+                                        with ui.element("div").props('id="pv-fit"').style(
+                                            "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
+                                        ):
+                                            if not p:
+                                                ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
+                                                return
+                                            pre = _preview_preflight_error()
+                                            if pre:
+                                                ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
+                                                ui.label(pre).classes("cvhb-muted q-pa-md")
+                                                return
 
-                                        # fit-to-width (design: 720px / 1920px)
-                                        try:
-                                            ui.run_javascript(
-                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
-                                            )
-                                        except Exception:
-                                            pass
-                                        try:
-                                            ui.run_javascript(
-                                                "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
-                                            )
-                                        except Exception:
-                                            pass
-                                        # optional debug marker (DevTools で有効化したときだけ記録)
-                                        try:
-                                            ui.run_javascript(
-                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}}});"
-                                            )
-                                        except Exception:
-                                            pass
-                                    except Exception as e:
-                                        ui.label("プレビューでエラーが発生しました").classes("text-negative")
-                                        ui.label(sanitize_error_text(e)).classes("cvhb-muted")
-                                        traceback.print_exc()
+                                            # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
+                                            try:
+                                                render_preview(p, mode=mode, root_id="pv-root")
+                                            except Exception as e:
+                                                ui.label("プレビューでエラーが発生しました").classes("text-negative q-pa-md")
+                                                ui.label(sanitize_error_text(e)).classes("cvhb-muted q-pa-md")
+                                                traceback.print_exc()
+                                                return
 
-                        preview_ref["refresh"] = preview_panel.refresh
-                        preview_panel()
+                                            # fit-to-width (design: 720px / 1920px)
+                                            try:
+                                                ui.run_javascript(
+                                                    f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
+                                                )
+                                            except Exception:
+                                                pass
+                                            try:
+                                                ui.run_javascript(
+                                                    "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
+                                                )
+                                            except Exception:
+                                                pass
+                                            # optional debug marker (DevTools で有効化したときだけ記録)
+                                            try:
+                                                ui.run_javascript(
+                                                    f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}, reason: {json.dumps(str(reason or ''))}}});"
+                                                )
+                                            except Exception:
+                                                pass
+                            except Exception as e:
+                                # ここまで来たら想定外。最低限の復旧UIを出す
+                                traceback.print_exc()
+                                try:
+                                    preview_host.clear()
+                                    with preview_host:
+                                        with ui.card().props("flat bordered").classes("q-pa-md").style("max-width: 900px; margin: 0 auto;"):
+                                            ui.label("プレビューの描画に失敗しました").classes("text-negative")
+                                            ui.label(sanitize_error_text(e)).classes("cvhb-muted")
+                                except Exception:
+                                    pass
+                            finally:
+                                preview_render_state["rendering"] = False
+                                if preview_render_state.get("pending"):
+                                    preview_render_state["pending"] = False
+                                    pr = preview_render_state.get("pending_reason", "")
+                                    preview_render_state["pending_reason"] = ""
+                                    rebuild_preview(reason=pr)
+
+                        preview_ref["refresh"] = lambda: rebuild_preview(reason="refresh()")
+                        rebuild_preview(reason="initial")
 
 
 
