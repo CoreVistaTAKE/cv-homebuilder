@@ -268,18 +268,14 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
 
 
 
+async def _read_upload_bytes(content) -> bytes:
+    """Read bytes from NiceGUI upload content safely (supports sync/async).
 
-def _read_upload_bytes(content) -> bytes:
-    """Read bytes from NiceGUI upload content safely (sync).
-
-    v0.6.999:
-    - 画像アップロードの失敗（0バイト）を根本的に潰すため、on_upload では
-      **非同期(await)** を使わずに、ここで同期的に読み切ります。
-    - 優先順：
-        1) content が bytes ならそのまま
-        2) content.file があれば file を read（UploadFile など）
-        3) content 自体を seek(0) して read（BufferedReader など）
-        4) 最後の手段で bytes(content)
+    v0.6.998:
+    - ui.upload の content は環境により UploadFile / BufferedReader 等が混在します。
+    - on_upload のタイミングによっては async read/seek 中に content が閉じられて
+      0バイトになることがあるため、まずは content.file を「同期読み込み」で試します。
+    - それでもダメなら content.read()（sync/async）へフォールバックします。
     """
     if content is None:
         return b""
@@ -288,7 +284,7 @@ def _read_upload_bytes(content) -> bytes:
     if isinstance(content, (bytes, bytearray, memoryview)):
         return bytes(content)
 
-    # 1) Prefer underlying file object (sync)
+    # 1) Prefer underlying file object (sync) to avoid async timing issues
     try:
         fobj = getattr(content, "file", None)
     except Exception:
@@ -304,31 +300,35 @@ def _read_upload_bytes(content) -> bytes:
             data = fobj.read()
             if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
                 return bytes(data)
-            if isinstance(data, str) and data:
-                return data.encode("utf-8", errors="ignore")
         except Exception:
             pass
 
-    # 2) Rewind content itself (sync)
+    # 2) Rewind content itself (sync/async)
     try:
-        if hasattr(content, "seek"):
+        seek_fn = getattr(content, "seek", None)
+        if callable(seek_fn):
             try:
-                content.seek(0)
+                r = seek_fn(0)
+                if inspect.isawaitable(r):
+                    await r
             except Exception:
                 pass
     except Exception:
         pass
 
-    # 3) Read via content.read (sync)
+    # 3) Read via content.read (sync/async)
     try:
         read_fn = getattr(content, "read", None)
+    except Exception:
+        read_fn = None
+
+    try:
         if callable(read_fn):
             data = read_fn()
-            # async read はここでは扱わない（0バイト事故の原因になるため）
+            if inspect.isawaitable(data):
+                data = await data
             if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
                 return bytes(data)
-            if isinstance(data, str) and data:
-                return data.encode("utf-8", errors="ignore")
     except Exception:
         pass
 
@@ -341,15 +341,199 @@ def _read_upload_bytes(content) -> bytes:
 
 
 
-def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
+
+
+
+def _unwrap_upload_event(e):
+    """ui.upload のイベントが list/tuple/dict でも壊れないように正規化します。"""
+    if e is None:
+        return None
+    try:
+        if isinstance(e, (list, tuple)) and len(e) > 0:
+            return e[0]
+    except Exception:
+        pass
+    return e
+
+
+def _ev_get(e, key: str, default=None):
+    """イベントが dict / オブジェクトどちらでも値を取れるようにします。"""
+    if e is None:
+        return default
+    try:
+        if isinstance(e, dict):
+            return e.get(key, default)
+    except Exception:
+        pass
+    try:
+        return getattr(e, key, default)
+    except Exception:
+        return default
+
+
+def _ev_get_args(e) -> Optional[dict]:
+    """NiceGUI のイベントが args(dict) を持つ場合の救済。"""
+    try:
+        if isinstance(e, dict):
+            a = e.get("args")
+            return a if isinstance(a, dict) else None
+    except Exception:
+        pass
+    try:
+        a = getattr(e, "args", None)
+        return a if isinstance(a, dict) else None
+    except Exception:
+        return None
+
+
+def _extract_upload_fields(e) -> tuple[object, str, str]:
+    """upload event から (content, filename, mime) を取り出します。"""
+    e0 = _unwrap_upload_event(e)
+    args = _ev_get_args(e0) or {}
+    content = _ev_get(e0, "content", None)
+    if content is None:
+        content = args.get("content")
+    fname = _ev_get(e0, "name", "") or args.get("name", "") or ""
+    mime = _ev_get(e0, "type", "") or args.get("type", "") or ""
+    return content, str(fname), str(mime)
+
+
+def _read_upload_bytes_sync(content) -> bytes:
+    """同期版: ui.upload の content から bytes を取り出します。
+
+    画像アップロード不具合の根本対策:
+    - 環境によって on_upload が async を await しない場合があり、content が閉じられた後に
+      coroutine が走ると 0バイトになりがちです。
+    - そこで「同期で即読み」して、閉じられる前にバイト列を確保します。
+    """
+    if content is None:
+        return b""
+
+    if isinstance(content, (bytes, bytearray, memoryview)):
+        return bytes(content)
+
+    # data URL が来るケースも吸収（念のため）
+    try:
+        if isinstance(content, str) and content.startswith("data:") and "base64," in content:
+            b64 = content.split("base64,", 1)[1]
+            return base64.b64decode(b64)
+    except Exception:
+        pass
+
+    # dict の場合（まれ）
+    try:
+        if isinstance(content, dict):
+            if "data" in content and isinstance(content["data"], (bytes, bytearray, memoryview)):
+                return bytes(content["data"])
+            if "file" in content:
+                content = content["file"]
+    except Exception:
+        pass
+
+    # 1) Prefer underlying file object (UploadFile.file 等)
+    fobj = None
+    try:
+        fobj = getattr(content, "file", None)
+    except Exception:
+        fobj = None
+
+    if fobj is not None and hasattr(fobj, "read"):
+        try:
+            if hasattr(fobj, "seek"):
+                try:
+                    fobj.seek(0)
+                except Exception:
+                    pass
+            data = fobj.read()
+            if isinstance(data, str):
+                data = data.encode("utf-8", errors="ignore")
+            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
+                return bytes(data)
+        except Exception:
+            pass
+
+    # 2) Try content.seek/read
+    try:
+        if hasattr(content, "seek"):
+            try:
+                content.seek(0)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    try:
+        if hasattr(content, "read"):
+            data = content.read()
+            if isinstance(data, str):
+                data = data.encode("utf-8", errors="ignore")
+            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
+                return bytes(data)
+    except Exception:
+        pass
+
+    # 3) Last resort
+    try:
+        b = bytes(content)
+        return b if b else b""
+    except Exception:
+        return b""
+
+
+def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
+    """同期版: upload event → (data_url, filename)
+
+    NOTE:
+    - on_upload が async を await しない環境でも確実に動くことを最優先にしています。
+    """
+    content, fname, mime = _extract_upload_fields(e)
+    data = _read_upload_bytes_sync(content)
+
+    if not data:
+        try:
+            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
+        except Exception:
+            pass
+        return "", fname
+
+    try:
+        if len(data) > MAX_UPLOAD_BYTES:
+            try:
+                ui.notify("画像ファイルが大きすぎます。サイズを小さくして再アップロードしてください。", type="warning")
+            except Exception:
+                pass
+            return "", fname
+    except Exception:
+        pass
+
+    if not mime:
+        mime = _guess_mime(fname, "image/png")
+
+    try:
+        if max_w and max_h:
+            data, mime = _maybe_resize_image_bytes(data, mime, max_w=max_w, max_h=max_h)
+    except Exception:
+        pass
+
+    try:
+        b64 = base64.b64encode(data).decode("ascii")
+    except Exception:
+        b64 = ""
+
+    if not b64:
+        return "", fname
+
+    return f"data:{mime};base64,{b64}", fname
+
+
+
+
+async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
     """Convert a NiceGUI upload event into (data_url, filename).
 
     v0.6.996:
     - 画像は「1280×720（16:9）」に自動でセンターカットして保存（Pillowがある環境のみ）
     - 極端に大きいファイルは弾く（事故防止）
-
-    v0.6.999:
-    - on_upload は同期で処理して、content が閉じられる前に必ず読み切る
     """
     try:
         fname = str(getattr(e, "name", "") or "")
@@ -360,14 +544,8 @@ def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str
     except Exception:
         mime = ""
     content = getattr(e, "content", None)
-
-    data = _read_upload_bytes(content)
+    data = await _read_upload_bytes(content)
     if not data:
-        # サーバーログに最低限の情報を残す（個人情報やパスは出さない）
-        try:
-            print(f"[upload] empty bytes: name={sanitize_filename(fname)} type={type(content)}")
-        except Exception:
-            pass
         try:
             ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
         except Exception:
@@ -1524,11 +1702,8 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-about-img{
-  /* 1280×720（16:9）で表示（保存も 1280×720 に統一） */
   width: 100%;
-  aspect-ratio: 16 / 9;
-  height: auto;
-  display: block;
+  height: 320px;
   border-radius: 22px;
   object-fit: cover;
   border: 1px solid var(--pv-border);
@@ -1536,7 +1711,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-mode-mobile .pv-about-img{
-  border-radius: 18px;
+  height: 240px;
 }
 
 .pv-layout-260218 .pv-surface-white{
@@ -1566,11 +1741,8 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-services-img{
-  /* 1280×720（16:9）で表示（保存も 1280×720 に統一） */
   width: 100%;
-  aspect-ratio: 16 / 9;
-  height: auto;
-  display: block;
+  height: 260px;
   border-radius: 18px;
   object-fit: cover;
   border: 1px solid rgba(0,0,0,0.06);
@@ -1578,6 +1750,10 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218.pv-dark .pv-services-img{
   border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218.pv-mode-pc .pv-services-img{
+  height: 320px;
 }
 
 .pv-layout-260218 .pv-service-item{
@@ -2380,7 +2556,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.999")
+VERSION = read_text_file("VERSION", "0.6.998")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3578,18 +3754,7 @@ def normalize_project(p: dict) -> dict:
     contact.setdefault("button_text", "お問い合わせ")
 
     applied = step1.get("_applied_template_id")
-
-    # v0.6.999:
-    # - 古い案件で catch_copy が空のまま残って「会社名が表示される」事故を防ぐ
-    # - 福祉系テンプレのデフォルトキャッチも確実に復元できるようにする
-    need_apply = (applied != template_id)
-    try:
-        if not str(step2.get("catch_copy") or "").strip():
-            need_apply = True
-    except Exception:
-        pass
-
-    if need_apply:
+    if applied != template_id:
         apply_template_starter_defaults(p, template_id)
         step1["_applied_template_id"] = template_id
 
@@ -4833,21 +4998,16 @@ def render_main(u: User) -> None:
                                             # ファビコン（アップロード仕様）
                                             ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
                                             ui.label("未設定ならデフォルトを使用します（推奨: 正方形PNG 32×32）").classes("cvhb-muted")
-                                            ui.label("手順：『+』で画像選択（自動アップロード）→右プレビュー反映→最後に『反映して保存』").classes("cvhb-muted q-mb-sm")
 
                                             def _on_upload_favicon(e):
                                                 try:
-                                                    data_url, fname = _upload_event_to_data_url(e)
+                                                    data_url, fname = _upload_event_to_data_url_sync(e)
                                                     if not data_url:
                                                         return
                                                     step2["favicon_url"] = data_url
                                                     step2["favicon_filename"] = _short_name(fname)
                                                     update_and_refresh()
                                                     favicon_editor.refresh()
-                                                    try:
-                                                        ui.notify("ファビコン画像を反映しました。保存するには「反映して保存」を押してください。", type="positive")
-                                                    except Exception:
-                                                        pass
                                                 except Exception:
                                                     pass
 
@@ -4868,7 +5028,7 @@ def render_main(u: User) -> None:
                                                 with ui.row().classes("items-center q-gutter-sm"):
                                                     ui.image(show_url).style("width:32px;height:32px;border-radius:6px;")
                                                     ui.upload(on_upload=_on_upload_favicon, auto_upload=True).props("accept=image/*")
-                                                    ui.button("反映して保存", icon="save", on_click=save_now).props(
+                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props(
                                                         "color=primary unelevated dense no-caps"
                                                     )
                                                     ui.button("クリア", on_click=_clear_favicon).props("outline dense")
@@ -4961,9 +5121,7 @@ def render_main(u: User) -> None:
 
                                                         def _on_upload_slide(e, i: int):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url(
-                                                                    e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H
-                                                                )
+                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 _normalize_hero_slides()
@@ -4974,10 +5132,6 @@ def render_main(u: User) -> None:
                                                                 hero["hero_image"] = hero["hero_slide_choices"][0] if hero.get("hero_slide_choices") else DEFAULT_CHOICES[0]
                                                                 update_and_refresh()
                                                                 hero_slides_editor.refresh()
-                                                                try:
-                                                                    ui.notify("画像を反映しました。保存するには「反映して保存」を押してください。", type="positive")
-                                                                except Exception:
-                                                                    pass
                                                             except Exception:
                                                                 pass
 
@@ -5020,16 +5174,18 @@ def render_main(u: User) -> None:
                                                                                 pass
                                                                             ui.upload(on_upload=_upload_handler, auto_upload=True).props("accept=image/*")
                                                                             ui.button("クリア", on_click=lambda i=_i: _clear_slide_upload(i)).props("outline dense")
-                                                                            ui.button("反映して保存", icon="save", on_click=save_now).props("color=primary unelevated dense no-caps")
+                                                                            ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
                                                                         ui.label(f"ファイル: {nn[_i] or '未アップロード'}").classes("cvhb-muted")
                                                                     else:
                                                                         ui.label(f"選択中: {cc[_i]}").classes("cvhb-muted")
 
-                                                        # --- キャッチ（ヒーローの文章） ---
-                                                        ui.label("キャッチコピー（ヒーロー）").classes("text-body1")
-                                                        ui.label("※ キャッチ/サブキャッチは「ヒーローブロック」でのみ編集します。").classes("cvhb-muted")
+                                                        hero_slides_editor()
 
-                                                        # キャッチは Step2 に保存しているが、ここ（ヒーロー）で編集できるようにする
+                                                        with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
+                                                            ui.button("画像を反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated no-caps")
+                                                            ui.label("※アップロード後は、このボタンで保存すると安心です。").classes("cvhb-muted")
+
+                                                        # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
                                                         bind_step2_input(
                                                             "キャッチコピー",
                                                             "catch_copy",
@@ -5056,20 +5212,6 @@ def render_main(u: User) -> None:
                                                         ).classes("q-mb-sm")
                                                         ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
 
-                                                        ui.separator().classes("q-mt-md q-mb-sm")
-
-                                                        # --- 画像 ---
-                                                        ui.label("画像の反映手順：①オリジナル → ②『+』で画像選択（自動アップロード） → ③右プレビューに反映 → ④最後に『反映して保存』").classes(
-                                                            "cvhb-muted q-mb-sm"
-                                                        )
-                                                        ui.label("保存先：この案件の project.json（SFTP To Go）に画像データを埋め込んで保存します。").classes("cvhb-muted q-mb-sm")
-
-                                                        hero_slides_editor()
-
-                                                        with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
-                                                            ui.button("画像を反映して保存", icon="save", on_click=save_now).props("color=primary unelevated no-caps")
-                                                            ui.label("※ アップロード後はこのボタンで保存すると確実です。").classes("cvhb-muted")
-
                                                     with ui.tab_panel("philosophy"):
                                                         # 理念/概要（必須）
                                                         ph = blocks.setdefault("philosophy", {})
@@ -5083,23 +5225,16 @@ def render_main(u: User) -> None:
                                                         ui.label("画像（任意）").classes("text-body1 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
-                                                        ui.label("手順：『+』で画像選択（自動アップロード）→右プレビュー反映→最後に『反映して保存』").classes("cvhb-muted q-mb-sm")
 
                                                         def _on_upload_ph_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url(
-                                                                    e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H
-                                                                )
+                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 ph["image_url"] = data_url
                                                                 ph["image_upload_name"] = _short_name(fname)
                                                                 update_and_refresh()
                                                                 ph_image_editor.refresh()
-                                                                try:
-                                                                    ui.notify("画像を反映しました。保存するには「反映して保存」を押してください。", type="positive")
-                                                                except Exception:
-                                                                    pass
                                                             except Exception:
                                                                 pass
 
@@ -5125,7 +5260,7 @@ def render_main(u: User) -> None:
                                                                     pass
                                                                 ui.upload(on_upload=_on_upload_ph_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_ph_image).props("outline dense")
-                                                                ui.button("反映して保存", icon="save", on_click=save_now).props("color=primary unelevated dense no-caps")
+                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
                                                             ui.label(f"現在: {'デフォルト(E: 木)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         ph_image_editor()
@@ -5169,23 +5304,16 @@ def render_main(u: User) -> None:
                                                         ui.label("業務内容：画像（任意）").classes("text-body2 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
-                                                        ui.label("手順：『+』で画像選択（自動アップロード）→右プレビュー反映→最後に『反映して保存』").classes("cvhb-muted q-mb-sm")
 
                                                         def _on_upload_svc_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url(
-                                                                    e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H
-                                                                )
+                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 svc["image_url"] = data_url
                                                                 svc["image_upload_name"] = _short_name(fname)
                                                                 update_and_refresh()
                                                                 svc_image_editor.refresh()
-                                                                try:
-                                                                    ui.notify("画像を反映しました。保存するには「反映して保存」を押してください。", type="positive")
-                                                                except Exception:
-                                                                    pass
                                                             except Exception:
                                                                 pass
 
@@ -5211,7 +5339,7 @@ def render_main(u: User) -> None:
                                                                     pass
                                                                 ui.upload(on_upload=_on_upload_svc_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_svc_image).props("outline dense")
-                                                                ui.button("反映して保存", icon="save", on_click=save_now).props("color=primary unelevated dense no-caps")
+                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
                                                             ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         svc_image_editor()
