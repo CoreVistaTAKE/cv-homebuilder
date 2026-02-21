@@ -856,6 +856,29 @@ def inject_global_styles() -> None:
   color: var(--pv-text) !important;
 }
 
+/* PCヘッダー：デスクトップナビ（PCモードだけ表示） */
+.pv-layout-260218 .pv-desktop-nav{
+  display: none;
+  gap: 6px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.pv-layout-260218.pv-mode-pc .pv-desktop-nav{
+  display: flex;
+}
+.pv-layout-260218 .pv-desktop-nav .q-btn{
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--pv-text) !important;
+}
+.pv-layout-260218 .pv-desktop-nav .q-btn:hover{
+  background: rgba(255,255,255,0.22);
+}
+.pv-layout-260218.pv-dark .pv-desktop-nav .q-btn:hover{
+  background: rgba(255,255,255,0.08);
+}
+
 .pv-layout-260218 .pv-main{
   max-width: 1280px;
   margin: 0 auto;
@@ -1012,6 +1035,57 @@ def inject_global_styles() -> None:
 .pv-layout-260218.pv-dark .pv-hero-slider{
   border-color: rgba(255,255,255,0.12);
   background: rgba(0,0,0,0.14);
+}
+
+/* ===== Hero: フル幅 & 大きく（nagomi-support.com のTOPみたいに） ===== */
+.pv-layout-260218 .pv-hero-wide{
+  position: relative;
+  margin: 0;
+}
+.pv-layout-260218 .pv-hero-slider-wide{
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: rgba(255,255,255,0.10);
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
+  height: 380px;
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
+  height: 680px;
+}
+.pv-layout-260218.pv-dark .pv-hero-slider-wide{
+  background: rgba(0,0,0,0.16);
+}
+
+.pv-layout-260218 .pv-hero-caption{
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  width: min(92%, 980px);
+  padding: 18px 22px;
+  border-radius: 18px;
+  text-align: center;
+  backdrop-filter: blur(18px);
+  background: rgba(255,255,255,0.68);
+  border: 1px solid rgba(255,255,255,0.55);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.10);
+}
+.pv-layout-260218.pv-dark .pv-hero-caption{
+  background: rgba(0,0,0,0.45);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.22);
+}
+.pv-layout-260218 .pv-hero-caption-title{
+  font-weight: 1000;
+  font-size: clamp(1.2rem, 3.3vw, 2.2rem);
+  line-height: 1.15;
+}
+.pv-layout-260218 .pv-hero-caption-sub{
+  margin-top: 8px;
+  line-height: 1.7;
+  color: var(--pv-muted);
 }
 
 .pv-layout-260218 .pv-hero-track{
@@ -1709,7 +1783,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.97")
+VERSION = read_text_file("VERSION", "0.6.95")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3350,6 +3424,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
     # mode / root id（プレビュー統合のため、root_id を外から差し替え可能にする）
     mode = str(mode or "mobile").strip() or "mobile"
+    if mode not in ("mobile", "pc"):
+        mode = "mobile"
     root_id = str(root_id or f"pv-root-{mode}").strip() or f"pv-root-{mode}"
 
     theme_style = _preview_glass_style(step1, dark=is_dark)
@@ -3394,10 +3470,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     if not hero_urls:
         hero_urls = [_clean(HERO_IMAGE_PRESETS.get(hero_image_choice), HERO_IMAGE_DEFAULT)]
     hero_urls = hero_urls[:4]
-
-    # CTA texts (legacy fields)
-    primary_cta = _clean(hero.get("primary_button_text"), "お問い合わせ")
-    secondary_cta = _clean(hero.get("secondary_button_text"), "見学・相談")
 
     news = blocks.get("news", {}) if isinstance(blocks.get("news"), dict) else {}
     news_items = _safe_list(news.get("items"))  # list[dict]
@@ -3444,184 +3516,192 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         with ui.element("div").classes("pv-scroll"):
             # ----- header -----
             with ui.element("header").classes("pv-topbar pv-topbar-260218"):
-                with ui.row().classes("pv-topbar-inner items-center justify-between no-wrap"):
+                with ui.row().classes("pv-topbar-inner items-center justify-between"):
                     # brand (favicon + name)
                     with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
                         if favicon_url:
                             ui.image(favicon_url).classes("pv-favicon")
                         ui.label(company_name).classes("pv-brand-name")
 
-                    # hamburger menu
-                    # hamburger menu（先にdialogを作ってからボタンで開く）
-                    with ui.dialog() as nav_dialog:
-                        with ui.card().classes("pv-nav-card"):
-                            ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
+                    if mode == "pc":
+                        # desktop nav (PC only)
+                        with ui.row().classes("pv-desktop-nav items-center no-wrap"):
                             for label, sec in [
-                                ("トップ", "top"),
-                                ("お知らせ", "news"),
                                 ("私たちについて", "about"),
                                 ("業務内容", "services"),
-                                ("よくある質問", "faq"),
+                                ("お知らせ", "news"),
+                                ("FAQ", "faq"),
                                 ("アクセス", "access"),
-                                ("お問い合わせ", "contact"),
                             ]:
-                                ui.button(
-                                    label,
-                                    on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
-                                ).props("flat no-caps").classes("pv-nav-item w-full")
-                    ui.button("MENU", icon="menu", on_click=nav_dialog.open).props("flat dense no-caps").classes("pv-menu-btn")
-                    # menu opened by on_click
+                                ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-desktop-nav-btn")
+                            ui.button("お問い合わせ", on_click=lambda: scroll_to("contact")).props(
+                                "no-caps outline color=primary"
+                            ).classes("pv-desktop-nav-btn pv-nav-contact")
+                    else:
+                        # hamburger menu（先にdialogを作ってからボタンで開く）
+                        with ui.dialog() as nav_dialog:
+                            with ui.card().classes("pv-nav-card"):
+                                ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
+                                for label, sec in [
+                                    ("トップ", "top"),
+                                    ("お知らせ", "news"),
+                                    ("私たちについて", "about"),
+                                    ("業務内容", "services"),
+                                    ("よくある質問", "faq"),
+                                    ("アクセス", "access"),
+                                    ("お問い合わせ", "contact"),
+                                ]:
+                                    ui.button(
+                                        label,
+                                        on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
+                                    ).props("flat no-caps").classes("pv-nav-item w-full")
+                        ui.button("MENU", icon="menu", on_click=nav_dialog.open).props("flat dense no-caps").classes("pv-menu-btn")
+
+            # ----- HERO (full width / no buttons) -----
+            with ui.element("section").classes("pv-hero-wide").props('id="pv-top"'):
+                slider_id = f"pv-hero-slider-{mode}"
+                with ui.element("div").classes("pv-hero-slider pv-hero-slider-wide").props(f'id="{slider_id}"'):
+                    with ui.element("div").classes("pv-hero-track"):
+                        for url in hero_urls:
+                            with ui.element("div").classes("pv-hero-slide"):
+                                ui.image(url).classes("pv-hero-img")
+
+                # init slider (auto)
+                axis = "y" if mode == "mobile" else "x"
+                ui.run_javascript(f"window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',4500)")
+
+                # caption overlay
+                with ui.element("div").classes("pv-hero-caption"):
+                    ui.label(_clean(catch_copy, company_name)).classes("pv-hero-caption-title")
+                    if sub_catch:
+                        ui.label(sub_catch).classes("pv-hero-caption-sub")
 
             # ----- main -----
             with ui.element("main").classes("pv-main"):
-                # HERO
-                with ui.element("section").classes("pv-section pv-hero").props('id="pv-top"'):
-                    with ui.element("div").classes("pv-hero-grid"):
-                        with ui.element("div").classes("pv-hero-copy"):
-                            ui.label(_clean(catch_copy, company_name)).classes("pv-hero-title")
-                            if sub_catch:
-                                ui.label(sub_catch).classes("pv-hero-sub")
-                            with ui.row().classes("pv-cta-row"):
-                                ui.button(primary_cta, on_click=lambda: scroll_to("contact")).props(
-                                    "no-caps unelevated color=primary"
-                                ).classes("pv-btn pv-btn-primary")
-                                ui.button(secondary_cta, on_click=lambda: scroll_to("contact")).props(
-                                    "no-caps outline color=primary"
-                                ).classes("pv-btn pv-btn-secondary")
-
-                        with ui.element("div").classes("pv-hero-media"):
-                            slider_id = f"pv-hero-slider-{mode}"
-                            with ui.element("div").classes("pv-hero-slider").props(f'id="{slider_id}"'):
-                                with ui.element("div").classes("pv-hero-track"):
-                                    for url in hero_urls:
-                                        with ui.element("div").classes("pv-hero-slide"):
-                                            ui.image(url).classes("pv-hero-img")
-                            # init slider (auto)
-                            axis = "y" if mode == "mobile" else "x"
-                            ui.run_javascript(
-                                f"window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',4500)"
-                            )
-
                 # NEWS
-                with ui.element("section").classes("pv-section pv-news").props('id="pv-news"'):
+                with ui.element("section").classes("pv-section").props('id="pv-news"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("お知らせ").classes("pv-section-title")
                         ui.label("NEWS").classes("pv-section-en")
-                    with ui.element("div").classes("pv-panel pv-panel-flat"):
-                        with ui.element("div").classes("pv-news-list"):
-                            shown = 0
-                            for it in news_items:
-                                if not isinstance(it, dict):
-                                    continue
-                                date = _clean(it.get("date"))
-                                cat = _clean(it.get("category"), "お知らせ")
-                                title = _clean(it.get("title"), "タイトル未設定")
-                                shown += 1
-                                with ui.element("div").classes("pv-news-item"):
-                                    ui.label(date or "----.--.--").classes("pv-news-date")
-                                    ui.label(cat).classes("pv-news-cat")
-                                    ui.label(title).classes("pv-news-title")
-                                    ui.icon("chevron_right").classes("pv-news-arrow")
-                                if shown >= 4:
-                                    break
-                            if shown == 0:
-                                ui.label("まだお知らせはありません。").classes("pv-muted q-mt-sm")
-                        ui.button("お知らせ一覧").props("no-caps flat").classes("pv-link-btn")
+                    with ui.element("div").classes("pv-panel pv-panel-glass"):
+                        if not news_items:
+                            with ui.row().classes("items-center justify-between"):
+                                ui.label("まだお知らせがありません").classes("pv-muted")
+                        else:
+                            # show latest 3
+                            shown = news_items[:3]
+                            with ui.element("div").classes("pv-news-list"):
+                                for it in shown:
+                                    date = _clean(it.get("date"))
+                                    cat = _clean(it.get("category"))
+                                    title = _clean(it.get("title"), "お知らせ")
+                                    with ui.element("div").classes("pv-news-item"):
+                                        with ui.row().classes("items-center no-wrap pv-news-meta"):
+                                            if date:
+                                                ui.label(date).classes("pv-news-date")
+                                            if cat:
+                                                ui.element("span").classes("pv-chip").text(cat)
+                                        ui.label(title).classes("pv-news-title")
+                        ui.button("お知らせ一覧", on_click=lambda: None).props("flat no-caps color=primary").classes("pv-link-btn q-mt-sm")
 
                 # ABOUT
-                with ui.element("section").classes("pv-section pv-about").props('id="pv-about"'):
+                with ui.element("section").classes("pv-section").props('id="pv-about"'):
                     with ui.element("div").classes("pv-section-head"):
-                        ui.label("私たちについて").classes("pv-section-title")
+                        ui.label(about_title).classes("pv-section-title")
                         ui.label("ABOUT").classes("pv-section-en")
-                    with ui.element("div").classes("pv-about-grid"):
-                        with ui.element("div").classes("pv-panel pv-panel-glass"):
-                            ui.label(about_title).classes("pv-h2")
-                            if about_body:
-                                ui.label(about_body).classes("pv-bodytext")
-                            pts = [str(x).strip() for x in about_points if str(x).strip()]
-                            if pts:
-                                with ui.element("ul").classes("pv-bullets"):
-                                    for t in pts[:6]:
-                                        with ui.element("li"):
-                                            ui.label(t)
-                        with ui.element("div").classes("pv-about-media"):
-                            ui.image(about_image_url).classes("pv-about-img")
 
-                # SERVICES (integrated in philosophy block)
-                with ui.element("section").classes("pv-section pv-services").props('id="pv-services"'):
+                    with ui.element("div").classes("pv-panel pv-panel-glass"):
+                        if about_body:
+                            ui.label(about_body).classes("pv-bodytext")
+
+                        # points (legacy: list)
+                        if about_points:
+                            with ui.element("ul").classes("pv-bullets"):
+                                for pt in about_points:
+                                    pt = _clean(pt)
+                                    if pt:
+                                        ui.element("li").text(pt)
+
+                    # image
+                    if about_image_url:
+                        with ui.element("div").classes("pv-image-wrap"):
+                            ui.image(about_image_url).classes("pv-image")
+
+                # SERVICES
+                with ui.element("section").classes("pv-section").props('id="pv-services"'):
                     with ui.element("div").classes("pv-section-head"):
-                        ui.label(svc_title or "業務内容").classes("pv-section-title")
-                        ui.label("SERVICES").classes("pv-section-en")
-                    with ui.element("div").classes("pv-services-wrap pv-surface-white"):
-                        with ui.element("div").classes("pv-services-grid"):
-                            with ui.element("div").classes("pv-services-media"):
-                                ui.image(svc_image_url).classes("pv-services-img")
-                            with ui.element("div").classes("pv-services-copy"):
-                                if svc_lead:
-                                    ui.label(svc_lead).classes("pv-bodytext")
-                                # items
-                                cleaned_items = []
-                                for it in svc_items:
-                                    if isinstance(it, dict):
-                                        t = _clean(it.get("title"))
-                                        b = _clean(it.get("body"))
-                                        if t or b:
-                                            cleaned_items.append((t, b))
-                                if cleaned_items:
-                                    for (t, b) in cleaned_items[:6]:
-                                        with ui.element("div").classes("pv-service-item"):
-                                            ui.label(t or "項目").classes("pv-service-title")
-                                            if b:
-                                                ui.label(b).classes("pv-muted")
-                                else:
-                                    ui.label("業務内容の項目を設定してください。").classes("pv-muted")
+                        ui.label(svc_title).classes("pv-section-title")
+                        ui.label("SERVICE").classes("pv-section-en")
+
+                    with ui.element("div").classes("pv-panel pv-panel-glass"):
+                        if svc_lead:
+                            ui.label(svc_lead).classes("pv-bodytext")
+                        if svc_items:
+                            with ui.element("div").classes("pv-service-grid"):
+                                for item in svc_items:
+                                    t = _clean(item.get("title"))
+                                    b = _clean(item.get("body"))
+                                    if not t and not b:
+                                        continue
+                                    with ui.element("div").classes("pv-service-card"):
+                                        if t:
+                                            ui.label(t).classes("pv-service-title")
+                                        if b:
+                                            ui.label(b).classes("pv-muted")
+                        else:
+                            ui.label("業務内容を入力すると、ここに表示されます。").classes("pv-muted")
+
+                    if svc_image_url:
+                        with ui.element("div").classes("pv-image-wrap"):
+                            ui.image(svc_image_url).classes("pv-image")
 
                 # FAQ
-                with ui.element("section").classes("pv-section pv-faq").props('id="pv-faq"'):
+                with ui.element("section").classes("pv-section").props('id="pv-faq"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("よくある質問").classes("pv-section-title")
                         ui.label("FAQ").classes("pv-section-en")
+
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
-                        shown = 0
-                        for it in faq_items:
-                            if not isinstance(it, dict):
-                                continue
-                            q = _clean(it.get("q"))
-                            a = _clean(it.get("a"))
-                            if not q and not a:
-                                continue
-                            shown += 1
-                            with ui.element("div").classes("pv-faq-item"):
-                                ui.label(q or "質問").classes("pv-faq-q")
-                                if a:
-                                    ui.label(a).classes("pv-faq-a")
-                            if shown >= 4:
-                                break
-                        if shown == 0:
-                            ui.label("よくある質問は準備中です。").classes("pv-muted")
+                        if not faq_items:
+                            ui.label("まだFAQがありません。").classes("pv-muted")
+                        else:
+                            with ui.element("div").classes("pv-faq-list"):
+                                for it in faq_items:
+                                    q = _clean(it.get("q"))
+                                    a = _clean(it.get("a"))
+                                    if not q and not a:
+                                        continue
+                                    with ui.element("div").classes("pv-faq-item"):
+                                        if q:
+                                            ui.label(f"Q. {q}").classes("pv-faq-q")
+                                        if a:
+                                            ui.label(a).classes("pv-faq-a")
 
                 # ACCESS
-                with ui.element("section").classes("pv-section pv-access").props('id="pv-access"'):
+                with ui.element("section").classes("pv-section").props('id="pv-access"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("アクセス").classes("pv-section-title")
                         ui.label("ACCESS").classes("pv-section-en")
+
                     with ui.element("div").classes("pv-panel pv-panel-glass pv-access-card"):
                         if address:
                             ui.label(address).classes("pv-bodytext")
                         else:
-                            ui.label("住所を入力してください（基本情報 > 住所）").classes("pv-muted")
+                            ui.label("住所を入力すると、ここに表示されます。").classes("pv-muted")
                         if access_notes:
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
-                        if map_url:
-                            ui.button("地図を開く").props(
-                                f'no-caps unelevated color=primary type=a href="{map_url}" target="_blank"'
-                            ).classes("pv-btn pv-map-btn")
+
+                        if map_url and address:
+                            ui.button("Googleマップで見る").props(
+                                f'no-caps outline color=primary type=a href="{map_url}" target="_blank"'
+                            ).classes("pv-btn pv-btn-secondary q-mt-sm")
 
                 # CONTACT
-                with ui.element("section").classes("pv-section pv-contact").props('id="pv-contact"'):
+                with ui.element("section").classes("pv-section").props('id="pv-contact"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("お問い合わせ").classes("pv-section-title")
                         ui.label("CONTACT").classes("pv-section-en")
+
                     with ui.element("div").classes("pv-panel pv-panel-glass pv-contact-card"):
                         if contact_message:
                             ui.label(contact_message).classes("pv-bodytext")
@@ -3640,52 +3720,55 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 "pv-btn pv-btn-primary"
                             )
 
-                # PRE-FOOTER (company mini)
-                with ui.element("section").classes("pv-companybar"):
-                    with ui.element("div").classes("pv-companybar-inner"):
-                        with ui.element("div").classes("pv-companybar-left"):
-                            ui.label(company_name).classes("pv-companybar-name")
-                            if address:
-                                ui.label(address).classes("pv-companybar-meta")
-                            if phone:
-                                ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
-                        with ui.element("div").classes("pv-companybar-right"):
-                            ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated color=primary").classes("pv-btn pv-btn-primary")
+            # PRE-FOOTER (company mini)
+            with ui.element("section").classes("pv-companybar"):
+                with ui.element("div").classes("pv-companybar-inner"):
+                    with ui.element("div").classes("pv-companybar-left"):
+                        ui.label(company_name).classes("pv-companybar-name")
+                        if address:
+                            ui.label(address).classes("pv-companybar-meta")
+                        if phone:
+                            ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
+                    with ui.element("div").classes("pv-companybar-right"):
+                        ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props(
+                            "no-caps unelevated color=primary"
+                        ).classes("pv-btn pv-btn-primary")
 
-                # MAPSHOT (only if address is set)
-                if address:
-                    with ui.element("section").classes("pv-mapshot"):
-                        with ui.element("div").classes("pv-mapshot-inner"):
-                            with ui.element("div").classes("pv-panel pv-panel-glass pv-mapshot-card"):
-                                with ui.row().classes("items-center justify-between pv-mapshot-head"):
-                                    ui.label("地図").classes("pv-mapshot-label")
-                                    if map_url:
-                                        ui.button("Googleマップで見る").props(
-                                            f'no-caps outline color=primary type=a href="{map_url}" target="_blank"'
-                                        ).classes("pv-btn pv-btn-secondary")
+            # MAPSHOT (only if address is set)
+            if address:
+                with ui.element("section").classes("pv-mapshot"):
+                    with ui.element("div").classes("pv-mapshot-inner"):
+                        with ui.element("div").classes("pv-panel pv-panel-glass pv-mapshot-card"):
+                            with ui.row().classes("items-center justify-between pv-mapshot-head"):
+                                ui.label("地図").classes("pv-mapshot-label")
                                 if map_url:
-                                    with ui.element("a").props(f'href="{map_url}" target="_blank"').classes("pv-mapshot-img-link"):
-                                        with ui.element("div").classes("pv-mapshot-img"):
-                                            ui.icon("place").classes("pv-mapshot-pin")
-                                            ui.label("地図を開く").classes("pv-mapshot-open")
-                                ui.label(address).classes("pv-mapshot-address")
+                                    ui.button("Googleマップで見る").props(
+                                        f'no-caps outline color=primary type=a href="{map_url}" target="_blank"'
+                                    ).classes("pv-btn pv-btn-secondary")
+                            if map_url:
+                                with ui.element("a").props(f'href="{map_url}" target="_blank"').classes("pv-mapshot-img-link"):
+                                    with ui.element("div").classes("pv-mapshot-img"):
+                                        ui.icon("place").classes("pv-mapshot-pin")
+                                        ui.label("地図を開く").classes("pv-mapshot-open")
+                            ui.label(address).classes("pv-mapshot-address")
 
-                # FOOTER
-                with ui.element("footer").classes("pv-footer"):
-                    with ui.element("div").classes("pv-footer-grid"):
-                        with ui.element("div"):
-                            ui.label(company_name).classes("pv-footer-brand")
-                            for label, sec in [
-                                ("トップ", "top"),
-                                ("お知らせ", "news"),
-                                ("私たちについて", "about"),
-                                ("業務内容", "services"),
-                                ("よくある質問", "faq"),
-                                ("アクセス", "access"),
-                                ("お問い合わせ", "contact"),
-                            ]:
-                                ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
-                    ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
+            # FOOTER
+            with ui.element("footer").classes("pv-footer"):
+                with ui.element("div").classes("pv-footer-grid"):
+                    with ui.element("div"):
+                        ui.label(company_name).classes("pv-footer-brand")
+                        for label, sec in [
+                            ("トップ", "top"),
+                            ("お知らせ", "news"),
+                            ("私たちについて", "about"),
+                            ("業務内容", "services"),
+                            ("よくある質問", "faq"),
+                            ("アクセス", "access"),
+                            ("お問い合わせ", "contact"),
+                        ]:
+                            ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
+                ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
+
 def render_main(u: User) -> None:
     inject_global_styles()
     cleanup_user_storage()
@@ -3698,28 +3781,12 @@ def render_main(u: User) -> None:
 
     editor_ref = {"refresh": (lambda: None)}
 
-    def refresh_preview(reason: str = "") -> None:
-        """プレビュー更新を安全に行う（失敗しても画面全体は落とさない）。
-
-        重要: ここで例外を握りつぶすと、refreshable が空になったまま復旧できず、
-        「プレビューが真っ白」の原因になります。
-        """
+    def refresh_preview() -> None:
+        # プレビューは1つに統合（表示モードだけ切替）
         try:
             preview_ref["refresh"]()
-        except Exception as e:
-            traceback.print_exc()
-            # 画面にも最低限だけ出す（秘密情報は sanitize 済み）
-            try:
-                ui.notify(f"プレビュー更新でエラー: {sanitize_error_text(e)}", type="negative")
-            except Exception:
-                pass
-            # DevTools 用ログ（有効化されている時だけ）
-            try:
-                ui.run_javascript(
-                    f"window.cvhbDebugLog && window.cvhbDebugLog('preview_refresh_error', {{msg: {json.dumps(sanitize_error_text(e))}, reason: {json.dumps(str(reason or ''))}}});"
-                )
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     def save_now() -> None:
         nonlocal p
@@ -4225,8 +4292,7 @@ def render_main(u: User) -> None:
 
                                                         hero_slides_editor()
                                                         bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
-                                                        bind_block_input("hero", "ボタン1の文言", "primary_button_text")
-                                                        bind_block_input("hero", "ボタン2の文言（任意）", "secondary_button_text")
+                                                        ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
 
                                                     with ui.tab_panel("philosophy"):
                                                         # 理念/概要（必須）
@@ -4511,134 +4577,97 @@ def render_main(u: User) -> None:
                             ui.label("プレビュー").classes("cvhb-card-title")
                             ui.label("スマホ / PC 切替").classes("cvhb-muted")
 
-                        # プレビュー表示モード（mobile / pc）
+                                                # プレビュー表示モード（mobile / pc）
                         preview_mode = {"value": "mobile"}
 
-                        with ui.tabs().props("dense").classes("q-mt-sm") as pv_tabs:
-                            ui.tab("mobile", label="スマホ", icon="smartphone")
-                            ui.tab("pc", label="PC", icon="desktop_windows")
+                        @ui.refreshable
+                        def pv_mode_selector():
+                            cur = str(preview_mode.get("value") or "mobile")
+                            if cur not in ("mobile", "pc"):
+                                cur = "mobile"
 
-                        # 初期表示（念のため）
-                        try:
-                            pv_tabs.value = preview_mode["value"]
-                        except Exception:
-                            pass
-
-                        def _pv_mode_change(e) -> None:
-                            try:
-                                val = str(getattr(e, "value", "") or "")
-                            except Exception:
-                                val = ""
-                            if val not in ("mobile", "pc"):
-                                val = "mobile"
-                            preview_mode["value"] = val
-                            refresh_preview("pv_mode_change")
-
-                        try:
-                            pv_tabs.on("update:model-value", _pv_mode_change)
-                        except Exception:
-                            try:
-                                pv_tabs.on("update:modelValue", _pv_mode_change)
-                            except Exception:
+                            def set_mode(m: str) -> None:
+                                if m not in ("mobile", "pc"):
+                                    m = "mobile"
+                                preview_mode["value"] = m
                                 try:
-                                    pv_tabs.on("change", _pv_mode_change)
+                                    pv_mode_selector.refresh()
+                                except Exception:
+                                    pass
+                                try:
+                                    preview_ref["refresh"]()
                                 except Exception:
                                     pass
 
-                        # --- 右プレビュー（安全版） ---
-                        # refreshable の例外で DOM が消える事故が起きやすいので、
-                        # ここは「コンテナを clear → 再描画」で安定させる。
-                        preview_host = ui.element("div").classes("w-full")
-                        preview_render_state = {"rendering": False, "pending": False, "pending_reason": ""}
+                            with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
+                                props_mobile = "no-caps unelevated color=primary" if cur == "mobile" else "no-caps outline color=primary"
+                                props_pc = "no-caps unelevated color=primary" if cur == "pc" else "no-caps outline color=primary"
+                                ui.button("スマホ", icon="smartphone", on_click=lambda: set_mode("mobile")).props(props_mobile)
+                                ui.button("PC", icon="desktop_windows", on_click=lambda: set_mode("pc")).props(props_pc)
 
-                        def rebuild_preview(reason: str = "") -> None:
-                            # 連打・多重発火の対策（描画中なら「あとで1回だけ」やり直す）
-                            if preview_render_state.get("rendering"):
-                                preview_render_state["pending"] = True
-                                preview_render_state["pending_reason"] = str(reason or "")
-                                return
-                            preview_render_state["rendering"] = True
-                            try:
-                                preview_host.clear()
-                                mode = str(preview_mode.get("value") or "mobile")
-                                if mode not in ("mobile", "pc"):
-                                    mode = "mobile"
+                        pv_mode_selector()
 
-                                # デザイン上の横幅（SP=720 / PC=1920）
-                                # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
-                                # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
-                                design_w = 720 if mode == "mobile" else 1920
-                                fit_min_w = 720 if mode == "mobile" else 1280
-                                fit_max_w = 720 if mode == "mobile" else 1920
-                                frame_w = 800 if mode == "mobile" else 1200
-                                radius = 22 if mode == "mobile" else 14
+                        @ui.refreshable
+                        def preview_panel():
+                            mode = str(preview_mode.get("value") or "mobile")
+                            if mode not in ("mobile", "pc"):
+                                mode = "mobile"
 
-                                with preview_host:
-                                    with ui.card().style(
-                                        f"width: min(100%, {frame_w}px); height: 2000px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
-                                    ).props("flat bordered"):
-                                        with ui.element("div").props('id="pv-fit"').style(
-                                            "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
-                                        ):
-                                            if not p:
-                                                ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
-                                                return
-                                            pre = _preview_preflight_error()
-                                            if pre:
-                                                ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
-                                                ui.label(pre).classes("cvhb-muted q-pa-md")
-                                                return
+                            # デザイン上の横幅（SP=720 / PC=1920）
+                            # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
+                            # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
+                            design_w = 720 if mode == "mobile" else 1920
+                            fit_min_w = 720 if mode == "mobile" else 1280
+                            fit_max_w = 720 if mode == "mobile" else 1920
+                            frame_w = 800 if mode == "mobile" else 1600
+                            radius = 22 if mode == "mobile" else 14
 
-                                            # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
-                                            try:
-                                                render_preview(p, mode=mode, root_id="pv-root")
-                                            except Exception as e:
-                                                ui.label("プレビューでエラーが発生しました").classes("text-negative q-pa-md")
-                                                ui.label(sanitize_error_text(e)).classes("cvhb-muted q-pa-md")
-                                                traceback.print_exc()
-                                                return
+                            with ui.card().style(
+                                f"width: min(100%, {frame_w}px); height: 2400px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
+                            ).props("flat bordered"):
+                                with ui.element("div").props('id="pv-fit"').style(
+                                    "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
+                                ):
+                                    if not p:
+                                        ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
+                                        return
+                                    try:
+                                        pre = _preview_preflight_error()
+                                        if pre:
+                                            ui.label("プレビューの初期化に失敗しました").classes("text-negative q-pa-md")
+                                            ui.label(pre).classes("cvhb-muted q-pa-md")
+                                            return
 
-                                            # fit-to-width (design: 720px / 1920px)
-                                            try:
-                                                ui.run_javascript(
-                                                    f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
-                                                )
-                                            except Exception:
-                                                pass
-                                            try:
-                                                ui.run_javascript(
-                                                    "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
-                                                )
-                                            except Exception:
-                                                pass
-                                            # optional debug marker (DevTools で有効化したときだけ記録)
-                                            try:
-                                                ui.run_javascript(
-                                                    f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}, reason: {json.dumps(str(reason or ''))}}});"
-                                                )
-                                            except Exception:
-                                                pass
-                            except Exception as e:
-                                # ここまで来たら想定外。最低限の復旧UIを出す
-                                traceback.print_exc()
-                                try:
-                                    preview_host.clear()
-                                    with preview_host:
-                                        with ui.card().props("flat bordered").classes("q-pa-md").style("max-width: 900px; margin: 0 auto;"):
-                                            ui.label("プレビューの描画に失敗しました").classes("text-negative")
-                                            ui.label(sanitize_error_text(e)).classes("cvhb-muted")
-                                except Exception:
-                                    pass
-                            finally:
-                                preview_render_state["rendering"] = False
-                                if preview_render_state.get("pending"):
-                                    preview_render_state["pending"] = False
-                                    pr = preview_render_state.get("pending_reason", "")
-                                    preview_render_state["pending_reason"] = ""
-                                    rebuild_preview(reason=pr)
+                                        # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
+                                        render_preview(p, mode=mode, root_id="pv-root")
 
-                        preview_ref["refresh"] = lambda: rebuild_preview(reason="refresh()")
-                        rebuild_preview(reason="initial")
+                                        # fit-to-width (design: 720px / 1920px)
+                                        try:
+                                            ui.run_javascript(
+                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
+                                            )
+                                        except Exception:
+                                            pass
+                                        try:
+                                            ui.run_javascript(
+                                                "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
+                                            )
+                                        except Exception:
+                                            pass
+                                        # optional debug marker (DevTools で有効化したときだけ記録)
+                                        try:
+                                            ui.run_javascript(
+                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}}});"
+                                            )
+                                        except Exception:
+                                            pass
+                                    except Exception as e:
+                                        ui.label("プレビューでエラーが発生しました").classes("text-negative")
+                                        ui.label(sanitize_error_text(e)).classes("cvhb-muted")
+                                        traceback.print_exc()
+
+                        preview_ref["refresh"] = preview_panel.refresh
+                        preview_panel()
 
 
 
