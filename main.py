@@ -1253,6 +1253,33 @@ def inject_global_styles() -> None:
   border-color: rgba(255,255,255,0.14);
   box-shadow: 0 18px 44px rgba(0,0,0,0.22);
 }
+
+/* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.995） */
+.pv-layout-260218.pv-mode-pc .pv-hero-caption{
+  bottom: 34px;
+  width: min(90%, 1080px);
+  padding: 22px 26px;
+  border-radius: 20px;
+  backdrop-filter: blur(22px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.22));
+  border: 1px solid rgba(255,255,255,0.52);
+  box-shadow: 0 28px 70px rgba(0,0,0,0.14);
+}
+.pv-layout-260218.pv-dark.pv-mode-pc .pv-hero-caption{
+  background: linear-gradient(180deg, rgba(0,0,0,0.46), rgba(0,0,0,0.28));
+  border-color: rgba(255,255,255,0.18);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.26);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title{
+  font-size: clamp(1.9rem, 2.6vw, 3.2rem);
+  letter-spacing: 0.02em;
+  text-shadow: 0 10px 26px rgba(0,0,0,0.18);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub{
+  font-size: 1.05rem;
+  text-shadow: 0 8px 20px rgba(0,0,0,0.16);
+}
+
 .pv-layout-260218 .pv-hero-caption-title{
   font-weight: 1000;
   font-size: clamp(1.4rem, 2.8vw, 2.8rem);
@@ -1454,8 +1481,21 @@ def inject_global_styles() -> None:
   padding: 16px;
 }
 
+.pv-layout-260218 .pv-access-company{
+  font-weight: 900;
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+.pv-layout-260218 .pv-access-meta{
+  flex-wrap: wrap;
+}
+.pv-layout-260218 .pv-access-icon{
+  font-size: 18px;
+  opacity: 0.92;
+}
 
-/* ====== Access: 地図枠（画像風）+ 地図を開くリンク（v0.6.994） ====== */
+
+/* ====== Access: 地図枠（画像風）+ GoogleMap iframe（任意）+ 地図を開くリンク（v0.6.995） ====== */
 .pv-layout-260218 .pv-mapframe{
   margin-top: 12px;
   border-radius: 20px;
@@ -1497,6 +1537,30 @@ def inject_global_styles() -> None:
   text-decoration: none;
   color: inherit;
 }
+
+/* live map (iframe) */
+.pv-layout-260218 .pv-mapframe-live{
+  background: rgba(255,255,255,0.06);
+}
+.pv-layout-260218.pv-dark .pv-mapframe-live{
+  background: rgba(0,0,0,0.20);
+}
+.pv-layout-260218 .pv-map-iframe{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.pv-layout-260218 .pv-mapframe-ui{
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pv-layout-260218 .pv-mapframe-ui .pv-mapframe-open{
+  pointer-events: auto;
+}
+
 .pv-layout-260218 .pv-mapframe-badge{
   position: absolute;
   left: 12px;
@@ -1510,6 +1574,7 @@ def inject_global_styles() -> None:
   border: 1px solid rgba(255,255,255,0.28);
   color: var(--pv-text);
   backdrop-filter: blur(10px);
+  pointer-events: none;
 }
 .pv-layout-260218.pv-dark .pv-mapframe-badge{
   background: rgba(0,0,0,0.32);
@@ -1556,13 +1621,18 @@ def inject_global_styles() -> None:
 }
 .pv-layout-260218 .pv-mapframe-open{
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 12px;
   border-radius: 999px;
+  text-decoration: none;
   background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
   color: #fff;
   font-weight: 900;
   box-shadow: 0 14px 28px rgba(0,0,0,0.22);
 }
+
 .pv-layout-260218 .pv-map-openlink{
   display: inline-flex;
   align-items: center;
@@ -2154,7 +2224,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.994")
+VERSION = read_text_file("VERSION", "0.6.995")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3324,6 +3394,7 @@ def normalize_project(p: dict) -> dict:
 
     access = blocks.setdefault("access", {})
     access.setdefault("map_url", "")
+    access.setdefault("embed_map", True)  # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
     access.setdefault("notes", "（例）〇〇駅から徒歩5分 / 駐車場あり")
 
     contact = blocks.setdefault("contact", {})
@@ -3874,6 +3945,12 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     if not map_url and address:
         map_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
 
+    # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
+    try:
+        map_embed = bool(access.get("embed_map", True))
+    except Exception:
+        map_embed = True
+
     contact = blocks.get("contact", {}) if isinstance(blocks.get("contact"), dict) else {}
     contact_message = _clean(contact.get("message"))
     contact_hours = _clean(contact.get("hours"))
@@ -4079,28 +4156,63 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         ui.label("ACCESS").classes("pv-section-en")
 
                     with ui.element("div").classes("pv-panel pv-panel-glass pv-access-card"):
+                        # 会社情報（アクセスに統合）
+                        ui.label(company_name).classes("pv-access-company")
                         if address:
                             ui.label(address).classes("pv-bodytext")
                         else:
                             ui.label("住所を入力すると、ここに表示されます。").classes("pv-muted")
 
+                        if phone or email:
+                            with ui.row().classes("pv-access-meta items-center q-gutter-md q-mt-sm"):
+                                if phone:
+                                    with ui.row().classes("items-center q-gutter-xs"):
+                                        ui.icon("call").classes("pv-access-icon")
+                                        ui.label(phone).classes("pv-muted")
+                                if email:
+                                    with ui.row().classes("items-center q-gutter-xs"):
+                                        ui.icon("mail").classes("pv-access-icon")
+                                        ui.label(email).classes("pv-muted")
+
                         if access_notes:
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
 
-                        # 地図（住所がある時は「画像風の枠」+「地図を開く」リンクを必ず出す）
+                        # 地図：住所がある時は必ず表示（iframe は任意）
                         if address:
                             _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
-                            with ui.element("a").props(f'href="{_murl}" target="_blank" rel="noopener"').classes("pv-mapframe-link"):
-                                with ui.element("div").classes("pv-mapframe"):
-                                    ui.label("MAP").classes("pv-mapframe-badge")
-                                    ui.icon("place").classes("pv-mapframe-pin")
-                                    with ui.element("div").classes("pv-mapframe-bottom"):
-                                        ui.label(address).classes("pv-mapframe-label")
-                                        ui.label("地図を開く").classes("pv-mapframe-open")
+                            iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
 
-                            with ui.element("a").props(f'href="{_murl}" target="_blank" rel="noopener"').classes("pv-map-openlink"):
+                            if map_embed:
+                                with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
+                                    ui.element("iframe").classes("pv-map-iframe").props(
+                                        f'src="{iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"'
+                                    )
+                                    with ui.element("div").classes("pv-mapframe-ui"):
+                                        ui.label("MAP").classes("pv-mapframe-badge")
+                                        with ui.element("div").classes("pv-mapframe-bottom"):
+                                            ui.label(address).classes("pv-mapframe-label")
+                                            with ui.element("a").props(
+                                                f'href="{_murl}" target="_blank" rel="noopener"'
+                                            ).classes("pv-mapframe-open"):
+                                                ui.label("地図を開く")
+                            else:
+                                with ui.element("a").props(
+                                    f'href="{_murl}" target="_blank" rel="noopener"'
+                                ).classes("pv-mapframe-link"):
+                                    with ui.element("div").classes("pv-mapframe"):
+                                        ui.label("MAP").classes("pv-mapframe-badge")
+                                        ui.icon("place").classes("pv-mapframe-pin")
+                                        with ui.element("div").classes("pv-mapframe-bottom"):
+                                            ui.label(address).classes("pv-mapframe-label")
+                                            ui.label("地図を開く").classes("pv-mapframe-open")
+
+                            # どちらの場合も「地図を開く」を保証
+                            with ui.element("a").props(
+                                f'href="{_murl}" target="_blank" rel="noopener"'
+                            ).classes("pv-map-openlink"):
                                 ui.icon("open_in_new")
                                 ui.label("地図を開く（Googleマップ）")
+
 
                 # CONTACT
                 with ui.element("section").classes("pv-section").props('id="pv-contact"'):
@@ -4126,22 +4238,11 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 "pv-btn pv-btn-primary"
                             )
 
-            # PRE-FOOTER (company mini)
-            with ui.element("section").classes("pv-companybar"):
-                with ui.element("div").classes("pv-companybar-inner"):
-                    with ui.element("div").classes("pv-companybar-left"):
-                        ui.label(company_name).classes("pv-companybar-name")
-                        if address:
-                            ui.label(address).classes("pv-companybar-meta")
-                        if phone:
-                            ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
-                    with ui.element("div").classes("pv-companybar-right"):
-                        ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props(
-                            "no-caps unelevated color=primary"
-                        ).classes("pv-btn pv-btn-primary")
             # LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
             privacy_contact = ""
             try:
+                if address:
+                    privacy_contact += f"\n- 住所: {address}"
                 if phone:
                     privacy_contact += f"\n- 電話: {phone}"
                 if email:
@@ -4151,25 +4252,40 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
             if not privacy_contact:
                 privacy_contact = "\n- 連絡先: このページのお問い合わせ欄をご確認ください。"
 
-            privacy_md = f"""※ これは公開用のたたき台（テンプレート）です。公開前に必ず内容を確認してください。
+            privacy_md = f"""※ これは公開用のたたき台（テンプレート）です。公開前に必ず内容を確認し、必要に応じて専門家へご相談ください。
 
-### 1. 個人情報の利用目的
-{company_name}（以下「当社」）は、お問い合わせ等を通じて取得した個人情報を、以下の目的で利用します。
+## 1. 取得する情報
+{company_name}（以下「当社」）は、お問い合わせ等を通じて、氏名、連絡先（電話番号/メールアドレス）、お問い合わせ内容などの情報を取得することがあります。
+
+## 2. 利用目的
+当社は取得した個人情報を、以下の目的の範囲で利用します。
 
 - お問い合わせへの回答・必要な連絡のため
 - サービス提供・ご案内のため
 - 品質向上・改善のため（必要な範囲）
 
-### 2. 第三者提供
-法令に基づく場合を除き、本人の同意なく第三者に提供しません。
+## 3. 第三者提供
+当社は、法令に基づく場合を除き、ご本人の同意なく個人情報を第三者に提供しません。
 
-### 3. 安全管理
-漏えい等を防止するため、合理的な安全対策を行います。
+## 4. 委託
+当社は、利用目的の達成に必要な範囲で、個人情報の取り扱いを外部事業者に委託することがあります。その場合、適切な委託先を選定し、必要かつ適切な監督を行います。
 
-### 4. 開示・訂正・削除
-ご本人からの請求があった場合、所定の手続きで対応します。
+## 5. Cookie等の利用
+当社サイトでは、利便性向上やアクセス解析等のために Cookie 等の技術を使用する場合があります。ブラウザ設定により Cookie を無効にすることができますが、その場合は一部機能が利用できないことがあります。
 
-### 5. お問い合わせ窓口
+## 6. 安全管理
+当社は、個人情報の漏えい、滅失、毀損等を防止するため、合理的な安全管理措置を講じます。
+
+## 7. 開示・訂正・利用停止等
+ご本人から、個人情報の開示、訂正、追加、削除、利用停止等のご請求があった場合、所定の手続きにより対応します。
+
+## 8. 外部リンク
+当社サイトから外部サイトへリンクする場合があります。リンク先における個人情報の取り扱いについて、当社は責任を負いません。
+
+## 9. 改定
+当社は、必要に応じて本ポリシーの内容を改定することがあります。
+
+## 10. お問い合わせ窓口
 {company_name}{privacy_contact}
 """
 
@@ -4385,16 +4501,7 @@ def render_main(u: User) -> None:
                                                             blocks.clear()
                                                         except Exception:
                                                             pass
-                                                        # テンプレ依存の初期文を確実に入れ直すため、サブキャッチもリセット
-                                                        try:
-                                                            step2["catch_copy"] = ""
-                                                            step2["sub_catch"] = ""
-                                                            step2["primary_cta"] = ""
-                                                            step2["secondary_cta"] = ""
-                                                        except Exception:
-                                                            pass
-
-                                                    update_and_refresh()
+                                                        update_and_refresh()
                                                     industry_selector.refresh()
 
                                                 for opt in INDUSTRY_PRESETS:
@@ -4431,13 +4538,6 @@ def render_main(u: User) -> None:
                                                                 blocks.clear()
                                                             except Exception:
                                                                 pass
-                                                            try:
-                                                                step2["catch_copy"] = ""
-                                                                step2["sub_catch"] = ""
-                                                                step2["primary_cta"] = ""
-                                                                step2["secondary_cta"] = ""
-                                                            except Exception:
-                                                                pass
                                                         update_and_refresh()
                                                         industry_selector.refresh()
 
@@ -4449,13 +4549,6 @@ def render_main(u: User) -> None:
                                                         if next_tpl and next_tpl != prev_tpl:
                                                             try:
                                                                 blocks.clear()
-                                                            except Exception:
-                                                                pass
-                                                            try:
-                                                                step2["catch_copy"] = ""
-                                                                step2["sub_catch"] = ""
-                                                                step2["primary_cta"] = ""
-                                                                step2["secondary_cta"] = ""
                                                             except Exception:
                                                                 pass
                                                         update_and_refresh()
@@ -4580,7 +4673,6 @@ def render_main(u: User) -> None:
                                                 ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                             favicon_editor()
-                                            bind_step2_input("キャッチコピー", "catch_copy")
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
                                             bind_step2_input("住所（地図リンクは自動生成）", "address", hint="住所を入力すると、プレビューの「地図を開く」が使えるようになります。")
@@ -4721,9 +4813,13 @@ def render_main(u: User) -> None:
 
                                                         hero_slides_editor()
 
+                                                        with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
+                                                            ui.button("画像を反映して保存", icon="save", on_click=save_now).props("color=primary unelevated no-caps")
+                                                            ui.label("※アップロード後は、このボタンで保存すると安心です。").classes("cvhb-muted")
+
                                                         # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
                                                         bind_step2_input(
-                                                            "キャッチコピー（ヒーロー）",
+                                                            "キャッチコピー",
                                                             "catch_copy",
                                                             hint="ヒーローの一番大きい文章です。スマホは画像の下、PCは画像に重ねて表示されます。",
                                                         )
@@ -4981,7 +5077,17 @@ def render_main(u: User) -> None:
 
                                                     with ui.tab_panel("access"):
                                                         ui.label("アクセス").classes("text-subtitle1 q-mb-sm")
-                                                        ui.label("※ 住所は「2. 基本情報設定」の住所を使います").classes("cvhb-muted q-mb-sm")
+                                                        ui.label("※ 住所は「2. 基本情報設定」の住所を使います").classes("cvhb-muted q-mb-xs")
+
+                                                        acc = blocks.setdefault("access", {})
+                                                        acc.setdefault("embed_map", True)
+
+                                                        def _on_map_embed(e):
+                                                            update_block("access", "embed_map", bool(e.value))
+
+                                                        ui.switch("Googleマップを表示（任意 / 重くなる場合があります）", value=bool(acc.get("embed_map", True)), on_change=_on_map_embed).props("dense")
+                                                        ui.label("※ OFF にすると軽い『地図風デザイン＋地図を開くリンク』になります。").classes("cvhb-muted q-mb-sm")
+
                                                         bind_block_input("access", "補足（任意）", "notes", textarea=True)
 
                                                     with ui.tab_panel("contact"):
