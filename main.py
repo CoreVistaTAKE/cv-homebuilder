@@ -145,6 +145,89 @@ def _guess_mime(filename: str, default: str = "image/png") -> str:
     except Exception:
         return default
 
+# =========================
+# Image handling (v0.6.994)
+# =========================
+
+# 画像の推奨サイズ（アップロード時の目安）
+IMAGE_MAX_W = 1280
+IMAGE_MAX_H = 720
+IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）"
+
+# 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
+MAX_UPLOAD_BYTES = 10_000_000  # 10MB
+
+
+def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int) -> tuple[bytes, str]:
+    """画像を「最大 max_w×max_h」以内に縮小して返す。
+
+    - アスペクト比は維持（引き伸ばしはしない）
+    - Pillow(PIL) が無い環境では、そのまま返す（＝依存追加なしで安全）
+    """
+    try:
+        if not data:
+            return data, mime
+        if max_w <= 0 or max_h <= 0:
+            return data, mime
+        if not str(mime or "").startswith("image/"):
+            return data, mime
+
+        # Pillow が入っている場合だけ縮小・圧縮を行う
+        try:
+            from PIL import Image  # type: ignore
+            from io import BytesIO
+        except Exception:
+            return data, mime
+
+        im = Image.open(BytesIO(data))
+        try:
+            im.load()
+        except Exception:
+            pass
+
+        w, h = getattr(im, "size", (0, 0))
+        if not w or not h:
+            return data, mime
+
+        # 縮小（大きい時だけ）
+        scale = min(max_w / float(w), max_h / float(h), 1.0)
+        if scale < 1.0:
+            nw = max(1, int(round(w * scale)))
+            nh = max(1, int(round(h * scale)))
+            im = im.resize((nw, nh), Image.LANCZOS)
+
+        # 透過がある場合は PNG、それ以外は JPEG（軽量化）
+        has_alpha = (
+            im.mode in ("RGBA", "LA")
+            or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
+        )
+
+        out = BytesIO()
+        if has_alpha:
+            out_mime = "image/png"
+            try:
+                im.save(out, format="PNG", optimize=True)
+            except Exception:
+                # 万が一PNG保存に失敗したら元を返す
+                return data, mime
+        else:
+            out_mime = "image/jpeg"
+            if im.mode != "RGB":
+                try:
+                    im = im.convert("RGB")
+                except Exception:
+                    pass
+            try:
+                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
+            except Exception:
+                return data, mime
+
+        out_bytes = out.getvalue()
+        return (out_bytes, out_mime) if out_bytes else (data, mime)
+    except Exception:
+        return data, mime
+
+
 
 async def _read_upload_bytes(content) -> bytes:
     """Read bytes from NiceGUI upload content safely (supports sync/async)."""
@@ -173,8 +256,13 @@ async def _read_upload_bytes(content) -> bytes:
         return b""
 
 
-async def _upload_event_to_data_url(e) -> tuple[str, str]:
-    """Convert a NiceGUI upload event into (data_url, filename)."""
+async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
+    """Convert a NiceGUI upload event into (data_url, filename).
+
+    v0.6.994:
+    - 画像は「最大 1280×720」以内に自動縮小（Pillowがある環境のみ）
+    - 極端に大きいファイルは弾く（事故防止）
+    """
     try:
         fname = str(getattr(e, "name", "") or "")
     except Exception:
@@ -187,8 +275,28 @@ async def _upload_event_to_data_url(e) -> tuple[str, str]:
     data = await _read_upload_bytes(content)
     if not data:
         return "", fname
+
+    # safety: too big
+    try:
+        if len(data) > MAX_UPLOAD_BYTES:
+            try:
+                ui.notify("画像ファイルが大きすぎます。1280×720に縮小してから再アップロードしてください。", type="warning")
+            except Exception:
+                pass
+            return "", fname
+    except Exception:
+        pass
+
     if not mime:
         mime = _guess_mime(fname, "image/png")
+
+    # optional resize/compress
+    try:
+        if max_w and max_h:
+            data, mime = _maybe_resize_image_bytes(data, mime, max_w=max_w, max_h=max_h)
+    except Exception:
+        pass
+
     try:
         b64 = base64.b64encode(data).decode("ascii")
     except Exception:
@@ -1347,32 +1455,43 @@ def inject_global_styles() -> None:
 }
 
 
-/* ====== Access: 地図枠（画像風）+ 地図を開くリンク（v0.6.993） ====== */
+/* ====== Access: 地図枠（画像風）+ 地図を開くリンク（v0.6.994） ====== */
 .pv-layout-260218 .pv-mapframe{
   margin-top: 12px;
-  border-radius: 18px;
+  border-radius: 20px;
   overflow: hidden;
   position: relative;
-  height: 250px;
+  height: 260px;
   border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 26px 70px rgba(15,23,42,0.14);
   background:
-    linear-gradient(135deg, var(--pv-primary-weak), rgba(255,255,255,0.18)),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 22px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 22px);
+    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.36), transparent 70%),
+    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.22), transparent 72%),
+    linear-gradient(135deg, var(--pv-primary-weak), rgba(255,255,255,0.14)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.16) 0, rgba(255,255,255,0.16) 2px, transparent 2px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0, rgba(255,255,255,0.14) 2px, transparent 2px, transparent 30px),
+    repeating-linear-gradient(45deg, rgba(15,23,42,0.05) 0, rgba(15,23,42,0.05) 2px, transparent 2px, transparent 78px),
+    repeating-linear-gradient(-45deg, rgba(15,23,42,0.04) 0, rgba(15,23,42,0.04) 2px, transparent 2px, transparent 92px);
 }
 .pv-layout-260218.pv-mode-mobile .pv-mapframe{
-  height: 220px;
+  height: 230px;
 }
 .pv-layout-260218.pv-mode-pc .pv-mapframe{
-  height: 300px;
+  height: 310px;
 }
 .pv-layout-260218.pv-dark .pv-mapframe{
   border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.28);
   background:
-    linear-gradient(135deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18)),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 1px, transparent 1px, transparent 22px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 1px, transparent 1px, transparent 22px);
+    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.10), transparent 70%),
+    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.06), transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,0.06), rgba(0,0,0,0.22)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 30px),
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0, rgba(255,255,255,0.05) 2px, transparent 2px, transparent 78px),
+    repeating-linear-gradient(-45deg, rgba(255,255,255,0.04) 0, rgba(255,255,255,0.04) 2px, transparent 2px, transparent 92px);
 }
+
 .pv-layout-260218 .pv-mapframe-link{
   display: block;
   text-decoration: none;
@@ -1685,6 +1804,14 @@ def inject_global_styles() -> None:
       }
       const slider = document.getElementById(sliderId);
       if(!slider) return;
+
+      // v0.6.994: interval 多重化を抑止（PCが重くなる主因になりがち）
+      try{
+        const old = window.__cvhbHeroIntervals[sliderId];
+        if(old){ window.clearInterval(old); }
+        window.__cvhbHeroIntervals[sliderId] = null;
+      } catch(e){}
+
       const track = slider.querySelector('.pv-hero-track');
       const slides = slider.querySelectorAll('.pv-hero-slide');
       if(!track || !slides || slides.length <= 1) return;
@@ -1709,15 +1836,33 @@ def inject_global_styles() -> None:
         } catch(e){}
       };
 
+      // v0.6.994: addEventListener を使わず「上書き」で重複を防ぐ
       try{
-        dots.forEach((d,i)=> d.addEventListener('click', ()=>{ idx=i; apply(); }));
+        dots.forEach((d,i)=>{ d.onclick = function(){ idx=i; apply(); }; });
       } catch(e){}
 
       const ms = (intervalMs && intervalMs > 0) ? intervalMs : 4500;
-      let timer = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);
-      slider.addEventListener('mouseenter', ()=>{ if(timer){ window.clearInterval(timer); timer=null; } });
-      slider.addEventListener('mouseleave', ()=>{ if(!timer){ timer = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);} });
 
+      const stop = () => {
+        try{
+          const t = window.__cvhbHeroIntervals[sliderId];
+          if(t){ window.clearInterval(t); }
+          window.__cvhbHeroIntervals[sliderId] = null;
+        } catch(e){}
+      };
+
+      const start = () => {
+        stop();
+        try{
+          const t = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);
+          window.__cvhbHeroIntervals[sliderId] = t;
+        } catch(e){}
+      };
+
+      slider.onmouseenter = function(){ stop(); };
+      slider.onmouseleave = function(){ start(); };
+
+      start();
       apply();
     } catch(e){}
   };
@@ -2009,7 +2154,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.95")
+VERSION = read_text_file("VERSION", "0.6.994")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -2463,15 +2608,15 @@ COLOR_MIGRATION = {
 # =========================
 
 HERO_IMAGE_PRESET_URLS = {
-    "A: オフィス": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80",
-    "B: チーム": "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1200&q=80",
-    "C: 街並み": "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1200&q=80",
+    "A: オフィス": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1280&h=720&q=80",
+    "B: チーム": "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1280&h=720&q=80",
+    "C: 街並み": "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1280&h=720&q=80",
 
     # 福祉テンプレ向けの“雰囲気”プリセット（※ 302リダイレクトの Unsplash Source をやめ、直URLで安定化）
-    "D: ひかり": "https://images.unsplash.com/photo-1519751138087-5bf79df62d5b?auto=format&fit=crop&w=1200&q=80",
-    "E: 木": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=80",
-    "F: 手": "https://images.unsplash.com/photo-1749065311606-fa115df115af?auto=format&fit=crop&w=1200&q=80",
-    "G: 家": "https://images.unsplash.com/photo-1632927126546-e3e051a0ba6e?auto=format&fit=crop&w=1200&q=80",
+    "D: ひかり": "https://images.unsplash.com/photo-1519751138087-5bf79df62d5b?auto=format&fit=crop&w=1280&h=720&q=80",
+    "E: 木": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&h=720&q=80",
+    "F: 手": "https://images.unsplash.com/photo-1749065311606-fa115df115af?auto=format&fit=crop&w=1280&h=720&q=80",
+    "G: 家": "https://images.unsplash.com/photo-1632927126546-e3e051a0ba6e?auto=format&fit=crop&w=1280&h=720&q=80",
 }
 HERO_IMAGE_OPTIONS = list(HERO_IMAGE_PRESET_URLS.keys())
 
@@ -3708,7 +3853,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     about_image_url = _clean(
         philosophy.get("image_url"),
         # default: wood/forest vibe
-        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=60",
+        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&h=720&q=60",
     )
 
     services = philosophy.get("services") if isinstance(philosophy.get("services"), dict) else {}
@@ -3716,7 +3861,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     svc_lead = _clean(services.get("lead"))
     svc_image_url = _clean(
         services.get("image_url"),
-        "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1200&q=60",
+        "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1280&h=720&q=60",
     )
     svc_items = _safe_list(services.get("items"))
 
@@ -3994,7 +4139,47 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props(
                             "no-caps unelevated color=primary"
                         ).classes("pv-btn pv-btn-primary")
-            # FOOTER
+            # LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
+            privacy_contact = ""
+            try:
+                if phone:
+                    privacy_contact += f"\n- 電話: {phone}"
+                if email:
+                    privacy_contact += f"\n- メール: {email}"
+            except Exception:
+                privacy_contact = ""
+            if not privacy_contact:
+                privacy_contact = "\n- 連絡先: このページのお問い合わせ欄をご確認ください。"
+
+            privacy_md = f"""※ これは公開用のたたき台（テンプレート）です。公開前に必ず内容を確認してください。
+
+### 1. 個人情報の利用目的
+{company_name}（以下「当社」）は、お問い合わせ等を通じて取得した個人情報を、以下の目的で利用します。
+
+- お問い合わせへの回答・必要な連絡のため
+- サービス提供・ご案内のため
+- 品質向上・改善のため（必要な範囲）
+
+### 2. 第三者提供
+法令に基づく場合を除き、本人の同意なく第三者に提供しません。
+
+### 3. 安全管理
+漏えい等を防止するため、合理的な安全対策を行います。
+
+### 4. 開示・訂正・削除
+ご本人からの請求があった場合、所定の手続きで対応します。
+
+### 5. お問い合わせ窓口
+{company_name}{privacy_contact}
+"""
+
+            with ui.dialog() as privacy_dialog:
+                with ui.card().classes("q-pa-md").style("max-width: 900px; width: calc(100vw - 24px);"):
+                    ui.label("プライバシーポリシー").classes("text-h6 q-mb-sm")
+                    ui.markdown(privacy_md).classes("pv-legal-md")
+                    ui.button("閉じる", on_click=privacy_dialog.close).props("outline no-caps").classes("q-mt-md")
+
+# FOOTER
             with ui.element("footer").classes("pv-footer"):
                 with ui.element("div").classes("pv-footer-grid"):
                     with ui.element("div"):
@@ -4009,6 +4194,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             ("お問い合わせ", "contact"),
                         ]:
                             ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
+                        ui.button("プライバシーポリシー", on_click=privacy_dialog.open).props("flat no-caps").classes("pv-footer-link text-white")
                 ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
 
 def render_main(u: User) -> None:
@@ -4481,7 +4667,7 @@ def render_main(u: User) -> None:
 
                                                         async def _on_upload_slide(e, i: int):
                                                             try:
-                                                                data_url, fname = await _upload_event_to_data_url(e)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 _normalize_hero_slides()
@@ -4516,6 +4702,7 @@ def render_main(u: User) -> None:
                                                             nn = hero["hero_upload_names"]
                                                             ui.label("ヒーロー画像（4枚固定）").classes("text-body1")
                                                             ui.label("スマホ：縦スライド／PC：横スライド").classes("cvhb-muted")
+                                                            ui.label(f"{IMAGE_RECOMMENDED_TEXT}（大きい画像は自動で縮小）").classes("cvhb-muted")
                                                             for _i in range(4):
                                                                 with ui.card().classes("q-pa-sm q-mb-sm").props("flat bordered"):
                                                                     ui.label(f"画像{_i+1}").classes("text-subtitle2")
@@ -4555,10 +4742,11 @@ def render_main(u: User) -> None:
                                                         # 画像（アップロード仕様）
                                                         ui.label("画像（任意）").classes("text-body1 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
+                                                        ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
                                                         async def _on_upload_ph_image(e):
                                                             try:
-                                                                data_url, fname = await _upload_event_to_data_url(e)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 ph["image_url"] = data_url
@@ -4626,10 +4814,11 @@ def render_main(u: User) -> None:
                                                         
                                                         ui.label("業務内容：画像（任意）").classes("text-body2 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
+                                                        ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
                                                         async def _on_upload_svc_image(e):
                                                             try:
-                                                                data_url, fname = await _upload_event_to_data_url(e)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 svc["image_url"] = data_url
