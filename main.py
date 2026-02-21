@@ -279,6 +279,13 @@ def inject_global_styles() -> None:
     width: 100%;
   }
 
+  /* v0.6.992: 左入力欄の見た目（横幅・余白）を微調整 */
+  .cvhb-left-col .q-card { width: 100%; }
+  .cvhb-left-col .q-card.q-pa-md { padding: 14px !important; }
+  .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
+  .cvhb-left-col .q-field__bottom { padding-left: 0; }
+
+
 
   /* 右プレビューはデスクトップ時に追従 */
   @media (min-width: 761px) {
@@ -891,6 +898,7 @@ def inject_global_styles() -> None:
   max-width: 1280px;
   margin: 0 auto;
   padding: 20px 18px 0;
+  font-size: 18px; /* v0.6.992: 本文を大きく（ヘッダー/フッターは除外） */
 }
 
 .pv-layout-260218 .pv-section{
@@ -906,7 +914,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-section-title{
   font-weight: 900;
-  font-size: 1.12rem;
+  font-size: 1.24rem; /* v0.6.992 */
 }
 
 .pv-layout-260218 .pv-section-en{
@@ -970,7 +978,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-h2{
   font-weight: 900;
-  font-size: 1.05rem;
+  font-size: 1.15rem; /* v0.6.992 */
   margin-bottom: 6px;
 }
 
@@ -986,6 +994,35 @@ def inject_global_styles() -> None:
   color: var(--pv-text);
   opacity: 0.84;
   line-height: 1.7;
+}
+
+
+/* ====== About: 要点カード（v0.6.992） ====== */
+.pv-layout-260218 .pv-points{
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pv-layout-260218 .pv-point-card{
+  flex: 1 1 180px;
+  min-width: 160px;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.28));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
+  backdrop-filter: blur(14px);
+  border-left: 6px solid var(--pv-primary);
+}
+.pv-layout-260218.pv-dark .pv-point-card{
+  background: linear-gradient(180deg, rgba(15,18,25,0.58), rgba(15,18,25,0.38));
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.42);
+}
+.pv-layout-260218 .pv-point-text{
+  font-weight: 900;
+  line-height: 1.55;
 }
 
 .pv-layout-260218 .pv-hero-grid{
@@ -1302,6 +1339,90 @@ def inject_global_styles() -> None:
   padding: 16px;
 }
 
+
+/* ====== Access: 地図枠（画像風）+ 地図を開くリンク（v0.6.992） ====== */
+.pv-layout-260218 .pv-mapframe{
+  margin-top: 12px;
+  border-radius: 18px;
+  overflow: hidden;
+  position: relative;
+  height: 230px;
+  border: 1px solid rgba(255,255,255,0.22);
+  background:
+    linear-gradient(135deg, var(--pv-primary-weak), rgba(255,255,255,0.18)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 22px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 22px);
+}
+.pv-layout-260218.pv-mode-mobile .pv-mapframe{
+  height: 200px;
+}
+.pv-layout-260218.pv-mode-pc .pv-mapframe{
+  height: 260px;
+}
+.pv-layout-260218.pv-dark .pv-mapframe{
+  border-color: rgba(255,255,255,0.12);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 1px, transparent 1px, transparent 22px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 1px, transparent 1px, transparent 22px);
+}
+.pv-layout-260218 .pv-mapframe-link{
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.pv-layout-260218 .pv-mapframe-pin{
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -70%);
+  font-size: 44px;
+  color: var(--pv-primary);
+  filter: drop-shadow(0 14px 24px rgba(0,0,0,0.22));
+}
+.pv-layout-260218 .pv-mapframe-bottom{
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pv-layout-260218 .pv-mapframe-label{
+  font-weight: 900;
+  color: var(--pv-text);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.28);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-mapframe-open{
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+  color: #fff;
+  font-weight: 900;
+  box-shadow: 0 14px 28px rgba(0,0,0,0.22);
+}
+.pv-layout-260218 .pv-map-openlink{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-weight: 900;
+  text-decoration: none;
+  color: var(--pv-primary);
+}
+.pv-layout-260218 .pv-map-openlink:hover{
+  text-decoration: underline;
+}
+.pv-layout-260218 .pv-map-openlink .q-icon{
+  font-size: 18px;
+}
+
 .pv-layout-260218 .pv-contact-card{
   padding: 16px;
 }
@@ -1322,6 +1443,7 @@ def inject_global_styles() -> None:
   margin: 0 auto;
   border-radius: 22px;
   padding: 14px 16px;
+  font-size: 18px; /* v0.6.992: 下部バーも読みやすく */
   background: linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.26));
   border: 1px solid rgba(255,255,255,0.22);
   backdrop-filter: blur(14px);
@@ -1342,7 +1464,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-companybar-meta{
   color: var(--pv-muted);
-  font-size: 0.85rem;
+  font-size: 0.95rem; /* v0.6.992 */
   margin-top: 2px;
 }
 
@@ -3688,14 +3810,15 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         if about_body:
                             ui.label(about_body).classes("pv-bodytext")
 
-                        # points (legacy: list)
+                        # points (cards)
                         if about_points:
-                            with ui.element("ul").classes("pv-bullets"):
+                            with ui.element("div").classes("pv-points"):
                                 for pt in about_points:
                                     pt = _clean(pt)
-                                    if pt:
-                                        with ui.element("li"):
-                                            ui.label(pt)
+                                    if not pt:
+                                        continue
+                                    with ui.element("div").classes("pv-point-card"):
+                                        ui.label(pt).classes("pv-point-text")
 
                     # image
                     if about_image_url:
@@ -3773,13 +3896,22 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             ui.label(address).classes("pv-bodytext")
                         else:
                             ui.label("住所を入力すると、ここに表示されます。").classes("pv-muted")
+
                         if access_notes:
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
 
-                        if map_url and address:
-                            ui.button("Googleマップで見る").props(
-                                f'no-caps outline color=primary type=a href="{map_url}" target="_blank"'
-                            ).classes("pv-btn pv-btn-secondary q-mt-sm")
+                        # 地図（住所がある時は「画像風の枠」+「地図を開く」リンクを必ず出す）
+                        if address and map_url:
+                            with ui.element("a").props(f'href="{map_url}" target="_blank" rel="noopener"').classes("pv-mapframe-link"):
+                                with ui.element("div").classes("pv-mapframe"):
+                                    ui.icon("place").classes("pv-mapframe-pin")
+                                    with ui.element("div").classes("pv-mapframe-bottom"):
+                                        ui.label(address).classes("pv-mapframe-label")
+                                        ui.label("地図を開く").classes("pv-mapframe-open")
+
+                            with ui.element("a").props(f'href="{map_url}" target="_blank" rel="noopener"').classes("pv-map-openlink"):
+                                ui.icon("open_in_new")
+                                ui.label("地図を開く（Googleマップ）")
 
                 # CONTACT
                 with ui.element("section").classes("pv-section").props('id="pv-contact"'):
@@ -3818,25 +3950,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props(
                             "no-caps unelevated color=primary"
                         ).classes("pv-btn pv-btn-primary")
-
-            # MAPSHOT (only if address is set)
-            if address:
-                with ui.element("section").classes("pv-mapshot"):
-                    with ui.element("div").classes("pv-mapshot-inner"):
-                        with ui.element("div").classes("pv-panel pv-panel-glass pv-mapshot-card"):
-                            with ui.row().classes("items-center justify-between pv-mapshot-head"):
-                                ui.label("地図").classes("pv-mapshot-label")
-                                if map_url:
-                                    ui.button("Googleマップで見る").props(
-                                        f'no-caps outline color=primary type=a href="{map_url}" target="_blank"'
-                                    ).classes("pv-btn pv-btn-secondary")
-                            if map_url:
-                                with ui.element("a").props(f'href="{map_url}" target="_blank"').classes("pv-mapshot-img-link"):
-                                    with ui.element("div").classes("pv-mapshot-img"):
-                                        ui.icon("place").classes("pv-mapshot-pin")
-                                        ui.label("地図を開く").classes("pv-mapshot-open")
-                            ui.label(address).classes("pv-mapshot-address")
-
             # FOOTER
             with ui.element("footer").classes("pv-footer"):
                 with ui.element("div").classes("pv-footer-grid"):
