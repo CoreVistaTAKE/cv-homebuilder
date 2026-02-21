@@ -145,178 +145,12 @@ def _guess_mime(filename: str, default: str = "image/png") -> str:
     except Exception:
         return default
 
-# =========================
-# Image handling (v0.6.994)
-# =========================
-
-# 画像の推奨サイズ（アップロード時の目安）
-IMAGE_MAX_W = 1280
-IMAGE_MAX_H = 720
-IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動で16:9にカットして保存"
-
-# 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
-MAX_UPLOAD_BYTES = 10_000_000  # 10MB
-
-
-def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int) -> tuple[bytes, str]:
-    """画像を target(max_w×max_h) に「16:9でセンタークロップ + リサイズ」して返す（v0.6.996）。
-
-    目的:
-    - 画像の保存/表示の比率を 1280×720（16:9）に統一したい
-    - 元画像が縦長/横長でも、できるだけ残しつつ中心を基準にカットする
-
-    仕様:
-    - Pillow(PIL) が無い環境では元データを返す（安全優先）
-    - 画像は EXIF の回転を補正してから処理する
-    - 出力は: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
-    """
-    try:
-        if not data:
-            return data, mime
-        if max_w <= 0 or max_h <= 0:
-            return data, mime
-        if not str(mime or "").startswith("image/"):
-            return data, mime
-
-        # Pillow が入っている場合だけ加工する（依存が無い環境でも落ちない）
-        try:
-            from PIL import Image, ImageOps  # type: ignore
-            from io import BytesIO
-        except Exception:
-            return data, mime
-
-        im = Image.open(BytesIO(data))
-        try:
-            im.load()
-        except Exception:
-            pass
-
-        # EXIF の回転を補正（スマホ写真が横倒しになる事故を防ぐ）
-        try:
-            im = ImageOps.exif_transpose(im)
-        except Exception:
-            pass
-
-        w, h = getattr(im, "size", (0, 0))
-        if not w or not h:
-            return data, mime
-
-        target_w = int(max_w)
-        target_h = int(max_h)
-        if target_w <= 0 or target_h <= 0:
-            return data, mime
-
-        target_ratio = target_w / float(target_h)
-        src_ratio = w / float(h)
-
-        # --- センタークロップで 16:9 に寄せる（できるだけ残す） ---
-        # 縦横どちらが大きいかをベースにして、はみ出る分だけをカット
-        try:
-            if src_ratio > target_ratio:
-                # 横長 → 左右をカット
-                new_w = max(1, int(round(h * target_ratio)))
-                left = int(round((w - new_w) / 2.0))
-                im = im.crop((left, 0, left + new_w, h))
-            elif src_ratio < target_ratio:
-                # 縦長 → 上下をカット
-                new_h = max(1, int(round(w / target_ratio)))
-                top = int(round((h - new_h) / 2.0))
-                im = im.crop((0, top, w, top + new_h))
-        except Exception:
-            # crop に失敗しても元のまま続行（落ちない方が大事）
-            pass
-
-        # --- 1280×720 にリサイズ（小さければ拡大もする） ---
-        try:
-            im = im.resize((target_w, target_h), Image.LANCZOS)
-        except Exception:
-            try:
-                im = im.resize((target_w, target_h))
-            except Exception:
-                pass
-
-        # 透過がある場合は PNG、それ以外は JPEG（軽量化）
-        has_alpha = (
-            im.mode in ("RGBA", "LA")
-            or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
-        )
-
-        from io import BytesIO  # local import（PILがあるときだけ到達）
-        out = BytesIO()
-        if has_alpha:
-            out_mime = "image/png"
-            try:
-                im.save(out, format="PNG", optimize=True)
-            except Exception:
-                return data, mime
-        else:
-            out_mime = "image/jpeg"
-            if im.mode != "RGB":
-                try:
-                    im = im.convert("RGB")
-                except Exception:
-                    pass
-            try:
-                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
-            except Exception:
-                return data, mime
-
-        out_bytes = out.getvalue()
-        return (out_bytes, out_mime) if out_bytes else (data, mime)
-    except Exception:
-        return data, mime
-
-
 
 async def _read_upload_bytes(content) -> bytes:
-    """Read bytes from NiceGUI upload content safely (supports sync/async).
-
-    v0.6.998:
-    - ui.upload の content は環境により UploadFile / BufferedReader 等が混在します。
-    - on_upload のタイミングによっては async read/seek 中に content が閉じられて
-      0バイトになることがあるため、まずは content.file を「同期読み込み」で試します。
-    - それでもダメなら content.read()（sync/async）へフォールバックします。
-    """
+    """Read bytes from NiceGUI upload content safely (supports sync/async)."""
     if content is None:
         return b""
-
-    # すでに bytes の場合
-    if isinstance(content, (bytes, bytearray, memoryview)):
-        return bytes(content)
-
-    # 1) Prefer underlying file object (sync) to avoid async timing issues
-    try:
-        fobj = getattr(content, "file", None)
-    except Exception:
-        fobj = None
-
-    if fobj is not None and hasattr(fobj, "read"):
-        try:
-            if hasattr(fobj, "seek"):
-                try:
-                    fobj.seek(0)
-                except Exception:
-                    pass
-            data = fobj.read()
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-        except Exception:
-            pass
-
-    # 2) Rewind content itself (sync/async)
-    try:
-        seek_fn = getattr(content, "seek", None)
-        if callable(seek_fn):
-            try:
-                r = seek_fn(0)
-                if inspect.isawaitable(r):
-                    await r
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # 3) Read via content.read (sync/async)
+    # Starlette UploadFile has async .read(); sometimes we may get bytes directly.
     try:
         read_fn = getattr(content, "read", None)
     except Exception:
@@ -327,214 +161,20 @@ async def _read_upload_bytes(content) -> bytes:
             data = read_fn()
             if inspect.isawaitable(data):
                 data = await data
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-    except Exception:
-        pass
-
-    # 4) Last resort: try bytes()
-    try:
-        b = bytes(content)
-        return b if b else b""
-    except Exception:
-        return b""
-
-
-
-
-
-
-def _unwrap_upload_event(e):
-    """ui.upload のイベントが list/tuple/dict でも壊れないように正規化します。"""
-    if e is None:
-        return None
-    try:
-        if isinstance(e, (list, tuple)) and len(e) > 0:
-            return e[0]
-    except Exception:
-        pass
-    return e
-
-
-def _ev_get(e, key: str, default=None):
-    """イベントが dict / オブジェクトどちらでも値を取れるようにします。"""
-    if e is None:
-        return default
-    try:
-        if isinstance(e, dict):
-            return e.get(key, default)
-    except Exception:
-        pass
-    try:
-        return getattr(e, key, default)
-    except Exception:
-        return default
-
-
-def _ev_get_args(e) -> Optional[dict]:
-    """NiceGUI のイベントが args(dict) を持つ場合の救済。"""
-    try:
-        if isinstance(e, dict):
-            a = e.get("args")
-            return a if isinstance(a, dict) else None
-    except Exception:
-        pass
-    try:
-        a = getattr(e, "args", None)
-        return a if isinstance(a, dict) else None
-    except Exception:
-        return None
-
-
-def _extract_upload_fields(e) -> tuple[object, str, str]:
-    """upload event から (content, filename, mime) を取り出します。"""
-    e0 = _unwrap_upload_event(e)
-    args = _ev_get_args(e0) or {}
-    content = _ev_get(e0, "content", None)
-    if content is None:
-        content = args.get("content")
-    fname = _ev_get(e0, "name", "") or args.get("name", "") or ""
-    mime = _ev_get(e0, "type", "") or args.get("type", "") or ""
-    return content, str(fname), str(mime)
-
-
-def _read_upload_bytes_sync(content) -> bytes:
-    """同期版: ui.upload の content から bytes を取り出します。
-
-    画像アップロード不具合の根本対策:
-    - 環境によって on_upload が async を await しない場合があり、content が閉じられた後に
-      coroutine が走ると 0バイトになりがちです。
-    - そこで「同期で即読み」して、閉じられる前にバイト列を確保します。
-    """
-    if content is None:
-        return b""
-
-    if isinstance(content, (bytes, bytearray, memoryview)):
-        return bytes(content)
-
-    # data URL が来るケースも吸収（念のため）
-    try:
-        if isinstance(content, str) and content.startswith("data:") and "base64," in content:
-            b64 = content.split("base64,", 1)[1]
-            return base64.b64decode(b64)
-    except Exception:
-        pass
-
-    # dict の場合（まれ）
-    try:
-        if isinstance(content, dict):
-            if "data" in content and isinstance(content["data"], (bytes, bytearray, memoryview)):
-                return bytes(content["data"])
-            if "file" in content:
-                content = content["file"]
-    except Exception:
-        pass
-
-    # 1) Prefer underlying file object (UploadFile.file 等)
-    fobj = None
-    try:
-        fobj = getattr(content, "file", None)
-    except Exception:
-        fobj = None
-
-    if fobj is not None and hasattr(fobj, "read"):
-        try:
-            if hasattr(fobj, "seek"):
-                try:
-                    fobj.seek(0)
-                except Exception:
-                    pass
-            data = fobj.read()
-            if isinstance(data, str):
-                data = data.encode("utf-8", errors="ignore")
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-        except Exception:
-            pass
-
-    # 2) Try content.seek/read
-    try:
-        if hasattr(content, "seek"):
-            try:
-                content.seek(0)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    try:
-        if hasattr(content, "read"):
-            data = content.read()
-            if isinstance(data, str):
-                data = data.encode("utf-8", errors="ignore")
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-    except Exception:
-        pass
-
-    # 3) Last resort
-    try:
-        b = bytes(content)
-        return b if b else b""
+        else:
+            data = content
+        if data is None:
+            return b""
+        if isinstance(data, (bytes, bytearray)):
+            return bytes(data)
+        # last resort: try bytes()
+        return bytes(data)
     except Exception:
         return b""
 
 
-def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
-    """同期版: upload event → (data_url, filename)
-
-    NOTE:
-    - on_upload が async を await しない環境でも確実に動くことを最優先にしています。
-    """
-    content, fname, mime = _extract_upload_fields(e)
-    data = _read_upload_bytes_sync(content)
-
-    if not data:
-        try:
-            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
-        except Exception:
-            pass
-        return "", fname
-
-    try:
-        if len(data) > MAX_UPLOAD_BYTES:
-            try:
-                ui.notify("画像ファイルが大きすぎます。サイズを小さくして再アップロードしてください。", type="warning")
-            except Exception:
-                pass
-            return "", fname
-    except Exception:
-        pass
-
-    if not mime:
-        mime = _guess_mime(fname, "image/png")
-
-    try:
-        if max_w and max_h:
-            data, mime = _maybe_resize_image_bytes(data, mime, max_w=max_w, max_h=max_h)
-    except Exception:
-        pass
-
-    try:
-        b64 = base64.b64encode(data).decode("ascii")
-    except Exception:
-        b64 = ""
-
-    if not b64:
-        return "", fname
-
-    return f"data:{mime};base64,{b64}", fname
-
-
-
-
-async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
-    """Convert a NiceGUI upload event into (data_url, filename).
-
-    v0.6.996:
-    - 画像は「1280×720（16:9）」に自動でセンターカットして保存（Pillowがある環境のみ）
-    - 極端に大きいファイルは弾く（事故防止）
-    """
+async def _upload_event_to_data_url(e) -> tuple[str, str]:
+    """Convert a NiceGUI upload event into (data_url, filename)."""
     try:
         fname = str(getattr(e, "name", "") or "")
     except Exception:
@@ -546,33 +186,9 @@ async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tup
     content = getattr(e, "content", None)
     data = await _read_upload_bytes(content)
     if not data:
-        try:
-            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
-        except Exception:
-            pass
         return "", fname
-
-    # safety: too big
-    try:
-        if len(data) > MAX_UPLOAD_BYTES:
-            try:
-                ui.notify("画像ファイルが大きすぎます。1280×720に縮小してから再アップロードしてください。", type="warning")
-            except Exception:
-                pass
-            return "", fname
-    except Exception:
-        pass
-
     if not mime:
         mime = _guess_mime(fname, "image/png")
-
-    # optional resize/compress
-    try:
-        if max_w and max_h:
-            data, mime = _maybe_resize_image_bytes(data, mime, max_w=max_w, max_h=max_h)
-    except Exception:
-        pass
-
     try:
         b64 = base64.b64encode(data).decode("ascii")
     except Exception:
@@ -638,16 +254,16 @@ def inject_global_styles() -> None:
     min-height: calc(100vh - 64px);
   }
   .cvhb-container {
-    width: 100%;
-    max-width: none;
-    margin: 0;
+    max-width: 2000px;
+    margin-left: 0;
+    margin-right: auto;
     padding: 16px;
   }
 
   /* ====== Split layout (PC builder) ====== */
   .cvhb-split {
     display: grid;
-    grid-template-columns: 520px minmax(0, 1fr);
+    grid-template-columns: minmax(360px, 620px) minmax(360px, 1fr);
     gap: 16px;
     align-items: start;
   }
@@ -655,21 +271,6 @@ def inject_global_styles() -> None:
   .cvhb-right-col {
     width: 100%;
   }
-
-  /* 左側フォームはカード幅いっぱいを使う（左寄せで細く見えるのを防ぐ） */
-  .cvhb-left-col .q-field,
-  .cvhb-left-col .q-input,
-  .cvhb-left-col .q-textarea {
-    width: 100%;
-  }
-
-  /* v0.6.992: 左入力欄の見た目（横幅・余白）を微調整 */
-  .cvhb-left-col .q-card { width: 100%; }
-  .cvhb-left-col .q-card.q-pa-md { padding: 14px !important; }
-  .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
-  .cvhb-left-col .q-field__bottom { padding-left: 0; }
-
-
 
   /* 右プレビューはデスクトップ時に追従 */
   @media (min-width: 761px) {
@@ -1055,7 +656,7 @@ def inject_global_styles() -> None:
 
         /* News / FAQ lists */
         .pv-news-item, .pv-faq-item {
-          padding: 12px 6px;
+          padding: 10px 0;
           border-bottom: 1px solid var(--pv-line);
         }
         .pv-news-item:last-child, .pv-faq-item:last-child { border-bottom: none; }
@@ -1255,34 +856,10 @@ def inject_global_styles() -> None:
   color: var(--pv-text) !important;
 }
 
-/* PCヘッダー：デスクトップナビ（PCモードだけ表示） */
-.pv-layout-260218 .pv-desktop-nav{
-  display: none;
-  gap: 6px;
-  align-items: center;
-  flex: 0 0 auto;
-}
-.pv-layout-260218.pv-mode-pc .pv-desktop-nav{
-  display: flex;
-}
-.pv-layout-260218 .pv-desktop-nav .q-btn{
-  font-weight: 800;
-  border-radius: 999px;
-  padding: 6px 10px;
-  color: var(--pv-text) !important;
-}
-.pv-layout-260218 .pv-desktop-nav .q-btn:hover{
-  background: rgba(255,255,255,0.22);
-}
-.pv-layout-260218.pv-dark .pv-desktop-nav .q-btn:hover{
-  background: rgba(255,255,255,0.08);
-}
-
 .pv-layout-260218 .pv-main{
   max-width: 1280px;
   margin: 0 auto;
   padding: 20px 18px 0;
-  font-size: 18px; /* v0.6.992: 本文を大きく（ヘッダー/フッターは除外） */
 }
 
 .pv-layout-260218 .pv-section{
@@ -1298,7 +875,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-section-title{
   font-weight: 900;
-  font-size: 1.24rem; /* v0.6.992 */
+  font-size: 1.12rem;
 }
 
 .pv-layout-260218 .pv-section-en{
@@ -1362,7 +939,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-h2{
   font-weight: 900;
-  font-size: 1.15rem; /* v0.6.992 */
+  font-size: 1.05rem;
   margin-bottom: 6px;
 }
 
@@ -1378,36 +955,6 @@ def inject_global_styles() -> None:
   color: var(--pv-text);
   opacity: 0.84;
   line-height: 1.7;
-}
-
-
-/* ====== About: 要点カード（v0.6.992） ====== */
-.pv-layout-260218 .pv-points{
-  margin-top: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.pv-layout-260218 .pv-point-card{
-  flex: 1 1 180px;
-  min-width: 160px;
-  padding: 12px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.22);
-  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.18);
-  background: linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.28));
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
-  backdrop-filter: blur(14px);
-  border-left: 6px solid var(--pv-primary);
-}
-.pv-layout-260218.pv-dark .pv-point-card{
-  background: linear-gradient(180deg, rgba(15,18,25,0.58), rgba(15,18,25,0.38));
-  border-color: rgba(255,255,255,0.12);
-  box-shadow: 0 18px 44px rgba(0,0,0,0.42);
-}
-.pv-layout-260218 .pv-point-text{
-  font-weight: 900;
-  line-height: 1.55;
 }
 
 .pv-layout-260218 .pv-hero-grid{
@@ -1465,145 +1012,6 @@ def inject_global_styles() -> None:
 .pv-layout-260218.pv-dark .pv-hero-slider{
   border-color: rgba(255,255,255,0.12);
   background: rgba(0,0,0,0.14);
-}
-
-/* ===== Hero: フル幅 & 大きく（nagomi-support.com のTOPみたいに） ===== */
-.pv-layout-260218 .pv-hero-wide{
-  position: relative;
-  margin: 0;
-}
-.pv-layout-260218 .pv-hero-slider-wide{
-  border-radius: 0;
-  border: none;
-  box-shadow: none;
-  background: rgba(255,255,255,0.10);
-}
-.pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
-  height: 380px;
-}
-.pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
-  height: 680px;
-}
-.pv-layout-260218.pv-dark .pv-hero-slider-wide{
-  background: rgba(0,0,0,0.16);
-}
-
-.pv-layout-260218 .pv-hero-caption{
-  position: absolute;
-  left: 50%;
-  bottom: 26px;
-  transform: translateX(-50%);
-  display: inline-block;
-  width: fit-content;
-  max-width: min(92%, 980px);
-  padding: 18px 22px;
-  border-radius: 18px;
-  text-align: center;
-  backdrop-filter: blur(18px);
-  background: rgba(255,255,255,0.55);
-  border: 1px solid rgba(255,255,255,0.42);
-  box-shadow: 0 22px 54px rgba(0,0,0,0.12);
-}
-
-/* SP: キャッチは画像に重ねず下へ（画像の下で目立たせる） */
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption{
-  position: static;
-  left: auto;
-  bottom: auto;
-  transform: none;
-  width: min(92%, 680px);
-  margin: 14px auto 0;
-  padding: 16px 18px;
-  border-radius: 16px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(12px);
-  background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.72));
-  border: 1px solid rgba(0,0,0,0.06);
-  border-top: 5px solid var(--pv-primary);
-  box-shadow: 0 20px 52px rgba(0,0,0,0.14);
-}
-.pv-layout-260218.pv-dark.pv-mode-mobile .pv-hero-caption{
-  background: rgba(0,0,0,0.55);
-  border-color: rgba(255,255,255,0.14);
-}
-
-.pv-layout-260218.pv-dark .pv-hero-caption{
-  background: rgba(0,0,0,0.45);
-  border-color: rgba(255,255,255,0.14);
-  box-shadow: 0 18px 44px rgba(0,0,0,0.22);
-}
-
-/* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.996） */
-.pv-layout-260218.pv-mode-pc .pv-hero-caption{
-  bottom: 42px;
-  display: inline-block;
-  width: fit-content;
-  max-width: min(92%, 1120px);
-  padding: 26px 32px;
-  border-radius: 26px;
-  text-align: center;
-  backdrop-filter: blur(22px);
-  background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
-  border: 1px solid rgba(255,255,255,0.56);
-  box-shadow: 0 40px 120px rgba(0,0,0,0.16);
-}
-.pv-layout-260218.pv-dark.pv-mode-pc .pv-hero-caption{
-  background: linear-gradient(180deg, rgba(0,0,0,0.46), rgba(0,0,0,0.28));
-  border-color: rgba(255,255,255,0.18);
-  box-shadow: 0 24px 64px rgba(0,0,0,0.26);
-}
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-title{
-  font-size: clamp(2.25rem, 3.2vw, 3.9rem);
-  letter-spacing: 0.02em;
-  text-shadow: 0 12px 30px rgba(0,0,0,0.18);
-}
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub{
-  font-size: clamp(1.18rem, 1.45vw, 1.45rem);
-  text-shadow: 0 10px 24px rgba(0,0,0,0.16);
-}
-/* ===== Hero: キャッチ/サブキャッチ 文字サイズ（大/中/小） ===== */
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-l{
-  font-size: clamp(2.6rem, 3.6vw, 4.4rem);
-}
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-s{
-  font-size: clamp(2.0rem, 2.8vw, 3.5rem);
-}
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-l{
-  font-size: clamp(1.35rem, 1.65vw, 1.75rem);
-}
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-s{
-  font-size: clamp(1.02rem, 1.25vw, 1.25rem);
-}
-
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-l{ font-size: 2.05rem; }
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-s{ font-size: 1.55rem; }
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{ font-size: 1.02rem; }
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-l{ font-size: 1.15rem; }
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-s{ font-size: 0.95rem; }
-
-
-.pv-layout-260218 .pv-hero-caption-title{
-  font-weight: 1000;
-  font-size: clamp(1.4rem, 2.8vw, 2.8rem);
-  line-height: 1.15;
-}
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
-  font-size: 1.75rem;
-}
-
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title,
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{
-  width: 100%;
-  text-align: center;
-}
-.pv-layout-260218 .pv-hero-caption-sub{
-  margin-top: 8px;
-  line-height: 1.7;
-  color: var(--pv-muted);
 }
 
 .pv-layout-260218 .pv-hero-track{
@@ -1668,12 +1076,6 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-news-title{
   font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pv-layout-260218 .pv-news-empty{
-  opacity: 0;
 }
 
 .pv-layout-260218 .pv-news-arrow{
@@ -1793,174 +1195,6 @@ def inject_global_styles() -> None:
   padding: 16px;
 }
 
-.pv-layout-260218 .pv-access-company{
-  font-weight: 900;
-  font-size: 1.05rem;
-  margin-bottom: 6px;
-}
-.pv-layout-260218 .pv-access-meta{
-  flex-wrap: wrap;
-}
-.pv-layout-260218 .pv-access-icon{
-  font-size: 18px;
-  opacity: 0.92;
-}
-
-
-/* ====== Access: 地図枠（画像風）+ GoogleMap iframe（任意）+ 地図を開くリンク（v0.6.995） ====== */
-.pv-layout-260218 .pv-mapframe{
-  margin-top: 12px;
-  border-radius: 20px;
-  overflow: hidden;
-  position: relative;
-  height: 260px;
-  border: 1px solid rgba(255,255,255,0.22);
-  box-shadow: 0 26px 70px rgba(15,23,42,0.14);
-  background:
-    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.36), transparent 70%),
-    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.22), transparent 72%),
-    linear-gradient(135deg, var(--pv-primary-weak), rgba(255,255,255,0.14)),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.16) 0, rgba(255,255,255,0.16) 2px, transparent 2px, transparent 26px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0, rgba(255,255,255,0.14) 2px, transparent 2px, transparent 30px),
-    repeating-linear-gradient(45deg, rgba(15,23,42,0.05) 0, rgba(15,23,42,0.05) 2px, transparent 2px, transparent 78px),
-    repeating-linear-gradient(-45deg, rgba(15,23,42,0.04) 0, rgba(15,23,42,0.04) 2px, transparent 2px, transparent 92px);
-}
-.pv-layout-260218.pv-mode-mobile .pv-mapframe{
-  height: 230px;
-}
-.pv-layout-260218.pv-mode-pc .pv-mapframe{
-  height: 310px;
-}
-.pv-layout-260218.pv-dark .pv-mapframe{
-  border-color: rgba(255,255,255,0.12);
-  box-shadow: 0 26px 70px rgba(0,0,0,0.28);
-  background:
-    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.10), transparent 70%),
-    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.06), transparent 72%),
-    linear-gradient(135deg, rgba(255,255,255,0.06), rgba(0,0,0,0.22)),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 26px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 30px),
-    repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0, rgba(255,255,255,0.05) 2px, transparent 2px, transparent 78px),
-    repeating-linear-gradient(-45deg, rgba(255,255,255,0.04) 0, rgba(255,255,255,0.04) 2px, transparent 2px, transparent 92px);
-}
-
-.pv-layout-260218 .pv-mapframe-link{
-  display: block;
-  text-decoration: none;
-  color: inherit;
-}
-
-/* live map (iframe) */
-.pv-layout-260218 .pv-mapframe-live{
-  background: rgba(255,255,255,0.06);
-}
-.pv-layout-260218.pv-dark .pv-mapframe-live{
-  background: rgba(0,0,0,0.20);
-}
-.pv-layout-260218 .pv-map-iframe{
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-.pv-layout-260218 .pv-mapframe-ui{
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.pv-layout-260218 .pv-mapframe-ui .pv-mapframe-open{
-  pointer-events: auto;
-}
-
-.pv-layout-260218 .pv-mapframe-badge{
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-weight: 900;
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  background: rgba(255,255,255,0.66);
-  border: 1px solid rgba(255,255,255,0.28);
-  color: var(--pv-text);
-  backdrop-filter: blur(10px);
-  pointer-events: none;
-}
-.pv-layout-260218.pv-dark .pv-mapframe-badge{
-  background: rgba(0,0,0,0.32);
-  border-color: rgba(255,255,255,0.12);
-  color: rgba(255,255,255,0.90);
-}
-
-.pv-layout-260218 .pv-mapframe-pin{
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  transform: translate(-50%, -70%);
-  font-size: 44px;
-  color: var(--pv-primary);
-  filter: drop-shadow(0 14px 24px rgba(0,0,0,0.22));
-}
-.pv-layout-260218 .pv-mapframe-bottom{
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.18);
-  border: 1px solid rgba(255,255,255,0.20);
-  backdrop-filter: blur(10px);
-}
-.pv-layout-260218.pv-dark .pv-mapframe-bottom{
-  background: rgba(0,0,0,0.22);
-  border-color: rgba(255,255,255,0.12);
-}
-
-.pv-layout-260218 .pv-mapframe-label{
-  font-weight: 900;
-  color: var(--pv-text);
-  text-shadow: 0 2px 12px rgba(0,0,0,0.28);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pv-layout-260218 .pv-mapframe-open{
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  text-decoration: none;
-  background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
-  color: #fff;
-  font-weight: 900;
-  box-shadow: 0 14px 28px rgba(0,0,0,0.22);
-}
-
-.pv-layout-260218 .pv-map-openlink{
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-  font-weight: 900;
-  text-decoration: none;
-  color: var(--pv-primary);
-}
-.pv-layout-260218 .pv-map-openlink:hover{
-  text-decoration: underline;
-}
-.pv-layout-260218 .pv-map-openlink .q-icon{
-  font-size: 18px;
-}
-
 .pv-layout-260218 .pv-contact-card{
   padding: 16px;
 }
@@ -1981,7 +1215,6 @@ def inject_global_styles() -> None:
   margin: 0 auto;
   border-radius: 22px;
   padding: 14px 16px;
-  font-size: 18px; /* v0.6.992: 下部バーも読みやすく */
   background: linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.26));
   border: 1px solid rgba(255,255,255,0.22);
   backdrop-filter: blur(14px);
@@ -2002,7 +1235,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-companybar-meta{
   color: var(--pv-muted);
-  font-size: 0.95rem; /* v0.6.992 */
+  font-size: 0.85rem;
   margin-top: 2px;
 }
 
@@ -2166,26 +1399,6 @@ def inject_global_styles() -> None:
   opacity: 0.62;
   font-size: 0.8rem;
 }
-/* ====== Legal (Privacy Policy) ====== */
-.pv-legal-title{
-  font-weight: 900;
-  font-size: 1.05rem;
-}
-.pv-legal-md{
-  font-size: 0.98rem;
-  line-height: 1.85;
-}
-.pv-legal-md h1,
-.pv-legal-md h2,
-.pv-legal-md h3{
-  margin: 14px 0 8px;
-  font-weight: 900;
-}
-.pv-legal-md h2{ font-size: 1.05rem; }
-.pv-legal-md h3{ font-size: 1.0rem; }
-.pv-legal-md ul{ padding-left: 1.2em; }
-.pv-legal-md li{ margin: 6px 0; }
-
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
 </style>
@@ -2206,14 +1419,6 @@ def inject_global_styles() -> None:
       }
       const slider = document.getElementById(sliderId);
       if(!slider) return;
-
-      // v0.6.994: interval 多重化を抑止（PCが重くなる主因になりがち）
-      try{
-        const old = window.__cvhbHeroIntervals[sliderId];
-        if(old){ window.clearInterval(old); }
-        window.__cvhbHeroIntervals[sliderId] = null;
-      } catch(e){}
-
       const track = slider.querySelector('.pv-hero-track');
       const slides = slider.querySelectorAll('.pv-hero-slide');
       if(!track || !slides || slides.length <= 1) return;
@@ -2238,33 +1443,15 @@ def inject_global_styles() -> None:
         } catch(e){}
       };
 
-      // v0.6.994: addEventListener を使わず「上書き」で重複を防ぐ
       try{
-        dots.forEach((d,i)=>{ d.onclick = function(){ idx=i; apply(); }; });
+        dots.forEach((d,i)=> d.addEventListener('click', ()=>{ idx=i; apply(); }));
       } catch(e){}
 
       const ms = (intervalMs && intervalMs > 0) ? intervalMs : 4500;
+      let timer = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);
+      slider.addEventListener('mouseenter', ()=>{ if(timer){ window.clearInterval(timer); timer=null; } });
+      slider.addEventListener('mouseleave', ()=>{ if(!timer){ timer = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);} });
 
-      const stop = () => {
-        try{
-          const t = window.__cvhbHeroIntervals[sliderId];
-          if(t){ window.clearInterval(t); }
-          window.__cvhbHeroIntervals[sliderId] = null;
-        } catch(e){}
-      };
-
-      const start = () => {
-        stop();
-        try{
-          const t = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);
-          window.__cvhbHeroIntervals[sliderId] = t;
-        } catch(e){}
-      };
-
-      slider.onmouseenter = function(){ stop(); };
-      slider.onmouseleave = function(){ start(); };
-
-      start();
       apply();
     } catch(e){}
   };
@@ -2327,9 +1514,6 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, ge
         outer_clientWidth: outer ? outer.clientWidth : null,
         outer_offsetWidth: outer ? outer.offsetWidth : null,
         outer_rectWidth: outer ? outer.getBoundingClientRect().width : null,
-        outer_clientHeight: outer ? outer.clientHeight : null,
-        outer_offsetHeight: outer ? outer.offsetHeight : null,
-        outer_rectHeight: outer ? outer.getBoundingClientRect().height : null,
         outer_display: cs ? cs.display : null,
         outer_visibility: cs ? cs.visibility : null,
         outer_position: cs ? cs.position : null,
@@ -2342,21 +1526,16 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, ge
   };
 
 
-window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth, minWidth, maxWidth, minScale, maxScale){
+window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth, minWidth, maxWidth){
   try{
     const safeNum = function(v, fb){
       v = Number(v);
       if(!isFinite(v)) return fb || 0;
       return v;
     };
-
     const dwReq = Math.max(1, safeNum(designWidth, 1));
     const minW = Math.max(0, safeNum(minWidth, 0));
     const maxW = Math.max(0, safeNum(maxWidth, 0));
-
-    const minS = safeNum(minScale, 0);
-    const maxS = safeNum(maxScale, 0);
-    const hasScaleLimits = (minS > 0) || (maxS > 0);
 
     // register 世代管理（古いタイマーが新しいDOMに触って事故るのを防ぐ）
     try{
@@ -2374,7 +1553,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     }catch(e){}
 
     let tries = 0;
-    const MAX_TRIES = 60;
+    const MAX_TRIES = 60;   // 余裕を持たせる（遅い端末でも安定）
     const DELAY_MS = 80;
 
     const apply = function(){
@@ -2403,15 +1582,10 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           safeNum(outer.clientWidth, 0),
           safeNum(outer.offsetWidth, 0)
         );
-        const oh = Math.max(
-          safeNum(rect.height, 0),
-          safeNum(outer.clientHeight, 0),
-          safeNum(outer.offsetHeight, 0)
-        );
 
         // not ready / hidden (0px になりがち) -> 少し待って再計測
-        if(ow <= 0 || oh <= 0){
-          try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, oh:oh, tries:tries}); }catch(e){}
+        if(ow <= 0){
+          try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, tries:tries}); }catch(e){}
           if(tries < MAX_TRIES){
             tries++;
             try{ clearTimeout(window.__cvhbFit.timers[key]); }catch(e){}
@@ -2430,70 +1604,49 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
               inner.style.visibility = 'visible';
               inner.style.opacity = '1';
             }catch(e){}
-            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, oh:oh, dw_req:dwReq, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0}); }catch(e){}
+            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, dw_req:dwReq, minW:minW||0, maxW:maxW||0}); }catch(e){}
           }
           return;
         }
 
-        // inner width:
-        // - scale指定がある場合: 「設計幅(dwReq)」固定で縮小（PC=1920 / SP=720）
-        // - scale指定がない場合: 互換モード（旧: minW/maxWで dwUsed を可変にする）
+        // inner: absolute + fixed design width（PCは 1920 だが、狭い画面では最小 1280 を確保）
+        // - dwReq : 目標のデザイン幅（例：SP=720 / PC=1920）
+        // - minW/maxW : 任意（PC=1280..1920 のように下限/上限を指定できる）
         let dwUsed = dwReq;
-        if(!hasScaleLimits){
-          try{
-            if(maxW && maxW > 0) dwUsed = Math.min(dwUsed, maxW);
-            if(minW && minW > 0){
-              if(ow < minW) dwUsed = minW;
-              dwUsed = Math.max(dwUsed, minW);
-            }
-          }catch(e){}
-        }
+        try{
+          if(maxW && maxW > 0) dwUsed = Math.min(dwUsed, maxW);
+          if(minW && minW > 0){
+            // 画面が狭いのに 1920 をそのまま縮小すると「小さくなりすぎる」ので、最小幅で止める
+            if(ow < minW) dwUsed = minW;
+            dwUsed = Math.max(dwUsed, minW);
+          }
+        }catch(e){}
 
         inner.style.position = 'absolute';
         inner.style.top = '0px';
+        inner.style.height = '100%';
         inner.style.width = dwUsed + 'px';
         inner.style.maxWidth = 'none';
         inner.style.visibility = 'visible';
         inner.style.opacity = '1';
-        inner.style.transformOrigin = 'top left';
 
         const rawScale = ow / dwUsed;
-        let scale = rawScale;
+        const scale = Math.max(0.01, Math.min(1, rawScale));
 
-        if(hasScaleLimits){
-          const lo = (minS > 0) ? minS : 0.01;
-          let hi = (maxS > 0) ? maxS : 1;
-          hi = Math.min(1, hi);
-          scale = Math.max(lo, Math.min(hi, rawScale));
-        }else{
-          scale = Math.max(0.01, Math.min(1, rawScale));
-        }
-
-        // 重要: 縦も「枠いっぱい」に見えるように、inner の高さを scale で補正する
-        // outer 高さ = oh
-        // inner 高さ = oh / scale  にすると、縮小後の見た目がちょうど oh になる
-        const innerH = Math.max(1, oh / Math.max(0.01, scale));
-        inner.style.height = innerH + 'px';
-
+        inner.style.transformOrigin = 'top left';
         inner.style.transform = 'scale(' + scale + ')';
 
         const visualW = dwUsed * scale;
         const left = Math.max(0, (ow - visualW) / 2);
         inner.style.left = left + 'px';
 
-        // 横が足りない場合は横スクロール（PC: 960px未満で発生する想定）
-        try{
-          outer.style.overflowY = 'hidden';
-          outer.style.overflowX = (visualW > ow + 1) ? 'auto' : 'hidden';
-        }catch(e){}
-
-        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, oh:oh, dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0, scale:scale, left:left}); }catch(e){}
+        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, scale:scale, left:left}); }catch(e){}
       }catch(e){}
     };
 
     window.__cvhbFit.regs[key] = apply;
 
-    // ResizeObserver (一番安定)
+    // ResizeObserver (一番安定) - outer の生成タイミングがズレても拾えるように遅延でも試す
     const ensureObserver = function(){
       try{
         if(!window.ResizeObserver) return;
@@ -2556,7 +1709,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.998")
+VERSION = read_text_file("VERSION", "0.6.95")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3010,15 +2163,15 @@ COLOR_MIGRATION = {
 # =========================
 
 HERO_IMAGE_PRESET_URLS = {
-    "A: オフィス": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1280&h=720&q=80",
-    "B: チーム": "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1280&h=720&q=80",
-    "C: 街並み": "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1280&h=720&q=80",
+    "A: オフィス": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80",
+    "B: チーム": "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1200&q=80",
+    "C: 街並み": "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1200&q=80",
 
     # 福祉テンプレ向けの“雰囲気”プリセット（※ 302リダイレクトの Unsplash Source をやめ、直URLで安定化）
-    "D: ひかり": "https://images.unsplash.com/photo-1519751138087-5bf79df62d5b?auto=format&fit=crop&w=1280&h=720&q=80",
-    "E: 木": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&h=720&q=80",
-    "F: 手": "https://images.unsplash.com/photo-1749065311606-fa115df115af?auto=format&fit=crop&w=1280&h=720&q=80",
-    "G: 家": "https://images.unsplash.com/photo-1632927126546-e3e051a0ba6e?auto=format&fit=crop&w=1280&h=720&q=80",
+    "D: ひかり": "https://images.unsplash.com/photo-1519751138087-5bf79df62d5b?auto=format&fit=crop&w=1200&q=80",
+    "E: 木": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=80",
+    "F: 手": "https://images.unsplash.com/photo-1749065311606-fa115df115af?auto=format&fit=crop&w=1200&q=80",
+    "G: 家": "https://images.unsplash.com/photo-1632927126546-e3e051a0ba6e?auto=format&fit=crop&w=1200&q=80",
 }
 HERO_IMAGE_OPTIONS = list(HERO_IMAGE_PRESET_URLS.keys())
 
@@ -3178,7 +2331,7 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
         presets: dict[str, dict] = {
             # 会社・企業サイト（基本）
             "corp_v1": {
-                "catch_copy": corp_sample_catch,
+                "catch_copy": "",
                 "sub_catch": corp_sample_sub,
                 "primary_cta": "お問い合わせ",
                 "secondary_cta": "見学・相談",
@@ -3412,15 +2565,6 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
 
         # サンプル値集合（テンプレ切替時に入れ替えてよい値）
         sample_catch = _gather("catch_copy") | {corp_sample_catch}
-        # v0.6.998: キャッチが空のときに「会社名」が表示され、
-        # テンプレ切替でそのまま残ってしまうと「消えた/固定された」に見えるため、
-        # 現在の会社名も「差し替えてよい値」に含めます。
-        try:
-            _cn = _txt(step2.get("company_name"))
-            if _cn:
-                sample_catch.add(_cn)
-        except Exception:
-            pass
         sample_sub = _gather("sub_catch") | {corp_sample_sub}
         sample_primary = _gather("primary_cta") | {"お問い合わせ", "体験利用", "入居相談", "見学する", "相談する"}
         sample_secondary = _gather("secondary_cta") | {"見学・相談", "無料相談", "見学する"}
@@ -3561,8 +2705,6 @@ def normalize_project(p: dict) -> dict:
     step2.setdefault("favicon_url", "")
     step2.setdefault("favicon_filename", "")
     step2.setdefault("catch_copy", "")
-    step2.setdefault("catch_size", "中")
-    step2.setdefault("sub_catch_size", "中")
     step2.setdefault("phone", "")
     step2.setdefault("address", "")
     step2.setdefault("email", "")
@@ -3737,7 +2879,6 @@ def normalize_project(p: dict) -> dict:
 
     access = blocks.setdefault("access", {})
     access.setdefault("map_url", "")
-    access.setdefault("embed_map", True)  # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
     access.setdefault("notes", "（例）〇〇駅から徒歩5分 / 駐車場あり")
 
     contact = blocks.setdefault("contact", {})
@@ -3810,7 +2951,7 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
         "updated_by": created_by.username if created_by else "",
         "data": {
             "step1": {"industry": "会社サイト（企業）", "primary_color": "blue", "welfare_domain": "", "welfare_mode": "", "template_id": "corp_v1"},
-            "step2": {"company_name": "", "favicon_url": "", "favicon_filename": "", "catch_copy": "", "catch_size": "中", "sub_catch_size": "中", "phone": "", "address": "", "email": ""},
+            "step2": {"company_name": "", "favicon_url": "", "catch_copy": "", "phone": "", "address": "", "email": ""},
             "blocks": {},
         },
     }
@@ -4209,8 +3350,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
     # mode / root id（プレビュー統合のため、root_id を外から差し替え可能にする）
     mode = str(mode or "mobile").strip() or "mobile"
-    if mode not in ("mobile", "pc"):
-        mode = "mobile"
     root_id = str(root_id or f"pv-root-{mode}").strip() or f"pv-root-{mode}"
 
     theme_style = _preview_glass_style(step1, dark=is_dark)
@@ -4234,21 +3373,10 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         s = str(s or "").strip()
         return s if s else fallback
 
-    def _size_class(v: str) -> str:
-        """大/中/小 の選択を CSS class に変換（プレビュー側で落ちないように安全に）"""
-        v = str(v or "").strip()
-        if v in ("大", "L", "large", "big"):
-            return "pv-size-l"
-        if v in ("小", "S", "small"):
-            return "pv-size-s"
-        return "pv-size-m"
-
     # -------- content --------
     company_name = _clean(step2.get("company_name"), "会社名")
     favicon_url = _clean(step2.get("favicon_url")) or DEFAULT_FAVICON_DATA_URL
     catch_copy = _clean(step2.get("catch_copy"))
-    catch_size = _clean(step2.get("catch_size"), "中")
-    sub_catch_size = _clean(step2.get("sub_catch_size"), "中")
     phone = _clean(step2.get("phone"))
     email = _clean(step2.get("email"))
     address = _clean(step2.get("address"))
@@ -4267,6 +3395,10 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         hero_urls = [_clean(HERO_IMAGE_PRESETS.get(hero_image_choice), HERO_IMAGE_DEFAULT)]
     hero_urls = hero_urls[:4]
 
+    # CTA texts (legacy fields)
+    primary_cta = _clean(hero.get("primary_button_text"), "お問い合わせ")
+    secondary_cta = _clean(hero.get("secondary_button_text"), "見学・相談")
+
     news = blocks.get("news", {}) if isinstance(blocks.get("news"), dict) else {}
     news_items = _safe_list(news.get("items"))  # list[dict]
 
@@ -4278,7 +3410,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     about_image_url = _clean(
         philosophy.get("image_url"),
         # default: wood/forest vibe
-        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&h=720&q=60",
+        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=60",
     )
 
     services = philosophy.get("services") if isinstance(philosophy.get("services"), dict) else {}
@@ -4286,7 +3418,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     svc_lead = _clean(services.get("lead"))
     svc_image_url = _clean(
         services.get("image_url"),
-        "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1280&h=720&q=60",
+        "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1200&q=60",
     )
     svc_items = _safe_list(services.get("items"))
 
@@ -4298,12 +3430,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     map_url = _clean(access.get("map_url"))
     if not map_url and address:
         map_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
-
-    # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
-    try:
-        map_embed = bool(access.get("embed_map", True))
-    except Exception:
-        map_embed = True
 
     contact = blocks.get("contact", {}) if isinstance(blocks.get("contact"), dict) else {}
     contact_message = _clean(contact.get("message"))
@@ -4318,262 +3444,184 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         with ui.element("div").classes("pv-scroll"):
             # ----- header -----
             with ui.element("header").classes("pv-topbar pv-topbar-260218"):
-                with ui.row().classes("pv-topbar-inner items-center justify-between"):
+                with ui.row().classes("pv-topbar-inner items-center justify-between no-wrap"):
                     # brand (favicon + name)
                     with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
                         if favicon_url:
                             ui.image(favicon_url).classes("pv-favicon")
                         ui.label(company_name).classes("pv-brand-name")
 
-                    if mode == "pc":
-                        # desktop nav (PC only)
-                        with ui.row().classes("pv-desktop-nav items-center no-wrap"):
+                    # hamburger menu
+                    # hamburger menu（先にdialogを作ってからボタンで開く）
+                    with ui.dialog() as nav_dialog:
+                        with ui.card().classes("pv-nav-card"):
+                            ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
                             for label, sec in [
+                                ("トップ", "top"),
+                                ("お知らせ", "news"),
                                 ("私たちについて", "about"),
                                 ("業務内容", "services"),
-                                ("お知らせ", "news"),
-                                ("FAQ", "faq"),
+                                ("よくある質問", "faq"),
                                 ("アクセス", "access"),
+                                ("お問い合わせ", "contact"),
                             ]:
-                                ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-desktop-nav-btn")
-                            ui.button("お問い合わせ", on_click=lambda: scroll_to("contact")).props(
-                                "no-caps outline color=primary"
-                            ).classes("pv-desktop-nav-btn pv-nav-contact")
-                    else:
-                        # hamburger menu（先にdialogを作ってからボタンで開く）
-                        with ui.dialog() as nav_dialog:
-                            with ui.card().classes("pv-nav-card"):
-                                ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
-                                for label, sec in [
-                                    ("トップ", "top"),
-                                    ("お知らせ", "news"),
-                                    ("私たちについて", "about"),
-                                    ("業務内容", "services"),
-                                    ("よくある質問", "faq"),
-                                    ("アクセス", "access"),
-                                    ("お問い合わせ", "contact"),
-                                ]:
-                                    ui.button(
-                                        label,
-                                        on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
-                                    ).props("flat no-caps").classes("pv-nav-item w-full")
-                        ui.button("MENU", icon="menu", on_click=nav_dialog.open).props("flat dense no-caps").classes("pv-menu-btn")
-
-            # ----- HERO (full width / no buttons) -----
-            with ui.element("section").classes("pv-hero-wide").props('id="pv-top"'):
-                slider_id = f"pv-hero-slider-{mode}"
-                with ui.element("div").classes("pv-hero-slider pv-hero-slider-wide").props(f'id="{slider_id}"'):
-                    with ui.element("div").classes("pv-hero-track"):
-                        for url in hero_urls:
-                            with ui.element("div").classes("pv-hero-slide"):
-                                ui.image(url).classes("pv-hero-img")
-
-                # init slider (auto)
-                axis = "y" if mode == "mobile" else "x"
-                ui.run_javascript(f"window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',4500)")
-
-                # caption overlay
-                with ui.element("div").classes("pv-hero-caption"):
-                    ui.label(_clean(catch_copy, company_name)).classes(f"pv-hero-caption-title {_size_class(catch_size)}")
-                    if sub_catch:
-                        ui.label(sub_catch).classes(f"pv-hero-caption-sub {_size_class(sub_catch_size)}")
+                                ui.button(
+                                    label,
+                                    on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
+                                ).props("flat no-caps").classes("pv-nav-item w-full")
+                    ui.button("MENU", icon="menu", on_click=nav_dialog.open).props("flat dense no-caps").classes("pv-menu-btn")
+                    # menu opened by on_click
 
             # ----- main -----
             with ui.element("main").classes("pv-main"):
+                # HERO
+                with ui.element("section").classes("pv-section pv-hero").props('id="pv-top"'):
+                    with ui.element("div").classes("pv-hero-grid"):
+                        with ui.element("div").classes("pv-hero-copy"):
+                            ui.label(_clean(catch_copy, company_name)).classes("pv-hero-title")
+                            if sub_catch:
+                                ui.label(sub_catch).classes("pv-hero-sub")
+                            with ui.row().classes("pv-cta-row"):
+                                ui.button(primary_cta, on_click=lambda: scroll_to("contact")).props(
+                                    "no-caps unelevated color=primary"
+                                ).classes("pv-btn pv-btn-primary")
+                                ui.button(secondary_cta, on_click=lambda: scroll_to("contact")).props(
+                                    "no-caps outline color=primary"
+                                ).classes("pv-btn pv-btn-secondary")
+
+                        with ui.element("div").classes("pv-hero-media"):
+                            slider_id = f"pv-hero-slider-{mode}"
+                            with ui.element("div").classes("pv-hero-slider").props(f'id="{slider_id}"'):
+                                with ui.element("div").classes("pv-hero-track"):
+                                    for url in hero_urls:
+                                        with ui.element("div").classes("pv-hero-slide"):
+                                            ui.image(url).classes("pv-hero-img")
+                            # init slider (auto)
+                            axis = "y" if mode == "mobile" else "x"
+                            ui.run_javascript(
+                                f"window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',4500)"
+                            )
+
                 # NEWS
-                with ui.element("section").classes("pv-section").props('id="pv-news"'):
+                with ui.element("section").classes("pv-section pv-news").props('id="pv-news"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("お知らせ").classes("pv-section-title")
                         ui.label("NEWS").classes("pv-section-en")
-                    with ui.element("div").classes("pv-panel pv-panel-glass"):
-                        if not news_items:
-                            with ui.row().classes("items-center justify-between"):
-                                ui.label("まだお知らせがありません").classes("pv-muted")
-                        else:
-                            # show latest (mobile:3 / pc:4)
-                            shown = news_items[:3] if mode == "mobile" else news_items[:4]
-                            with ui.element("div").classes("pv-news-list"):
-                                for it in shown:
-                                    # it は dict を想定するが、古いデータで str が混ざっても落とさない
-                                    if isinstance(it, dict):
-                                        date = _clean(it.get("date"))
-                                        cat = _clean(it.get("category"))
-                                        title = _clean(it.get("title"), "お知らせ")
-                                    else:
-                                        date = ""
-                                        cat = ""
-                                        title = _clean(it, "お知らせ")
-
-                                    with ui.element("div").classes("pv-news-item"):
-                                        d_el = ui.label(date or "").classes("pv-news-date")
-                                        if not date:
-                                            d_el.classes("pv-news-empty")
-                                        c_el = ui.label(cat or "").classes("pv-news-cat")
-                                        if not cat:
-                                            c_el.classes("pv-news-empty")
-                                        ui.label(title).classes("pv-news-title")
-                                        ui.icon("chevron_right").classes("pv-news-arrow")
-                        with ui.row().classes("justify-end"):
-                            ui.button("お知らせ一覧", on_click=lambda: None).props("flat no-caps color=primary").classes("pv-link-btn")
+                    with ui.element("div").classes("pv-panel pv-panel-flat"):
+                        with ui.element("div").classes("pv-news-list"):
+                            shown = 0
+                            for it in news_items:
+                                if not isinstance(it, dict):
+                                    continue
+                                date = _clean(it.get("date"))
+                                cat = _clean(it.get("category"), "お知らせ")
+                                title = _clean(it.get("title"), "タイトル未設定")
+                                shown += 1
+                                with ui.element("div").classes("pv-news-item"):
+                                    ui.label(date or "----.--.--").classes("pv-news-date")
+                                    ui.label(cat).classes("pv-news-cat")
+                                    ui.label(title).classes("pv-news-title")
+                                    ui.icon("chevron_right").classes("pv-news-arrow")
+                                if shown >= 4:
+                                    break
+                            if shown == 0:
+                                ui.label("まだお知らせはありません。").classes("pv-muted q-mt-sm")
+                        ui.button("お知らせ一覧").props("no-caps flat").classes("pv-link-btn")
 
                 # ABOUT
-                with ui.element("section").classes("pv-section").props('id="pv-about"'):
+                with ui.element("section").classes("pv-section pv-about").props('id="pv-about"'):
                     with ui.element("div").classes("pv-section-head"):
-                        ui.label(about_title).classes("pv-section-title")
+                        ui.label("私たちについて").classes("pv-section-title")
                         ui.label("ABOUT").classes("pv-section-en")
+                    with ui.element("div").classes("pv-about-grid"):
+                        with ui.element("div").classes("pv-panel pv-panel-glass"):
+                            ui.label(about_title).classes("pv-h2")
+                            if about_body:
+                                ui.label(about_body).classes("pv-bodytext")
+                            pts = [str(x).strip() for x in about_points if str(x).strip()]
+                            if pts:
+                                with ui.element("ul").classes("pv-bullets"):
+                                    for t in pts[:6]:
+                                        with ui.element("li"):
+                                            ui.label(t)
+                        with ui.element("div").classes("pv-about-media"):
+                            ui.image(about_image_url).classes("pv-about-img")
 
-                    # 並び：見出し → 画像 → 要点 → 本文
-                    with ui.element("div").classes("pv-panel pv-panel-glass"):
-                        if about_image_url:
-                            ui.image(about_image_url).classes("pv-about-img q-mb-sm")
-
-                        # points (cards)
-                        if about_points:
-                            with ui.element("div").classes("pv-points"):
-                                for pt in about_points:
-                                    pt = _clean(pt)
-                                    if not pt:
-                                        continue
-                                    with ui.element("div").classes("pv-point-card"):
-                                        ui.label(pt).classes("pv-point-text")
-
-                        if about_body:
-                            ui.label(about_body).classes("pv-bodytext q-mt-sm")
-                        else:
-                            ui.label("ここに文章が入ります。").classes("pv-muted q-mt-sm")
-
-                # SERVICES
-                with ui.element("section").classes("pv-section").props('id="pv-services"'):
+                # SERVICES (integrated in philosophy block)
+                with ui.element("section").classes("pv-section pv-services").props('id="pv-services"'):
                     with ui.element("div").classes("pv-section-head"):
-                        ui.label(svc_title).classes("pv-section-title")
-                        ui.label("SERVICE").classes("pv-section-en")
-
-                    # 並び：業務内容タイトル → 画像 → リード文 → 項目
-                    with ui.element("div").classes("pv-panel pv-panel-glass"):
-                        if svc_image_url:
-                            ui.image(svc_image_url).classes("pv-services-img q-mb-sm")
-
-                        if svc_lead:
-                            ui.label(svc_lead).classes("pv-bodytext")
-
-                        if svc_items:
-                            with ui.element("div").classes("pv-service-list q-mt-sm"):
-                                for item in svc_items:
-                                    # item は dict を想定するが、古いデータで str が混ざっても落とさない
-                                    if isinstance(item, dict):
-                                        t = _clean(item.get("title"))
-                                        b = _clean(item.get("body"))
-                                    else:
-                                        t = _clean(item)
-                                        b = ""
-                                    if not t and not b:
-                                        continue
-                                    with ui.element("div").classes("pv-service-item"):
-                                        if t:
-                                            ui.label(t).classes("pv-service-title")
-                                        if b:
-                                            ui.label(b).classes("pv-muted")
-                        else:
-                            ui.label("業務内容を入力すると、ここに表示されます。").classes("pv-muted")
+                        ui.label(svc_title or "業務内容").classes("pv-section-title")
+                        ui.label("SERVICES").classes("pv-section-en")
+                    with ui.element("div").classes("pv-services-wrap pv-surface-white"):
+                        with ui.element("div").classes("pv-services-grid"):
+                            with ui.element("div").classes("pv-services-media"):
+                                ui.image(svc_image_url).classes("pv-services-img")
+                            with ui.element("div").classes("pv-services-copy"):
+                                if svc_lead:
+                                    ui.label(svc_lead).classes("pv-bodytext")
+                                # items
+                                cleaned_items = []
+                                for it in svc_items:
+                                    if isinstance(it, dict):
+                                        t = _clean(it.get("title"))
+                                        b = _clean(it.get("body"))
+                                        if t or b:
+                                            cleaned_items.append((t, b))
+                                if cleaned_items:
+                                    for (t, b) in cleaned_items[:6]:
+                                        with ui.element("div").classes("pv-service-item"):
+                                            ui.label(t or "項目").classes("pv-service-title")
+                                            if b:
+                                                ui.label(b).classes("pv-muted")
+                                else:
+                                    ui.label("業務内容の項目を設定してください。").classes("pv-muted")
 
                 # FAQ
-                with ui.element("section").classes("pv-section").props('id="pv-faq"'):
+                with ui.element("section").classes("pv-section pv-faq").props('id="pv-faq"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("よくある質問").classes("pv-section-title")
                         ui.label("FAQ").classes("pv-section-en")
-
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
-                        if not faq_items:
-                            ui.label("まだFAQがありません。").classes("pv-muted")
-                        else:
-                            with ui.element("div").classes("pv-faq-list"):
-                                for it in faq_items:
-                                    # it は dict を想定するが、古いデータで str が混ざっても落とさない
-                                    if isinstance(it, dict):
-                                        q = _clean(it.get("q"))
-                                        a = _clean(it.get("a"))
-                                    else:
-                                        q = _clean(it)
-                                        a = ""
-                                    if not q and not a:
-                                        continue
-                                    with ui.element("div").classes("pv-faq-item"):
-                                        if q:
-                                            ui.label(f"Q. {q}").classes("pv-faq-q")
-                                        if a:
-                                            ui.label(a).classes("pv-faq-a")
+                        shown = 0
+                        for it in faq_items:
+                            if not isinstance(it, dict):
+                                continue
+                            q = _clean(it.get("q"))
+                            a = _clean(it.get("a"))
+                            if not q and not a:
+                                continue
+                            shown += 1
+                            with ui.element("div").classes("pv-faq-item"):
+                                ui.label(q or "質問").classes("pv-faq-q")
+                                if a:
+                                    ui.label(a).classes("pv-faq-a")
+                            if shown >= 4:
+                                break
+                        if shown == 0:
+                            ui.label("よくある質問は準備中です。").classes("pv-muted")
 
                 # ACCESS
-                with ui.element("section").classes("pv-section").props('id="pv-access"'):
+                with ui.element("section").classes("pv-section pv-access").props('id="pv-access"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("アクセス").classes("pv-section-title")
                         ui.label("ACCESS").classes("pv-section-en")
-
                     with ui.element("div").classes("pv-panel pv-panel-glass pv-access-card"):
-                        # 会社情報（アクセスに統合）
-                        ui.label(company_name).classes("pv-access-company")
                         if address:
                             ui.label(address).classes("pv-bodytext")
                         else:
-                            ui.label("住所を入力すると、ここに表示されます。").classes("pv-muted")
-
-                        if phone or email:
-                            with ui.row().classes("pv-access-meta items-center q-gutter-md q-mt-sm"):
-                                if phone:
-                                    with ui.row().classes("items-center q-gutter-xs"):
-                                        ui.icon("call").classes("pv-access-icon")
-                                        ui.label(phone).classes("pv-muted")
-                                if email:
-                                    with ui.row().classes("items-center q-gutter-xs"):
-                                        ui.icon("mail").classes("pv-access-icon")
-                                        ui.label(email).classes("pv-muted")
-
+                            ui.label("住所を入力してください（基本情報 > 住所）").classes("pv-muted")
                         if access_notes:
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
-
-                        # 地図：住所がある時は必ず表示（iframe は任意）
-                        if address:
-                            _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
-                            iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
-
-                            if map_embed:
-                                with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
-                                    ui.element("iframe").classes("pv-map-iframe").props(
-                                        f'src="{iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"'
-                                    )
-                                    with ui.element("div").classes("pv-mapframe-ui"):
-                                        ui.label("MAP").classes("pv-mapframe-badge")
-                                        with ui.element("div").classes("pv-mapframe-bottom"):
-                                            ui.label(address).classes("pv-mapframe-label")
-                                            with ui.element("a").props(
-                                                f'href="{_murl}" target="_blank" rel="noopener"'
-                                            ).classes("pv-mapframe-open"):
-                                                ui.label("地図を開く")
-                            else:
-                                with ui.element("a").props(
-                                    f'href="{_murl}" target="_blank" rel="noopener"'
-                                ).classes("pv-mapframe-link"):
-                                    with ui.element("div").classes("pv-mapframe"):
-                                        ui.label("MAP").classes("pv-mapframe-badge")
-                                        ui.icon("place").classes("pv-mapframe-pin")
-                                        with ui.element("div").classes("pv-mapframe-bottom"):
-                                            ui.label(address).classes("pv-mapframe-label")
-                                            ui.label("地図を開く").classes("pv-mapframe-open")
-
-                            # どちらの場合も「地図を開く」を保証
-                            with ui.element("a").props(
-                                f'href="{_murl}" target="_blank" rel="noopener"'
-                            ).classes("pv-map-openlink"):
-                                ui.icon("open_in_new")
-                                ui.label("地図を開く（Googleマップ）")
-
+                        if map_url:
+                            ui.button("地図を開く").props(
+                                f'no-caps unelevated color=primary type=a href="{map_url}" target="_blank"'
+                            ).classes("pv-btn pv-map-btn")
 
                 # CONTACT
-                with ui.element("section").classes("pv-section").props('id="pv-contact"'):
+                with ui.element("section").classes("pv-section pv-contact").props('id="pv-contact"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("お問い合わせ").classes("pv-section-title")
                         ui.label("CONTACT").classes("pv-section-en")
-
                     with ui.element("div").classes("pv-panel pv-panel-glass pv-contact-card"):
                         if contact_message:
                             ui.label(contact_message).classes("pv-bodytext")
@@ -4592,86 +3640,52 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 "pv-btn pv-btn-primary"
                             )
 
-            # LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
-            privacy_contact = ""
-            try:
+                # PRE-FOOTER (company mini)
+                with ui.element("section").classes("pv-companybar"):
+                    with ui.element("div").classes("pv-companybar-inner"):
+                        with ui.element("div").classes("pv-companybar-left"):
+                            ui.label(company_name).classes("pv-companybar-name")
+                            if address:
+                                ui.label(address).classes("pv-companybar-meta")
+                            if phone:
+                                ui.label(f"TEL: {phone}").classes("pv-companybar-meta")
+                        with ui.element("div").classes("pv-companybar-right"):
+                            ui.button("お問い合わせへ", on_click=lambda: scroll_to("contact")).props("no-caps unelevated color=primary").classes("pv-btn pv-btn-primary")
+
+                # MAPSHOT (only if address is set)
                 if address:
-                    privacy_contact += f"\n- 住所: {address}"
-                if phone:
-                    privacy_contact += f"\n- 電話: {phone}"
-                if email:
-                    privacy_contact += f"\n- メール: {email}"
-            except Exception:
-                privacy_contact = ""
-            if not privacy_contact:
-                privacy_contact = "\n- 連絡先: このページのお問い合わせ欄をご確認ください。"
+                    with ui.element("section").classes("pv-mapshot"):
+                        with ui.element("div").classes("pv-mapshot-inner"):
+                            with ui.element("div").classes("pv-panel pv-panel-glass pv-mapshot-card"):
+                                with ui.row().classes("items-center justify-between pv-mapshot-head"):
+                                    ui.label("地図").classes("pv-mapshot-label")
+                                    if map_url:
+                                        ui.button("Googleマップで見る").props(
+                                            f'no-caps outline color=primary type=a href="{map_url}" target="_blank"'
+                                        ).classes("pv-btn pv-btn-secondary")
+                                if map_url:
+                                    with ui.element("a").props(f'href="{map_url}" target="_blank"').classes("pv-mapshot-img-link"):
+                                        with ui.element("div").classes("pv-mapshot-img"):
+                                            ui.icon("place").classes("pv-mapshot-pin")
+                                            ui.label("地図を開く").classes("pv-mapshot-open")
+                                ui.label(address).classes("pv-mapshot-address")
 
-            privacy_md = f"""当社（{company_name}）は、個人情報の重要性を認識し、個人情報保護法その他の関係法令・ガイドラインを遵守するとともに、以下のとおり個人情報を適切に取り扱います。
-
-## 1. 取得する情報
-当社は、以下の情報を取得することがあります。
-
-- お問い合わせ等でお客様が入力・送信する情報（氏名、連絡先（電話番号/メールアドレス）、お問い合わせ内容 等）
-- サイトの利用に伴い自動的に送信される情報（IPアドレス、ブラウザ情報、閲覧履歴、Cookie 等）
-
-## 2. 利用目的
-当社は、取得した個人情報を以下の目的で利用します。
-
-- お問い合わせへの回答・必要な連絡のため
-- サービスの提供、運営、案内のため
-- 品質向上・改善、利便性向上のため
-- 不正行為の防止、セキュリティ確保のため
-- 法令に基づく対応のため
-
-## 3. 第三者提供
-当社は、法令で認められる場合を除き、あらかじめ本人の同意を得ることなく個人情報を第三者に提供しません。
-
-## 4. 委託
-当社は、利用目的の達成に必要な範囲で、個人情報の取扱いを外部事業者に委託することがあります。その場合、適切な委託先を選定し、契約等により必要かつ適切な監督を行います。
-
-## 5. 安全管理措置
-当社は、個人情報の漏えい、滅失、毀損等を防止するため、必要かつ適切な安全管理措置を講じます。
-
-## 6. Cookie等の利用
-当社サイトでは、利便性向上や利用状況の分析等のために Cookie 等の技術を使用する場合があります。Cookie はブラウザ設定により無効化できますが、その場合は一部機能が利用できないことがあります。
-
-## 7. 外部リンク
-当社サイトから外部サイトへリンクする場合があります。リンク先における個人情報の取扱いについて、当社は責任を負いません。
-
-## 8. 開示・訂正・利用停止等
-本人から、保有個人データの開示、訂正、追加、削除、利用停止、消去、第三者提供の停止等の請求があった場合、法令に基づき、本人確認のうえ適切に対応します。
-
-## 9. 改定
-当社は、法令等の変更や必要に応じて本ポリシーの内容を改定することがあります。改定後の内容は当社サイト上で掲示します。
-
-## 10. お問い合わせ窓口
-{company_name}{privacy_contact}
-"""
-
-            with ui.dialog() as privacy_dialog:
-                with ui.card().classes("q-pa-md").style("max-width: 900px; width: calc(100vw - 24px);"):
-                    ui.label("プライバシーポリシー").classes("pv-legal-title q-mb-sm")
-                    ui.markdown(privacy_md).classes("pv-legal-md")
-                    ui.button("閉じる", on_click=privacy_dialog.close).props("outline no-caps").classes("q-mt-md")
-
-# FOOTER
-            with ui.element("footer").classes("pv-footer"):
-                with ui.element("div").classes("pv-footer-grid"):
-                    with ui.element("div"):
-                        ui.label(company_name).classes("pv-footer-brand")
-                        for label, sec in [
-                            ("トップ", "top"),
-                            ("お知らせ", "news"),
-                            ("私たちについて", "about"),
-                            ("業務内容", "services"),
-                            ("よくある質問", "faq"),
-                            ("アクセス", "access"),
-                            ("お問い合わせ", "contact"),
-                        ]:
-                            ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
-                        ui.button("プライバシーポリシー", on_click=privacy_dialog.open).props("flat no-caps").classes("pv-footer-link text-white")
-                ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
-
+                # FOOTER
+                with ui.element("footer").classes("pv-footer"):
+                    with ui.element("div").classes("pv-footer-grid"):
+                        with ui.element("div"):
+                            ui.label(company_name).classes("pv-footer-brand")
+                            for label, sec in [
+                                ("トップ", "top"),
+                                ("お知らせ", "news"),
+                                ("私たちについて", "about"),
+                                ("業務内容", "services"),
+                                ("よくある質問", "faq"),
+                                ("アクセス", "access"),
+                                ("お問い合わせ", "contact"),
+                            ]:
+                                ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
+                    ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
 def render_main(u: User) -> None:
     inject_global_styles()
     cleanup_user_storage()
@@ -4860,7 +3874,16 @@ def render_main(u: User) -> None:
                                                             blocks.clear()
                                                         except Exception:
                                                             pass
-                                                        update_and_refresh()
+                                                        # テンプレ依存の初期文を確実に入れ直すため、サブキャッチもリセット
+                                                        try:
+                                                            step2["catch_copy"] = ""
+                                                            step2["sub_catch"] = ""
+                                                            step2["primary_cta"] = ""
+                                                            step2["secondary_cta"] = ""
+                                                        except Exception:
+                                                            pass
+
+                                                    update_and_refresh()
                                                     industry_selector.refresh()
 
                                                 for opt in INDUSTRY_PRESETS:
@@ -4897,6 +3920,13 @@ def render_main(u: User) -> None:
                                                                 blocks.clear()
                                                             except Exception:
                                                                 pass
+                                                            try:
+                                                                step2["catch_copy"] = ""
+                                                                step2["sub_catch"] = ""
+                                                                step2["primary_cta"] = ""
+                                                                step2["secondary_cta"] = ""
+                                                            except Exception:
+                                                                pass
                                                         update_and_refresh()
                                                         industry_selector.refresh()
 
@@ -4908,6 +3938,13 @@ def render_main(u: User) -> None:
                                                         if next_tpl and next_tpl != prev_tpl:
                                                             try:
                                                                 blocks.clear()
+                                                            except Exception:
+                                                                pass
+                                                            try:
+                                                                step2["catch_copy"] = ""
+                                                                step2["sub_catch"] = ""
+                                                                step2["primary_cta"] = ""
+                                                                step2["secondary_cta"] = ""
                                                             except Exception:
                                                                 pass
                                                         update_and_refresh()
@@ -4997,11 +4034,11 @@ def render_main(u: User) -> None:
                                             bind_step2_input("会社名", "company_name")
                                             # ファビコン（アップロード仕様）
                                             ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
-                                            ui.label("未設定ならデフォルトを使用します（推奨: 正方形PNG 32×32）").classes("cvhb-muted")
+                                            ui.label("未設定ならデフォルトを使用します（32×32推奨）").classes("cvhb-muted")
 
-                                            def _on_upload_favicon(e):
+                                            async def _on_upload_favicon(e):
                                                 try:
-                                                    data_url, fname = _upload_event_to_data_url_sync(e)
+                                                    data_url, fname = await _upload_event_to_data_url(e)
                                                     if not data_url:
                                                         return
                                                     step2["favicon_url"] = data_url
@@ -5028,13 +4065,11 @@ def render_main(u: User) -> None:
                                                 with ui.row().classes("items-center q-gutter-sm"):
                                                     ui.image(show_url).style("width:32px;height:32px;border-radius:6px;")
                                                     ui.upload(on_upload=_on_upload_favicon, auto_upload=True).props("accept=image/*")
-                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props(
-                                                        "color=primary unelevated dense no-caps"
-                                                    )
                                                     ui.button("クリア", on_click=_clear_favicon).props("outline dense")
                                                 ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                             favicon_editor()
+                                            bind_step2_input("キャッチコピー", "catch_copy")
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
                                             bind_step2_input("住所（地図リンクは自動生成）", "address", hint="住所を入力すると、プレビューの「地図を開く」が使えるようになります。")
@@ -5119,9 +4154,9 @@ def render_main(u: User) -> None:
                                                             update_and_refresh()
                                                             hero_slides_editor.refresh()
 
-                                                        def _on_upload_slide(e, i: int):
+                                                        async def _on_upload_slide(e, i: int):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e)
                                                                 if not data_url:
                                                                     return
                                                                 _normalize_hero_slides()
@@ -5156,7 +4191,6 @@ def render_main(u: User) -> None:
                                                             nn = hero["hero_upload_names"]
                                                             ui.label("ヒーロー画像（4枚固定）").classes("text-body1")
                                                             ui.label("スマホ：縦スライド／PC：横スライド").classes("cvhb-muted")
-                                                            ui.label(f"{IMAGE_RECOMMENDED_TEXT}").classes("cvhb-muted")
                                                             for _i in range(4):
                                                                 with ui.card().classes("q-pa-sm q-mb-sm").props("flat bordered"):
                                                                     ui.label(f"画像{_i+1}").classes("text-subtitle2")
@@ -5164,53 +4198,19 @@ def render_main(u: User) -> None:
                                                                         _set_slide_choice(i, e.value)
                                                                     ui.radio(HERO_IMAGE_OPTIONS + ["オリジナル"], value=cc[_i], on_change=_on_choice).props("inline")
                                                                     if cc[_i] == "オリジナル":
-                                                                        def _upload_handler(e, i=_i):
-                                                                            _on_upload_slide(e, i)
+                                                                        async def _upload_handler(e, i=_i):
+                                                                            await _on_upload_slide(e, i)
                                                                         with ui.row().classes("items-center q-gutter-sm"):
-                                                                            # 現在反映されている画像（サムネ）
-                                                                            try:
-                                                                                ui.image(uu[_i]).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
-                                                                            except Exception:
-                                                                                pass
                                                                             ui.upload(on_upload=_upload_handler, auto_upload=True).props("accept=image/*")
                                                                             ui.button("クリア", on_click=lambda i=_i: _clear_slide_upload(i)).props("outline dense")
-                                                                            ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
-                                                                        ui.label(f"ファイル: {nn[_i] or '未アップロード'}").classes("cvhb-muted")
+                                                                            ui.label(f"ファイル: {nn[_i] or '未アップロード'}").classes("cvhb-muted")
                                                                     else:
                                                                         ui.label(f"選択中: {cc[_i]}").classes("cvhb-muted")
 
                                                         hero_slides_editor()
-
-                                                        with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
-                                                            ui.button("画像を反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated no-caps")
-                                                            ui.label("※アップロード後は、このボタンで保存すると安心です。").classes("cvhb-muted")
-
-                                                        # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
-                                                        bind_step2_input(
-                                                            "キャッチコピー",
-                                                            "catch_copy",
-                                                            hint="ヒーローの一番大きい文章です。スマホは画像の下、PCは画像に重ねて表示されます。",
-                                                        )
-
-                                                        # 文字サイズ（大/中/小）
-                                                        def _on_catch_size(e):
-                                                            step2["catch_size"] = e.value or "中"
-                                                            update_and_refresh()
-                                                        ui.label("キャッチ文字サイズ").classes("cvhb-muted")
-                                                        ui.radio(["大", "中", "小"], value=step2.get("catch_size", "中"), on_change=_on_catch_size).props(
-                                                            "inline dense"
-                                                        ).classes("q-mb-sm")
-
                                                         bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
-
-                                                        def _on_sub_catch_size(e):
-                                                            step2["sub_catch_size"] = e.value or "中"
-                                                            update_and_refresh()
-                                                        ui.label("サブキャッチ文字サイズ").classes("cvhb-muted")
-                                                        ui.radio(["大", "中", "小"], value=step2.get("sub_catch_size", "中"), on_change=_on_sub_catch_size).props(
-                                                            "inline dense"
-                                                        ).classes("q-mb-sm")
-                                                        ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
+                                                        bind_block_input("hero", "ボタン1の文言", "primary_button_text")
+                                                        bind_block_input("hero", "ボタン2の文言（任意）", "secondary_button_text")
 
                                                     with ui.tab_panel("philosophy"):
                                                         # 理念/概要（必須）
@@ -5220,15 +4220,15 @@ def render_main(u: User) -> None:
                                                         ph.setdefault("image_url", "")
                                                         ph.setdefault("image_upload_name", "")
                                                         bind_dict_input(ph, "見出し（必須）", "title", hint="例：私たちについて")
-                                                        
+                                                        bind_dict_input(ph, "本文（必須）", "body", hint="例：私たちは、〜")
+
                                                         # 画像（アップロード仕様）
                                                         ui.label("画像（任意）").classes("text-body1 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
-                                                        ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_ph_image(e):
+                                                        async def _on_upload_ph_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e)
                                                                 if not data_url:
                                                                     return
                                                                 ph["image_url"] = data_url
@@ -5251,17 +4251,10 @@ def render_main(u: User) -> None:
                                                         def ph_image_editor():
                                                             cur = str(ph.get("image_url") or "").strip()
                                                             name = str(ph.get("image_upload_name") or "").strip()
-                                                            show_url = cur or "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&h=720&q=60"
                                                             with ui.row().classes("items-center q-gutter-sm"):
-                                                                # 現在反映されている画像（サムネ）
-                                                                try:
-                                                                    ui.image(show_url).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
-                                                                except Exception:
-                                                                    pass
                                                                 ui.upload(on_upload=_on_upload_ph_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_ph_image).props("outline dense")
-                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
-                                                            ui.label(f"現在: {'デフォルト(E: 木)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+                                                                ui.label(f"現在: {'デフォルト(E: 木)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         ph_image_editor()
 
@@ -5286,10 +4279,6 @@ def render_main(u: User) -> None:
                                                         for i in range(3):
                                                             ui.input(f"要点{i+1}", value=points[i], on_change=lambda e, i=i: _set_point(i, e.value)).props("dense")
 
-                                                        bind_dict_input(ph, "本文（必須）", "body", textarea=True, hint="例：私たちは、〜")
-
-
-
                                                         ui.separator().classes("q-mt-md q-mb-sm")
 
                                                         # 業務内容（追加・削除可）
@@ -5300,14 +4289,14 @@ def render_main(u: User) -> None:
                                                         svc.setdefault("image_url", "")
                                                         svc.setdefault("image_upload_name", "")
                                                         bind_dict_input(svc, "業務内容：タイトル（任意）", "title", hint="例：業務内容")
-                                                        
+                                                        bind_dict_input(svc, "業務内容：リード文（任意）", "lead", hint="例：提供サービスの概要")
+
                                                         ui.label("業務内容：画像（任意）").classes("text-body2 q-mt-sm")
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
-                                                        ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_svc_image(e):
+                                                        async def _on_upload_svc_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e)
                                                                 if not data_url:
                                                                     return
                                                                 svc["image_url"] = data_url
@@ -5330,22 +4319,12 @@ def render_main(u: User) -> None:
                                                         def svc_image_editor():
                                                             cur = str(svc.get("image_url") or "").strip()
                                                             name = str(svc.get("image_upload_name") or "").strip()
-                                                            show_url = cur or "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1280&h=720&q=60"
                                                             with ui.row().classes("items-center q-gutter-sm"):
-                                                                # 現在反映されている画像（サムネ）
-                                                                try:
-                                                                    ui.image(show_url).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
-                                                                except Exception:
-                                                                    pass
                                                                 ui.upload(on_upload=_on_upload_svc_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_svc_image).props("outline dense")
-                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
-                                                            ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+                                                                ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         svc_image_editor()
-
-
-                                                        bind_dict_input(svc, "業務内容：リード文（任意）", "lead", textarea=True, hint="例：提供サービスの概要")
 
                                                         @ui.refreshable
                                                         def svc_items_editor():
@@ -5477,17 +4456,7 @@ def render_main(u: User) -> None:
 
                                                     with ui.tab_panel("access"):
                                                         ui.label("アクセス").classes("text-subtitle1 q-mb-sm")
-                                                        ui.label("※ 住所は「2. 基本情報設定」の住所を使います").classes("cvhb-muted q-mb-xs")
-
-                                                        acc = blocks.setdefault("access", {})
-                                                        acc.setdefault("embed_map", True)
-
-                                                        def _on_map_embed(e):
-                                                            update_block("access", "embed_map", bool(e.value))
-
-                                                        ui.switch("Googleマップを表示（任意 / 重くなる場合があります）", value=bool(acc.get("embed_map", True)), on_change=_on_map_embed).props("dense")
-                                                        ui.label("※ OFF にすると軽い『地図風デザイン＋地図を開くリンク』になります。").classes("cvhb-muted q-mb-sm")
-
+                                                        bind_block_input("access", "地図URL（任意）", "map_url", hint="空欄なら「住所」から自動生成します。")
                                                         bind_block_input("access", "補足（任意）", "notes", textarea=True)
 
                                                     with ui.tab_panel("contact"):
@@ -5526,35 +4495,42 @@ def render_main(u: User) -> None:
                             ui.label("プレビュー").classes("cvhb-card-title")
                             ui.label("スマホ / PC 切替").classes("cvhb-muted")
 
-                                                # プレビュー表示モード（mobile / pc）
+                        # プレビュー表示モード（mobile / pc）
                         preview_mode = {"value": "mobile"}
 
-                        @ui.refreshable
-                        def pv_mode_selector():
-                            cur = str(preview_mode.get("value") or "mobile")
-                            if cur not in ("mobile", "pc"):
-                                cur = "mobile"
+                        with ui.tabs().props("dense").classes("q-mt-sm") as pv_tabs:
+                            ui.tab("mobile", label="スマホ", icon="smartphone")
+                            ui.tab("pc", label="PC", icon="desktop_windows")
 
-                            def set_mode(m: str) -> None:
-                                if m not in ("mobile", "pc"):
-                                    m = "mobile"
-                                preview_mode["value"] = m
+                        # 初期表示（念のため）
+                        try:
+                            pv_tabs.value = preview_mode["value"]
+                        except Exception:
+                            pass
+
+                        def _pv_mode_change(e) -> None:
+                            try:
+                                val = str(getattr(e, "value", "") or "")
+                            except Exception:
+                                val = ""
+                            if val not in ("mobile", "pc"):
+                                val = "mobile"
+                            preview_mode["value"] = val
+                            try:
+                                preview_ref["refresh"]()
+                            except Exception:
+                                pass
+
+                        try:
+                            pv_tabs.on("update:model-value", _pv_mode_change)
+                        except Exception:
+                            try:
+                                pv_tabs.on("update:modelValue", _pv_mode_change)
+                            except Exception:
                                 try:
-                                    pv_mode_selector.refresh()
+                                    pv_tabs.on("change", _pv_mode_change)
                                 except Exception:
                                     pass
-                                try:
-                                    preview_ref["refresh"]()
-                                except Exception:
-                                    pass
-
-                            with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
-                                props_mobile = "no-caps unelevated color=primary" if cur == "mobile" else "no-caps outline color=primary"
-                                props_pc = "no-caps unelevated color=primary" if cur == "pc" else "no-caps outline color=primary"
-                                ui.button("スマホ", icon="smartphone", on_click=lambda: set_mode("mobile")).props(props_mobile)
-                                ui.button("PC", icon="desktop_windows", on_click=lambda: set_mode("pc")).props(props_pc)
-
-                        pv_mode_selector()
 
                         @ui.refreshable
                         def preview_panel():
@@ -5566,18 +4542,16 @@ def render_main(u: User) -> None:
                             # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
                             # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
                             design_w = 720 if mode == "mobile" else 1920
-                            # 表示(縮小)ルール
-                            # - スマホ: 720px をそのまま（大きくしすぎない / 中央揃え）
-                            # - PC: 1920pxで作り、表示は 1440px(0.75)〜960px(0.50) の範囲に収める
-                            min_scale = 0.01 if mode == "mobile" else 0.50
-                            max_scale = 1.00 if mode == "mobile" else 0.75
+                            fit_min_w = 720 if mode == "mobile" else 1280
+                            fit_max_w = 720 if mode == "mobile" else 1920
+                            frame_w = 800 if mode == "mobile" else 1200
                             radius = 22 if mode == "mobile" else 14
 
                             with ui.card().style(
-                                f"width: 100%; height: 2400px; overflow: hidden; border-radius: {radius}px; margin: 0;"
+                                f"width: min(100%, {frame_w}px); height: 2000px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             ).props("flat bordered"):
                                 with ui.element("div").props('id="pv-fit"').style(
-                                    "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
+                                    "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
                                 ):
                                     if not p:
                                         ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
@@ -5595,7 +4569,7 @@ def render_main(u: User) -> None:
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, 0, 0, {min_scale}, {max_scale});"
+                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
                                             )
                                         except Exception:
                                             pass
@@ -5608,7 +4582,7 @@ def render_main(u: User) -> None:
                                         # optional debug marker (DevTools で有効化したときだけ記録)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minScale: {min_scale}, maxScale: {max_scale}}});"
+                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}}});"
                                             )
                                         except Exception:
                                             pass
