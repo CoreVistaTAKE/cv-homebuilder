@@ -1,8 +1,8 @@
 /* =========================================================
-   CV-HomeBuilder Styles (v0.6.2)
-   - 画面が広い: 左(固定) + 右(プレビュー)
+   CV-HomeBuilder Styles (v0.6.99)
+   - 画面が広い: 左(固定) + 右(最大幅プレビュー)
    - 画面が狭い: 縦並び
-   - ここを触るだけで「見た目」を整えられるように分離しました
+   - ここを触るだけで「見た目」を整えられるように分離
    ========================================================= */
 
 :root {
@@ -17,23 +17,38 @@
   min-height: calc(100vh - 64px);
 }
 
+/* 重要: 右プレビューを「ウィンドウいっぱい」にするため、max-width を外す */
 .cvhb-container {
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 16px;
 }
 
 /* --- 2カラム（安定のCSS Grid） --- */
 .cvhb-split {
   display: grid;
-  grid-template-columns: 520px minmax(0, 1fr);
+  grid-template-columns: 520px minmax(0, 1fr); /* 左固定 / 右可変 */
   gap: var(--cvhb-gap);
   align-items: start;
 }
 
+/* old/new class 両対応（将来のクラス名変更で崩れないように） */
 .cvhb-left,
-.cvhb-right {
+.cvhb-right,
+.cvhb-left-col,
+.cvhb-right-col {
   min-width: 0;
+}
+
+/* 左側フォームはカード幅いっぱいを使う（左寄せで細く見えるのを防ぐ） */
+.cvhb-left .q-field,
+.cvhb-left-col .q-field,
+.cvhb-left .q-input,
+.cvhb-left-col .q-input,
+.cvhb-left .q-textarea,
+.cvhb-left-col .q-textarea {
+  width: 100%;
 }
 
 /* スマホ〜タブレットは縦並び */
@@ -53,7 +68,9 @@
 
 /* --- カードの角を統一 --- */
 .cvhb-left .q-card,
-.cvhb-right .q-card {
+.cvhb-right .q-card,
+.cvhb-left-col .q-card,
+.cvhb-right-col .q-card {
   border-radius: var(--cvhb-card-radius);
 }
 

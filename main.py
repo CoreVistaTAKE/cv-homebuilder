@@ -254,16 +254,16 @@ def inject_global_styles() -> None:
     min-height: calc(100vh - 64px);
   }
   .cvhb-container {
-    max-width: 2000px;
-    margin-left: 0;
-    margin-right: auto;
+    width: 100%;
+    max-width: none;
+    margin: 0;
     padding: 16px;
   }
 
   /* ====== Split layout (PC builder) ====== */
   .cvhb-split {
     display: grid;
-    grid-template-columns: minmax(360px, 620px) minmax(360px, 1fr);
+    grid-template-columns: 520px minmax(0, 1fr);
     gap: 16px;
     align-items: start;
   }
@@ -271,6 +271,14 @@ def inject_global_styles() -> None:
   .cvhb-right-col {
     width: 100%;
   }
+
+  /* 左側フォームはカード幅いっぱいを使う（左寄せで細く見えるのを防ぐ） */
+  .cvhb-left-col .q-field,
+  .cvhb-left-col .q-input,
+  .cvhb-left-col .q-textarea {
+    width: 100%;
+  }
+
 
   /* 右プレビューはデスクトップ時に追従 */
   @media (min-width: 761px) {
@@ -1068,10 +1076,32 @@ def inject_global_styles() -> None:
   border-radius: 18px;
   text-align: center;
   backdrop-filter: blur(18px);
-  background: rgba(255,255,255,0.68);
-  border: 1px solid rgba(255,255,255,0.55);
-  box-shadow: 0 18px 44px rgba(0,0,0,0.10);
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(255,255,255,0.42);
+  box-shadow: 0 22px 54px rgba(0,0,0,0.12);
 }
+
+/* SP: キャッチは画像に重ねず下へ（画像の下で目立たせる） */
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption{
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: min(92%, 680px);
+  margin: 14px auto 0;
+  padding: 16px 18px;
+  border-radius: 16px;
+  text-align: center;
+  backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 16px 42px rgba(0,0,0,0.12);
+}
+.pv-layout-260218.pv-dark.pv-mode-mobile .pv-hero-caption{
+  background: rgba(0,0,0,0.55);
+  border-color: rgba(255,255,255,0.14);
+}
+
 .pv-layout-260218.pv-dark .pv-hero-caption{
   background: rgba(0,0,0,0.45);
   border-color: rgba(255,255,255,0.14);
@@ -1079,8 +1109,11 @@ def inject_global_styles() -> None:
 }
 .pv-layout-260218 .pv-hero-caption-title{
   font-weight: 1000;
-  font-size: clamp(1.2rem, 3.3vw, 2.2rem);
+  font-size: clamp(1.4rem, 2.8vw, 2.8rem);
   line-height: 1.15;
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
+  font-size: 1.75rem;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
   margin-top: 8px;
@@ -1588,6 +1621,9 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, ge
         outer_clientWidth: outer ? outer.clientWidth : null,
         outer_offsetWidth: outer ? outer.offsetWidth : null,
         outer_rectWidth: outer ? outer.getBoundingClientRect().width : null,
+        outer_clientHeight: outer ? outer.clientHeight : null,
+        outer_offsetHeight: outer ? outer.offsetHeight : null,
+        outer_rectHeight: outer ? outer.getBoundingClientRect().height : null,
         outer_display: cs ? cs.display : null,
         outer_visibility: cs ? cs.visibility : null,
         outer_position: cs ? cs.position : null,
@@ -1600,16 +1636,21 @@ window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, ge
   };
 
 
-window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth, minWidth, maxWidth){
+window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerId, designWidth, minWidth, maxWidth, minScale, maxScale){
   try{
     const safeNum = function(v, fb){
       v = Number(v);
       if(!isFinite(v)) return fb || 0;
       return v;
     };
+
     const dwReq = Math.max(1, safeNum(designWidth, 1));
     const minW = Math.max(0, safeNum(minWidth, 0));
     const maxW = Math.max(0, safeNum(maxWidth, 0));
+
+    const minS = safeNum(minScale, 0);
+    const maxS = safeNum(maxScale, 0);
+    const hasScaleLimits = (minS > 0) || (maxS > 0);
 
     // register 世代管理（古いタイマーが新しいDOMに触って事故るのを防ぐ）
     try{
@@ -1627,7 +1668,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     }catch(e){}
 
     let tries = 0;
-    const MAX_TRIES = 60;   // 余裕を持たせる（遅い端末でも安定）
+    const MAX_TRIES = 60;
     const DELAY_MS = 80;
 
     const apply = function(){
@@ -1656,10 +1697,15 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           safeNum(outer.clientWidth, 0),
           safeNum(outer.offsetWidth, 0)
         );
+        const oh = Math.max(
+          safeNum(rect.height, 0),
+          safeNum(outer.clientHeight, 0),
+          safeNum(outer.offsetHeight, 0)
+        );
 
         // not ready / hidden (0px になりがち) -> 少し待って再計測
-        if(ow <= 0){
-          try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, tries:tries}); }catch(e){}
+        if(ow <= 0 || oh <= 0){
+          try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, oh:oh, tries:tries}); }catch(e){}
           if(tries < MAX_TRIES){
             tries++;
             try{ clearTimeout(window.__cvhbFit.timers[key]); }catch(e){}
@@ -1678,49 +1724,70 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
               inner.style.visibility = 'visible';
               inner.style.opacity = '1';
             }catch(e){}
-            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, dw_req:dwReq, minW:minW||0, maxW:maxW||0}); }catch(e){}
+            try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, oh:oh, dw_req:dwReq, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0}); }catch(e){}
           }
           return;
         }
 
-        // inner: absolute + fixed design width（PCは 1920 だが、狭い画面では最小 1280 を確保）
-        // - dwReq : 目標のデザイン幅（例：SP=720 / PC=1920）
-        // - minW/maxW : 任意（PC=1280..1920 のように下限/上限を指定できる）
+        // inner width:
+        // - scale指定がある場合: 「設計幅(dwReq)」固定で縮小（PC=1920 / SP=720）
+        // - scale指定がない場合: 互換モード（旧: minW/maxWで dwUsed を可変にする）
         let dwUsed = dwReq;
-        try{
-          if(maxW && maxW > 0) dwUsed = Math.min(dwUsed, maxW);
-          if(minW && minW > 0){
-            // 画面が狭いのに 1920 をそのまま縮小すると「小さくなりすぎる」ので、最小幅で止める
-            if(ow < minW) dwUsed = minW;
-            dwUsed = Math.max(dwUsed, minW);
-          }
-        }catch(e){}
+        if(!hasScaleLimits){
+          try{
+            if(maxW && maxW > 0) dwUsed = Math.min(dwUsed, maxW);
+            if(minW && minW > 0){
+              if(ow < minW) dwUsed = minW;
+              dwUsed = Math.max(dwUsed, minW);
+            }
+          }catch(e){}
+        }
 
         inner.style.position = 'absolute';
         inner.style.top = '0px';
-        inner.style.height = '100%';
         inner.style.width = dwUsed + 'px';
         inner.style.maxWidth = 'none';
         inner.style.visibility = 'visible';
         inner.style.opacity = '1';
+        inner.style.transformOrigin = 'top left';
 
         const rawScale = ow / dwUsed;
-        const scale = Math.max(0.01, Math.min(1, rawScale));
+        let scale = rawScale;
 
-        inner.style.transformOrigin = 'top left';
+        if(hasScaleLimits){
+          const lo = (minS > 0) ? minS : 0.01;
+          let hi = (maxS > 0) ? maxS : 1;
+          hi = Math.min(1, hi);
+          scale = Math.max(lo, Math.min(hi, rawScale));
+        }else{
+          scale = Math.max(0.01, Math.min(1, rawScale));
+        }
+
+        // 重要: 縦も「枠いっぱい」に見えるように、inner の高さを scale で補正する
+        // outer 高さ = oh
+        // inner 高さ = oh / scale  にすると、縮小後の見た目がちょうど oh になる
+        const innerH = Math.max(1, oh / Math.max(0.01, scale));
+        inner.style.height = innerH + 'px';
+
         inner.style.transform = 'scale(' + scale + ')';
 
         const visualW = dwUsed * scale;
         const left = Math.max(0, (ow - visualW) / 2);
         inner.style.left = left + 'px';
 
-        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, scale:scale, left:left}); }catch(e){}
+        // 横が足りない場合は横スクロール（PC: 960px未満で発生する想定）
+        try{
+          outer.style.overflowY = 'hidden';
+          outer.style.overflowX = (visualW > ow + 1) ? 'auto' : 'hidden';
+        }catch(e){}
+
+        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, oh:oh, dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0, scale:scale, left:left}); }catch(e){}
       }catch(e){}
     };
 
     window.__cvhbFit.regs[key] = apply;
 
-    // ResizeObserver (一番安定) - outer の生成タイミングがズレても拾えるように遅延でも試す
+    // ResizeObserver (一番安定)
     const ensureObserver = function(){
       try{
         if(!window.ResizeObserver) return;
@@ -4291,6 +4358,13 @@ def render_main(u: User) -> None:
                                                                         ui.label(f"選択中: {cc[_i]}").classes("cvhb-muted")
 
                                                         hero_slides_editor()
+
+                                                        # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
+                                                        bind_step2_input(
+                                                            "キャッチコピー（ヒーロー）",
+                                                            "catch_copy",
+                                                            hint="ヒーローの一番大きい文章です。スマホは画像の下、PCは画像に重ねて表示されます。",
+                                                        )
                                                         bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
                                                         ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
 
@@ -4617,16 +4691,18 @@ def render_main(u: User) -> None:
                             # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
                             # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
                             design_w = 720 if mode == "mobile" else 1920
-                            fit_min_w = 720 if mode == "mobile" else 1280
-                            fit_max_w = 720 if mode == "mobile" else 1920
-                            frame_w = 800 if mode == "mobile" else 1600
+                            # 表示(縮小)ルール
+                            # - スマホ: 720px をそのまま（大きくしすぎない / 中央揃え）
+                            # - PC: 1920pxで作り、表示は 1440px(0.75)〜960px(0.50) の範囲に収める
+                            min_scale = 0.01 if mode == "mobile" else 0.50
+                            max_scale = 1.00 if mode == "mobile" else 0.75
                             radius = 22 if mode == "mobile" else 14
 
                             with ui.card().style(
-                                f"width: min(100%, {frame_w}px); height: 2400px; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
+                                f"width: 100%; height: 2400px; overflow: hidden; border-radius: {radius}px; margin: 0;"
                             ).props("flat bordered"):
                                 with ui.element("div").props('id="pv-fit"').style(
-                                    "height: 100%; width: 100%; display: block; overflow: hidden; position: relative; background: transparent;"
+                                    "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
                                 ):
                                     if not p:
                                         ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
@@ -4644,7 +4720,7 @@ def render_main(u: User) -> None:
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, {fit_min_w}, {fit_max_w});"
+                                                f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, 0, 0, {min_scale}, {max_scale});"
                                             )
                                         except Exception:
                                             pass
@@ -4657,7 +4733,7 @@ def render_main(u: User) -> None:
                                         # optional debug marker (DevTools で有効化したときだけ記録)
                                         try:
                                             ui.run_javascript(
-                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minW: {fit_min_w}, maxW: {fit_max_w}}});"
+                                                f"window.cvhbDebugLog && window.cvhbDebugLog('preview_render', {{mode: '{mode}', designW: {design_w}, minScale: {min_scale}, maxScale: {max_scale}}});"
                                             )
                                         except Exception:
                                             pass
