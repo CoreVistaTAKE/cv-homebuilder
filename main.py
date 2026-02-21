@@ -271,68 +271,75 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
 async def _read_upload_bytes(content) -> bytes:
     """Read bytes from NiceGUI upload content safely (supports sync/async).
 
-    v0.6.997:
-    - 画像の「読み込み位置」が末尾になって 0バイトになることがあるため、
-      先に seek(0) で先頭に戻してから読み込みます。
-    - content / content.file どちらでも読めるようにフォールバックします。
+    v0.6.998:
+    - ui.upload の content は環境により UploadFile / BufferedReader 等が混在します。
+    - on_upload のタイミングによっては async read/seek 中に content が閉じられて
+      0バイトになることがあるため、まずは content.file を「同期読み込み」で試します。
+    - それでもダメなら content.read()（sync/async）へフォールバックします。
     """
     if content is None:
         return b""
 
-    # 1) try rewind (UploadFile-like)
-    try:
-        seek_fn = getattr(content, "seek", None)
-    except Exception:
-        seek_fn = None
-    try:
-        if callable(seek_fn):
-            r = seek_fn(0)
-            if inspect.isawaitable(r):
-                await r
-    except Exception:
-        pass
+    # すでに bytes の場合
+    if isinstance(content, (bytes, bytearray, memoryview)):
+        return bytes(content)
 
-    # 2) try rewind underlying file too
+    # 1) Prefer underlying file object (sync) to avoid async timing issues
     try:
         fobj = getattr(content, "file", None)
     except Exception:
         fobj = None
+
+    if fobj is not None and hasattr(fobj, "read"):
+        try:
+            if hasattr(fobj, "seek"):
+                try:
+                    fobj.seek(0)
+                except Exception:
+                    pass
+            data = fobj.read()
+            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
+                return bytes(data)
+        except Exception:
+            pass
+
+    # 2) Rewind content itself (sync/async)
     try:
-        if fobj is not None and hasattr(fobj, "seek"):
-            fobj.seek(0)
+        seek_fn = getattr(content, "seek", None)
+        if callable(seek_fn):
+            try:
+                r = seek_fn(0)
+                if inspect.isawaitable(r):
+                    await r
+            except Exception:
+                pass
     except Exception:
         pass
 
-    # 3) read bytes
+    # 3) Read via content.read (sync/async)
     try:
         read_fn = getattr(content, "read", None)
     except Exception:
         read_fn = None
 
     try:
-        data = None
-
         if callable(read_fn):
             data = read_fn()
             if inspect.isawaitable(data):
                 data = await data
-        elif fobj is not None and hasattr(fobj, "read"):
-            data = fobj.read()
-        else:
-            data = content
+            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
+                return bytes(data)
+    except Exception:
+        pass
 
-        if data is None:
-            return b""
-        if isinstance(data, (bytes, bytearray, memoryview)):
-            return bytes(data)
-
-        # last resort: try bytes()
-        try:
-            return bytes(data)
-        except Exception:
-            return b""
+    # 4) Last resort: try bytes()
+    try:
+        b = bytes(content)
+        return b if b else b""
     except Exception:
         return b""
+
+
 
 
 
@@ -1327,8 +1334,9 @@ def inject_global_styles() -> None:
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   backdrop-filter: blur(12px);
-  background: linear-gradient(180deg, rgba(255,255,255,0.90), rgba(255,255,255,0.78));
+  background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.72));
   border: 1px solid rgba(0,0,0,0.06);
   border-top: 5px solid var(--pv-primary);
   box-shadow: 0 20px 52px rgba(0,0,0,0.14);
@@ -1372,6 +1380,26 @@ def inject_global_styles() -> None:
   font-size: clamp(1.18rem, 1.45vw, 1.45rem);
   text-shadow: 0 10px 24px rgba(0,0,0,0.16);
 }
+/* ===== Hero: キャッチ/サブキャッチ 文字サイズ（大/中/小） ===== */
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-l{
+  font-size: clamp(2.6rem, 3.6vw, 4.4rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-s{
+  font-size: clamp(2.0rem, 2.8vw, 3.5rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-l{
+  font-size: clamp(1.35rem, 1.65vw, 1.75rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-s{
+  font-size: clamp(1.02rem, 1.25vw, 1.25rem);
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-l{ font-size: 2.05rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-s{ font-size: 1.55rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{ font-size: 1.02rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-l{ font-size: 1.15rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-s{ font-size: 0.95rem; }
+
 
 .pv-layout-260218 .pv-hero-caption-title{
   font-weight: 1000;
@@ -1953,6 +1981,26 @@ def inject_global_styles() -> None:
   opacity: 0.62;
   font-size: 0.8rem;
 }
+/* ====== Legal (Privacy Policy) ====== */
+.pv-legal-title{
+  font-weight: 900;
+  font-size: 1.05rem;
+}
+.pv-legal-md{
+  font-size: 0.98rem;
+  line-height: 1.85;
+}
+.pv-legal-md h1,
+.pv-legal-md h2,
+.pv-legal-md h3{
+  margin: 14px 0 8px;
+  font-weight: 900;
+}
+.pv-legal-md h2{ font-size: 1.05rem; }
+.pv-legal-md h3{ font-size: 1.0rem; }
+.pv-legal-md ul{ padding-left: 1.2em; }
+.pv-legal-md li{ margin: 6px 0; }
+
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
 </style>
@@ -2323,7 +2371,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.997")
+VERSION = read_text_file("VERSION", "0.6.998")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -2945,7 +2993,7 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
         presets: dict[str, dict] = {
             # 会社・企業サイト（基本）
             "corp_v1": {
-                "catch_copy": "",
+                "catch_copy": corp_sample_catch,
                 "sub_catch": corp_sample_sub,
                 "primary_cta": "お問い合わせ",
                 "secondary_cta": "見学・相談",
@@ -3179,6 +3227,15 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
 
         # サンプル値集合（テンプレ切替時に入れ替えてよい値）
         sample_catch = _gather("catch_copy") | {corp_sample_catch}
+        # v0.6.998: キャッチが空のときに「会社名」が表示され、
+        # テンプレ切替でそのまま残ってしまうと「消えた/固定された」に見えるため、
+        # 現在の会社名も「差し替えてよい値」に含めます。
+        try:
+            _cn = _txt(step2.get("company_name"))
+            if _cn:
+                sample_catch.add(_cn)
+        except Exception:
+            pass
         sample_sub = _gather("sub_catch") | {corp_sample_sub}
         sample_primary = _gather("primary_cta") | {"お問い合わせ", "体験利用", "入居相談", "見学する", "相談する"}
         sample_secondary = _gather("secondary_cta") | {"見学・相談", "無料相談", "見学する"}
@@ -3319,6 +3376,8 @@ def normalize_project(p: dict) -> dict:
     step2.setdefault("favicon_url", "")
     step2.setdefault("favicon_filename", "")
     step2.setdefault("catch_copy", "")
+    step2.setdefault("catch_size", "中")
+    step2.setdefault("sub_catch_size", "中")
     step2.setdefault("phone", "")
     step2.setdefault("address", "")
     step2.setdefault("email", "")
@@ -3566,7 +3625,7 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
         "updated_by": created_by.username if created_by else "",
         "data": {
             "step1": {"industry": "会社サイト（企業）", "primary_color": "blue", "welfare_domain": "", "welfare_mode": "", "template_id": "corp_v1"},
-            "step2": {"company_name": "", "favicon_url": "", "catch_copy": "", "phone": "", "address": "", "email": ""},
+            "step2": {"company_name": "", "favicon_url": "", "favicon_filename": "", "catch_copy": "", "catch_size": "中", "sub_catch_size": "中", "phone": "", "address": "", "email": ""},
             "blocks": {},
         },
     }
@@ -3990,10 +4049,21 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         s = str(s or "").strip()
         return s if s else fallback
 
+    def _size_class(v: str) -> str:
+        """大/中/小 の選択を CSS class に変換（プレビュー側で落ちないように安全に）"""
+        v = str(v or "").strip()
+        if v in ("大", "L", "large", "big"):
+            return "pv-size-l"
+        if v in ("小", "S", "small"):
+            return "pv-size-s"
+        return "pv-size-m"
+
     # -------- content --------
     company_name = _clean(step2.get("company_name"), "会社名")
     favicon_url = _clean(step2.get("favicon_url")) or DEFAULT_FAVICON_DATA_URL
     catch_copy = _clean(step2.get("catch_copy"))
+    catch_size = _clean(step2.get("catch_size"), "中")
+    sub_catch_size = _clean(step2.get("sub_catch_size"), "中")
     phone = _clean(step2.get("phone"))
     email = _clean(step2.get("email"))
     address = _clean(step2.get("address"))
@@ -4119,9 +4189,9 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
                 # caption overlay
                 with ui.element("div").classes("pv-hero-caption"):
-                    ui.label(_clean(catch_copy, company_name)).classes("pv-hero-caption-title")
+                    ui.label(_clean(catch_copy, company_name)).classes(f"pv-hero-caption-title {_size_class(catch_size)}")
                     if sub_catch:
-                        ui.label(sub_catch).classes("pv-hero-caption-sub")
+                        ui.label(sub_catch).classes(f"pv-hero-caption-sub {_size_class(sub_catch_size)}")
 
             # ----- main -----
             with ui.element("main").classes("pv-main"):
@@ -4351,38 +4421,43 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
             if not privacy_contact:
                 privacy_contact = "\n- 連絡先: このページのお問い合わせ欄をご確認ください。"
 
-            privacy_md = f"""※ これは公開用のたたき台（テンプレート）です。公開前に必ず内容を確認し、必要に応じて専門家へご相談ください。
+            privacy_md = f"""当社（{company_name}）は、個人情報の重要性を認識し、個人情報保護法その他の関係法令・ガイドラインを遵守するとともに、以下のとおり個人情報を適切に取り扱います。
 
 ## 1. 取得する情報
-{company_name}（以下「当社」）は、お問い合わせ等を通じて、氏名、連絡先（電話番号/メールアドレス）、お問い合わせ内容などの情報を取得することがあります。
+当社は、以下の情報を取得することがあります。
+
+- お問い合わせ等でお客様が入力・送信する情報（氏名、連絡先（電話番号/メールアドレス）、お問い合わせ内容 等）
+- サイトの利用に伴い自動的に送信される情報（IPアドレス、ブラウザ情報、閲覧履歴、Cookie 等）
 
 ## 2. 利用目的
-当社は取得した個人情報を、以下の目的の範囲で利用します。
+当社は、取得した個人情報を以下の目的で利用します。
 
 - お問い合わせへの回答・必要な連絡のため
-- サービス提供・ご案内のため
-- 品質向上・改善のため（必要な範囲）
+- サービスの提供、運営、案内のため
+- 品質向上・改善、利便性向上のため
+- 不正行為の防止、セキュリティ確保のため
+- 法令に基づく対応のため
 
 ## 3. 第三者提供
-当社は、法令に基づく場合を除き、ご本人の同意なく個人情報を第三者に提供しません。
+当社は、法令で認められる場合を除き、あらかじめ本人の同意を得ることなく個人情報を第三者に提供しません。
 
 ## 4. 委託
-当社は、利用目的の達成に必要な範囲で、個人情報の取り扱いを外部事業者に委託することがあります。その場合、適切な委託先を選定し、必要かつ適切な監督を行います。
+当社は、利用目的の達成に必要な範囲で、個人情報の取扱いを外部事業者に委託することがあります。その場合、適切な委託先を選定し、契約等により必要かつ適切な監督を行います。
 
-## 5. Cookie等の利用
-当社サイトでは、利便性向上やアクセス解析等のために Cookie 等の技術を使用する場合があります。ブラウザ設定により Cookie を無効にすることができますが、その場合は一部機能が利用できないことがあります。
+## 5. 安全管理措置
+当社は、個人情報の漏えい、滅失、毀損等を防止するため、必要かつ適切な安全管理措置を講じます。
 
-## 6. 安全管理
-当社は、個人情報の漏えい、滅失、毀損等を防止するため、合理的な安全管理措置を講じます。
+## 6. Cookie等の利用
+当社サイトでは、利便性向上や利用状況の分析等のために Cookie 等の技術を使用する場合があります。Cookie はブラウザ設定により無効化できますが、その場合は一部機能が利用できないことがあります。
 
-## 7. 開示・訂正・利用停止等
-ご本人から、個人情報の開示、訂正、追加、削除、利用停止等のご請求があった場合、所定の手続きにより対応します。
+## 7. 外部リンク
+当社サイトから外部サイトへリンクする場合があります。リンク先における個人情報の取扱いについて、当社は責任を負いません。
 
-## 8. 外部リンク
-当社サイトから外部サイトへリンクする場合があります。リンク先における個人情報の取り扱いについて、当社は責任を負いません。
+## 8. 開示・訂正・利用停止等
+本人から、保有個人データの開示、訂正、追加、削除、利用停止、消去、第三者提供の停止等の請求があった場合、法令に基づき、本人確認のうえ適切に対応します。
 
 ## 9. 改定
-当社は、必要に応じて本ポリシーの内容を改定することがあります。
+当社は、法令等の変更や必要に応じて本ポリシーの内容を改定することがあります。改定後の内容は当社サイト上で掲示します。
 
 ## 10. お問い合わせ窓口
 {company_name}{privacy_contact}
@@ -4390,7 +4465,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
             with ui.dialog() as privacy_dialog:
                 with ui.card().classes("q-pa-md").style("max-width: 900px; width: calc(100vw - 24px);"):
-                    ui.label("プライバシーポリシー").classes("text-h6 q-mb-sm")
+                    ui.label("プライバシーポリシー").classes("pv-legal-title q-mb-sm")
                     ui.markdown(privacy_md).classes("pv-legal-md")
                     ui.button("閉じる", on_click=privacy_dialog.close).props("outline no-caps").classes("q-mt-md")
 
@@ -4737,7 +4812,7 @@ def render_main(u: User) -> None:
                                             bind_step2_input("会社名", "company_name")
                                             # ファビコン（アップロード仕様）
                                             ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
-                                            ui.label("未設定ならデフォルトを使用します（32×32推奨）").classes("cvhb-muted")
+                                            ui.label("未設定ならデフォルトを使用します（推奨: 正方形PNG 32×32）").classes("cvhb-muted")
 
                                             async def _on_upload_favicon(e):
                                                 try:
@@ -4768,6 +4843,9 @@ def render_main(u: User) -> None:
                                                 with ui.row().classes("items-center q-gutter-sm"):
                                                     ui.image(show_url).style("width:32px;height:32px;border-radius:6px;")
                                                     ui.upload(on_upload=_on_upload_favicon, auto_upload=True).props("accept=image/*")
+                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props(
+                                                        "color=primary unelevated dense no-caps"
+                                                    )
                                                     ui.button("クリア", on_click=_clear_favicon).props("outline dense")
                                                 ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
@@ -4928,7 +5006,25 @@ def render_main(u: User) -> None:
                                                             "catch_copy",
                                                             hint="ヒーローの一番大きい文章です。スマホは画像の下、PCは画像に重ねて表示されます。",
                                                         )
+
+                                                        # 文字サイズ（大/中/小）
+                                                        def _on_catch_size(e):
+                                                            step2["catch_size"] = e.value or "中"
+                                                            update_and_refresh()
+                                                        ui.label("キャッチ文字サイズ").classes("cvhb-muted")
+                                                        ui.radio(["大", "中", "小"], value=step2.get("catch_size", "中"), on_change=_on_catch_size).props(
+                                                            "inline dense"
+                                                        ).classes("q-mb-sm")
+
                                                         bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
+
+                                                        def _on_sub_catch_size(e):
+                                                            step2["sub_catch_size"] = e.value or "中"
+                                                            update_and_refresh()
+                                                        ui.label("サブキャッチ文字サイズ").classes("cvhb-muted")
+                                                        ui.radio(["大", "中", "小"], value=step2.get("sub_catch_size", "中"), on_change=_on_sub_catch_size).props(
+                                                            "inline dense"
+                                                        ).classes("q-mb-sm")
                                                         ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
 
                                                     with ui.tab_panel("philosophy"):
