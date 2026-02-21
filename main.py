@@ -152,17 +152,23 @@ def _guess_mime(filename: str, default: str = "image/png") -> str:
 # 画像の推奨サイズ（アップロード時の目安）
 IMAGE_MAX_W = 1280
 IMAGE_MAX_H = 720
-IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）"
+IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動で16:9にカットして保存"
 
 # 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
 
 def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int) -> tuple[bytes, str]:
-    """画像を「最大 max_w×max_h」以内に縮小して返す。
+    """画像を target(max_w×max_h) に「16:9でセンタークロップ + リサイズ」して返す（v0.6.996）。
 
-    - アスペクト比は維持（引き伸ばしはしない）
-    - Pillow(PIL) が無い環境では、そのまま返す（＝依存追加なしで安全）
+    目的:
+    - 画像の保存/表示の比率を 1280×720（16:9）に統一したい
+    - 元画像が縦長/横長でも、できるだけ残しつつ中心を基準にカットする
+
+    仕様:
+    - Pillow(PIL) が無い環境では元データを返す（安全優先）
+    - 画像は EXIF の回転を補正してから処理する
+    - 出力は: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
     """
     try:
         if not data:
@@ -172,9 +178,9 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
         if not str(mime or "").startswith("image/"):
             return data, mime
 
-        # Pillow が入っている場合だけ縮小・圧縮を行う
+        # Pillow が入っている場合だけ加工する（依存が無い環境でも落ちない）
         try:
-            from PIL import Image  # type: ignore
+            from PIL import Image, ImageOps  # type: ignore
             from io import BytesIO
         except Exception:
             return data, mime
@@ -185,16 +191,49 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
         except Exception:
             pass
 
+        # EXIF の回転を補正（スマホ写真が横倒しになる事故を防ぐ）
+        try:
+            im = ImageOps.exif_transpose(im)
+        except Exception:
+            pass
+
         w, h = getattr(im, "size", (0, 0))
         if not w or not h:
             return data, mime
 
-        # 縮小（大きい時だけ）
-        scale = min(max_w / float(w), max_h / float(h), 1.0)
-        if scale < 1.0:
-            nw = max(1, int(round(w * scale)))
-            nh = max(1, int(round(h * scale)))
-            im = im.resize((nw, nh), Image.LANCZOS)
+        target_w = int(max_w)
+        target_h = int(max_h)
+        if target_w <= 0 or target_h <= 0:
+            return data, mime
+
+        target_ratio = target_w / float(target_h)
+        src_ratio = w / float(h)
+
+        # --- センタークロップで 16:9 に寄せる（できるだけ残す） ---
+        # 縦横どちらが大きいかをベースにして、はみ出る分だけをカット
+        try:
+            if src_ratio > target_ratio:
+                # 横長 → 左右をカット
+                new_w = max(1, int(round(h * target_ratio)))
+                left = int(round((w - new_w) / 2.0))
+                im = im.crop((left, 0, left + new_w, h))
+            elif src_ratio < target_ratio:
+                # 縦長 → 上下をカット
+                new_h = max(1, int(round(w / target_ratio)))
+                top = int(round((h - new_h) / 2.0))
+                im = im.crop((0, top, w, top + new_h))
+        except Exception:
+            # crop に失敗しても元のまま続行（落ちない方が大事）
+            pass
+
+        # --- 1280×720 にリサイズ（小さければ拡大もする） ---
+        try:
+            im = im.resize((target_w, target_h), Image.LANCZOS)
+        except Exception:
+            try:
+                im = im.resize((target_w, target_h))
+            except Exception:
+                pass
 
         # 透過がある場合は PNG、それ以外は JPEG（軽量化）
         has_alpha = (
@@ -202,13 +241,13 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
         )
 
+        from io import BytesIO  # local import（PILがあるときだけ到達）
         out = BytesIO()
         if has_alpha:
             out_mime = "image/png"
             try:
                 im.save(out, format="PNG", optimize=True)
             except Exception:
-                # 万が一PNG保存に失敗したら元を返す
                 return data, mime
         else:
             out_mime = "image/jpeg"
@@ -259,8 +298,8 @@ async def _read_upload_bytes(content) -> bytes:
 async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
     """Convert a NiceGUI upload event into (data_url, filename).
 
-    v0.6.994:
-    - 画像は「最大 1280×720」以内に自動縮小（Pillowがある環境のみ）
+    v0.6.996:
+    - 画像は「1280×720（16:9）」に自動でセンターカットして保存（Pillowがある環境のみ）
     - 極端に大きいファイルは弾く（事故防止）
     """
     try:
@@ -274,6 +313,10 @@ async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tup
     content = getattr(e, "content", None)
     data = await _read_upload_bytes(content)
     if not data:
+        try:
+            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
+        except Exception:
+            pass
         return "", fname
 
     # safety: too big
@@ -1217,7 +1260,9 @@ def inject_global_styles() -> None:
   left: 50%;
   bottom: 26px;
   transform: translateX(-50%);
-  width: min(92%, 980px);
+  display: inline-block;
+  width: fit-content;
+  max-width: min(92%, 980px);
   padding: 18px 22px;
   border-radius: 18px;
   text-align: center;
@@ -1239,9 +1284,10 @@ def inject_global_styles() -> None:
   border-radius: 16px;
   text-align: center;
   backdrop-filter: blur(12px);
-  background: rgba(255,255,255,0.92);
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.84));
   border: 1px solid rgba(0,0,0,0.06);
-  box-shadow: 0 16px 42px rgba(0,0,0,0.12);
+  border-top: 5px solid var(--pv-primary);
+  box-shadow: 0 20px 52px rgba(0,0,0,0.14);
 }
 .pv-layout-260218.pv-dark.pv-mode-mobile .pv-hero-caption{
   background: rgba(0,0,0,0.55);
@@ -1254,16 +1300,19 @@ def inject_global_styles() -> None:
   box-shadow: 0 18px 44px rgba(0,0,0,0.22);
 }
 
-/* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.995） */
+/* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.996） */
 .pv-layout-260218.pv-mode-pc .pv-hero-caption{
-  bottom: 34px;
-  width: min(90%, 1080px);
-  padding: 22px 26px;
-  border-radius: 20px;
+  bottom: 42px;
+  display: inline-block;
+  width: fit-content;
+  max-width: min(92%, 1120px);
+  padding: 26px 32px;
+  border-radius: 26px;
+  text-align: center;
   backdrop-filter: blur(22px);
-  background: linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.22));
-  border: 1px solid rgba(255,255,255,0.52);
-  box-shadow: 0 28px 70px rgba(0,0,0,0.14);
+  background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
+  border: 1px solid rgba(255,255,255,0.56);
+  box-shadow: 0 40px 120px rgba(0,0,0,0.16);
 }
 .pv-layout-260218.pv-dark.pv-mode-pc .pv-hero-caption{
   background: linear-gradient(180deg, rgba(0,0,0,0.46), rgba(0,0,0,0.28));
@@ -1271,13 +1320,13 @@ def inject_global_styles() -> None:
   box-shadow: 0 24px 64px rgba(0,0,0,0.26);
 }
 .pv-layout-260218.pv-mode-pc .pv-hero-caption-title{
-  font-size: clamp(1.9rem, 2.6vw, 3.2rem);
+  font-size: clamp(2.25rem, 3.2vw, 3.9rem);
   letter-spacing: 0.02em;
-  text-shadow: 0 10px 26px rgba(0,0,0,0.18);
+  text-shadow: 0 12px 30px rgba(0,0,0,0.18);
 }
 .pv-layout-260218.pv-mode-pc .pv-hero-caption-sub{
-  font-size: 1.05rem;
-  text-shadow: 0 8px 20px rgba(0,0,0,0.16);
+  font-size: clamp(1.18rem, 1.45vw, 1.45rem);
+  text-shadow: 0 10px 24px rgba(0,0,0,0.16);
 }
 
 .pv-layout-260218 .pv-hero-caption-title{
@@ -4794,7 +4843,7 @@ def render_main(u: User) -> None:
                                                             nn = hero["hero_upload_names"]
                                                             ui.label("ヒーロー画像（4枚固定）").classes("text-body1")
                                                             ui.label("スマホ：縦スライド／PC：横スライド").classes("cvhb-muted")
-                                                            ui.label(f"{IMAGE_RECOMMENDED_TEXT}（大きい画像は自動で縮小）").classes("cvhb-muted")
+                                                            ui.label(f"{IMAGE_RECOMMENDED_TEXT}").classes("cvhb-muted")
                                                             for _i in range(4):
                                                                 with ui.card().classes("q-pa-sm q-mb-sm").props("flat bordered"):
                                                                     ui.label(f"画像{_i+1}").classes("text-subtitle2")
@@ -4805,16 +4854,22 @@ def render_main(u: User) -> None:
                                                                         async def _upload_handler(e, i=_i):
                                                                             await _on_upload_slide(e, i)
                                                                         with ui.row().classes("items-center q-gutter-sm"):
+                                                                            # 現在反映されている画像（サムネ）
+                                                                            try:
+                                                                                ui.image(uu[_i]).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
+                                                                            except Exception:
+                                                                                pass
                                                                             ui.upload(on_upload=_upload_handler, auto_upload=True).props("accept=image/*")
                                                                             ui.button("クリア", on_click=lambda i=_i: _clear_slide_upload(i)).props("outline dense")
-                                                                            ui.label(f"ファイル: {nn[_i] or '未アップロード'}").classes("cvhb-muted")
+                                                                            ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
+                                                                        ui.label(f"ファイル: {nn[_i] or '未アップロード'}").classes("cvhb-muted")
                                                                     else:
                                                                         ui.label(f"選択中: {cc[_i]}").classes("cvhb-muted")
 
                                                         hero_slides_editor()
 
                                                         with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
-                                                            ui.button("画像を反映して保存", icon="save", on_click=save_now).props("color=primary unelevated no-caps")
+                                                            ui.button("画像を反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated no-caps")
                                                             ui.label("※アップロード後は、このボタンで保存すると安心です。").classes("cvhb-muted")
 
                                                         # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
@@ -4865,10 +4920,17 @@ def render_main(u: User) -> None:
                                                         def ph_image_editor():
                                                             cur = str(ph.get("image_url") or "").strip()
                                                             name = str(ph.get("image_upload_name") or "").strip()
+                                                            show_url = cur or "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&h=720&q=60"
                                                             with ui.row().classes("items-center q-gutter-sm"):
+                                                                # 現在反映されている画像（サムネ）
+                                                                try:
+                                                                    ui.image(show_url).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
+                                                                except Exception:
+                                                                    pass
                                                                 ui.upload(on_upload=_on_upload_ph_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_ph_image).props("outline dense")
-                                                                ui.label(f"現在: {'デフォルト(E: 木)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
+                                                            ui.label(f"現在: {'デフォルト(E: 木)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         ph_image_editor()
 
@@ -4937,10 +4999,17 @@ def render_main(u: User) -> None:
                                                         def svc_image_editor():
                                                             cur = str(svc.get("image_url") or "").strip()
                                                             name = str(svc.get("image_upload_name") or "").strip()
+                                                            show_url = cur or "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1280&h=720&q=60"
                                                             with ui.row().classes("items-center q-gutter-sm"):
+                                                                # 現在反映されている画像（サムネ）
+                                                                try:
+                                                                    ui.image(show_url).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
+                                                                except Exception:
+                                                                    pass
                                                                 ui.upload(on_upload=_on_upload_svc_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_svc_image).props("outline dense")
-                                                                ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
+                                                            ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         svc_image_editor()
 
