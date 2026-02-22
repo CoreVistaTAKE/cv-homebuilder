@@ -159,17 +159,19 @@ IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動�
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
 
-def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int) -> tuple[bytes, str]:
-    """画像を target(max_w×max_h) に「16:9でセンタークロップ + リサイズ」して返す（v0.6.996）。
+def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False) -> tuple[bytes, str]:
+    """画像を target(max_w×max_h) に「比率を合わせてセンタークロップ + リサイズ」して返す。
 
     目的:
-    - 画像の保存/表示の比率を 1280×720（16:9）に統一したい
-    - 元画像が縦長/横長でも、できるだけ残しつつ中心を基準にカットする
+    - 画像の保存/表示の比率を 1280×720（16:9）に統一したい（ヒーロー/理念/業務内容など）
+    - 元画像が縦長/横長でも、できるだけ残しつつ中心を基準にカットする（cover方式）
+    - ファビコンは 32×32 の PNG（正方形）にしたい → force_png=True を使う
 
     仕様:
     - Pillow(PIL) が無い環境では元データを返す（安全優先）
     - 画像は EXIF の回転を補正してから処理する
-    - 出力は: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
+    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
+      ただし force_png=True の場合は常に PNG を返す
     """
     try:
         if not data:
@@ -210,7 +212,7 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
         target_ratio = target_w / float(target_h)
         src_ratio = w / float(h)
 
-        # --- センタークロップで 16:9 に寄せる（できるだけ残す） ---
+        # --- センタークロップで target_ratio に寄せる（できるだけ残す） ---
         # 縦横どちらが大きいかをベースにして、はみ出る分だけをカット
         try:
             if src_ratio > target_ratio:
@@ -227,7 +229,7 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
             # crop に失敗しても元のまま続行（落ちない方が大事）
             pass
 
-        # --- 1280×720 にリサイズ（小さければ拡大もする） ---
+        # --- target にリサイズ（小さければ拡大もする） ---
         try:
             im = im.resize((target_w, target_h), Image.LANCZOS)
         except Exception:
@@ -236,14 +238,25 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
             except Exception:
                 pass
 
+        from io import BytesIO  # local import（PILがあるときだけ到達）
+        out = BytesIO()
+
+        # force_png のときは常に PNG
+        if force_png:
+            out_mime = "image/png"
+            try:
+                im.save(out, format="PNG", optimize=True)
+            except Exception:
+                return data, mime
+            out_bytes = out.getvalue()
+            return (out_bytes, out_mime) if out_bytes else (data, mime)
+
         # 透過がある場合は PNG、それ以外は JPEG（軽量化）
         has_alpha = (
             im.mode in ("RGBA", "LA")
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
         )
 
-        from io import BytesIO  # local import（PILがあるときだけ到達）
-        out = BytesIO()
         if has_alpha:
             out_mime = "image/png"
             try:
@@ -268,24 +281,183 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
         return data, mime
 
 
+def _upload_debug_summary(obj) -> str:
+    """Heroku logs 向けの安全な要約（生bytes/base64は絶対に出さない）"""
+    try:
+        if obj is None:
+            return "None"
+        if isinstance(obj, (bytes, bytearray, memoryview)):
+            return f"{type(obj).__name__}(len={len(obj)})"
+        if isinstance(obj, str):
+            s = obj.strip()
+            if s.startswith("data:") and "base64," in s:
+                return f"str(data_url,len={len(s)})"
+            return f"str(len={len(s)})"
+        if isinstance(obj, dict):
+            keys = list(obj.keys())
+            if len(keys) > 12:
+                keys = keys[:12] + ["..."]
+            return f"dict(keys={keys})"
+        if isinstance(obj, (list, tuple)):
+            return f"{type(obj).__name__}(len={len(obj)})"
+        return type(obj).__name__
+    except Exception:
+        return "unknown"
 
-async def _read_upload_bytes(content) -> bytes:
-    """Read bytes from NiceGUI upload content safely (supports sync/async).
 
-    v0.6.998:
-    - ui.upload の content は環境により UploadFile / BufferedReader 等が混在します。
-    - on_upload のタイミングによっては async read/seek 中に content が閉じられて
-      0バイトになることがあるため、まずは content.file を「同期読み込み」で試します。
-    - それでもダメなら content.read()（sync/async）へフォールバックします。
+def _extract_upload_event_payload(e) -> dict:
+    """NiceGUI upload のイベント引数の揺れ（object / dict / list）を吸収して payload を返す。
+
+    返り値の形:
+      {"name": str, "type": str, "content": Any}
+
+    ねらい:
+    - NiceGUI側のバージョン差・イベント型の差をここで吸収する
+    - 後段は「content から bytes を取れるか」だけに集中できる
+    """
+    # list/tuple: 先頭から「それっぽい」ものを拾う
+    if isinstance(e, (list, tuple)):
+        for it in e:
+            p = _extract_upload_event_payload(it)
+            if p.get("content") is not None or p.get("name") or p.get("type"):
+                return p
+        return {"name": "", "type": "", "content": None}
+
+    # dict: キー名ゆれを吸収
+    if isinstance(e, dict):
+        name = str(
+            e.get("name")
+            or e.get("filename")
+            or e.get("fileName")
+            or e.get("file_name")
+            or ""
+        ).strip()
+        mime = str(
+            e.get("type")
+            or e.get("mime")
+            or e.get("mimetype")
+            or e.get("content_type")
+            or ""
+        ).strip()
+
+        content = e.get("content")
+        if content is None:
+            content = e.get("file")
+        if content is None:
+            content = e.get("data")
+        if content is None:
+            content = e.get("bytes")
+
+        # 入れ子（files/args/payload/value）にも対応
+        if content is None:
+            for k in ("files", "args", "payload", "value"):
+                if k in e:
+                    nested = e.get(k)
+                    p = _extract_upload_event_payload(nested)
+                    # 上書きできる情報があれば反映
+                    if not name:
+                        name = p.get("name", "") or name
+                    if not mime:
+                        mime = p.get("type", "") or mime
+                    if p.get("content") is not None:
+                        content = p.get("content")
+                        break
+
+        return {"name": name, "type": mime, "content": content}
+
+    # object: attribute 名ゆれを吸収
+    try:
+        name = str(getattr(e, "name", "") or getattr(e, "filename", "") or "").strip()
+        mime = str(getattr(e, "type", "") or getattr(e, "mime", "") or "").strip()
+
+        content = getattr(e, "content", None)
+        if content is None:
+            content = getattr(e, "file", None)
+        if content is None:
+            content = getattr(e, "data", None)
+        if content is None:
+            # some wrappers use .files/.args/.payload/.value
+            for attr in ("files", "args", "payload", "value"):
+                nested = getattr(e, attr, None)
+                if nested is not None:
+                    p = _extract_upload_event_payload(nested)
+                    if not name:
+                        name = p.get("name", "") or name
+                    if not mime:
+                        mime = p.get("type", "") or mime
+                    if p.get("content") is not None:
+                        content = p.get("content")
+                        break
+
+        # それでも取れない場合は「e 自体」を content として渡す（後段で深掘り）
+        if content is None:
+            content = e
+
+        return {"name": name, "type": mime, "content": content}
+    except Exception:
+        return {"name": "", "type": "", "content": e}
+
+
+async def _read_upload_bytes(content, *, _depth: int = 0, _seen: Optional[set[int]] = None) -> bytes:
+    """Upload content から bytes を確実に取り出す（同期/非同期・dict/list の揺れを吸収）。
+
+    重要:
+    - NiceGUI/Starlette の UploadFile は read() が async のことがある（= await 必須）
+    - 逆に file.read() は sync のこともある
+    - ここで「両方」吸収して、必ず bytes を確保する
     """
     if content is None:
         return b""
+    # 再帰ループ防止
+    if _seen is None:
+        _seen = set()
+    try:
+        obj_id = id(content)
+        if obj_id in _seen:
+            return b""
+        _seen.add(obj_id)
+    except Exception:
+        pass
 
-    # すでに bytes の場合
+    if _depth > 8:
+        return b""
+    # bytes 直
     if isinstance(content, (bytes, bytearray, memoryview)):
         return bytes(content)
 
-    # 1) Prefer underlying file object (sync) to avoid async timing issues
+    # dict
+    if isinstance(content, dict):
+        # よくあるキーから優先して掘る
+        for k in ("content", "data", "bytes", "file", "raw", "body", "buffer"):
+            if k in content:
+                b = await _read_upload_bytes(content.get(k), _depth=_depth + 1, _seen=_seen)
+                if b:
+                    return b
+
+        # 入れ子（files/args/payload/value）
+        for k in ("files", "args", "payload", "value"):
+            if k in content:
+                b = await _read_upload_bytes(content.get(k), _depth=_depth + 1, _seen=_seen)
+                if b:
+                    return b
+
+        return b""
+    # list/tuple: 先頭から読めるものを探す
+    if isinstance(content, (list, tuple)):
+        for it in content:
+            b = await _read_upload_bytes(it, _depth=_depth + 1, _seen=_seen)
+            if b:
+                return b
+        return b""
+    # data URL（念のため）
+    try:
+        if isinstance(content, str) and content.startswith("data:") and "base64," in content:
+            b64 = content.split("base64,", 1)[1]
+            return base64.b64decode(b64)
+    except Exception:
+        pass
+
+    # 1) Prefer underlying file object (UploadFile.file 等) (sync)
     try:
         fobj = getattr(content, "file", None)
     except Exception:
@@ -293,18 +465,23 @@ async def _read_upload_bytes(content) -> bytes:
 
     if fobj is not None and hasattr(fobj, "read"):
         try:
+            # seek(0) できるなら戻す（同じイベントの再読みでも事故らない）
             if hasattr(fobj, "seek"):
                 try:
                     fobj.seek(0)
                 except Exception:
                     pass
             data = fobj.read()
+            if inspect.isawaitable(data):
+                data = await data
+            if isinstance(data, str):
+                data = data.encode("utf-8", errors="ignore")
             if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
                 return bytes(data)
         except Exception:
             pass
 
-    # 2) Rewind content itself (sync/async)
+    # 2) Try seek/read on the content itself (sync/async)
     try:
         seek_fn = getattr(content, "seek", None)
         if callable(seek_fn):
@@ -317,160 +494,12 @@ async def _read_upload_bytes(content) -> bytes:
     except Exception:
         pass
 
-    # 3) Read via content.read (sync/async)
     try:
         read_fn = getattr(content, "read", None)
-    except Exception:
-        read_fn = None
-
-    try:
         if callable(read_fn):
             data = read_fn()
             if inspect.isawaitable(data):
                 data = await data
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-    except Exception:
-        pass
-
-    # 4) Last resort: try bytes()
-    try:
-        b = bytes(content)
-        return b if b else b""
-    except Exception:
-        return b""
-
-
-
-
-
-
-def _unwrap_upload_event(e):
-    """ui.upload のイベントが list/tuple/dict でも壊れないように正規化します。"""
-    if e is None:
-        return None
-    try:
-        if isinstance(e, (list, tuple)) and len(e) > 0:
-            return e[0]
-    except Exception:
-        pass
-    return e
-
-
-def _ev_get(e, key: str, default=None):
-    """イベントが dict / オブジェクトどちらでも値を取れるようにします。"""
-    if e is None:
-        return default
-    try:
-        if isinstance(e, dict):
-            return e.get(key, default)
-    except Exception:
-        pass
-    try:
-        return getattr(e, key, default)
-    except Exception:
-        return default
-
-
-def _ev_get_args(e) -> Optional[dict]:
-    """NiceGUI/Quasarイベントの args を吸い出す（dict / list[dict] 両対応）"""
-    try:
-        if isinstance(e, dict):
-            args = e.get("args")
-            if isinstance(args, dict):
-                return args
-            if isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
-                return args[0]
-    except Exception:
-        pass
-    try:
-        args = getattr(e, "args", None)
-        if isinstance(args, dict):
-            return args
-        if isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
-            return args[0]
-    except Exception:
-        return None
-    return None
-def _extract_upload_fields(e) -> tuple[object, str, str]:
-    """upload event から (content, filename, mime) を取り出します。"""
-    e0 = _unwrap_upload_event(e)
-    args = _ev_get_args(e0) or {}
-    content = _ev_get(e0, "content", None)
-    if content is None:
-        content = args.get("content")
-    fname = _ev_get(e0, "name", "") or args.get("name", "") or ""
-    mime = _ev_get(e0, "type", "") or args.get("type", "") or ""
-    return content, str(fname), str(mime)
-
-
-def _read_upload_bytes_sync(content) -> bytes:
-    """同期版: ui.upload の content から bytes を取り出します。
-
-    画像アップロード不具合の根本対策:
-    - 環境によって on_upload が async を await しない場合があり、content が閉じられた後に
-      coroutine が走ると 0バイトになりがちです。
-    - そこで「同期で即読み」して、閉じられる前にバイト列を確保します。
-    """
-    if content is None:
-        return b""
-
-    if isinstance(content, (bytes, bytearray, memoryview)):
-        return bytes(content)
-
-    # data URL が来るケースも吸収（念のため）
-    try:
-        if isinstance(content, str) and content.startswith("data:") and "base64," in content:
-            b64 = content.split("base64,", 1)[1]
-            return base64.b64decode(b64)
-    except Exception:
-        pass
-
-    # dict の場合（まれ）
-    try:
-        if isinstance(content, dict):
-            if "data" in content and isinstance(content["data"], (bytes, bytearray, memoryview)):
-                return bytes(content["data"])
-            if "file" in content:
-                content = content["file"]
-    except Exception:
-        pass
-
-    # 1) Prefer underlying file object (UploadFile.file 等)
-    fobj = None
-    try:
-        fobj = getattr(content, "file", None)
-    except Exception:
-        fobj = None
-
-    if fobj is not None and hasattr(fobj, "read"):
-        try:
-            if hasattr(fobj, "seek"):
-                try:
-                    fobj.seek(0)
-                except Exception:
-                    pass
-            data = fobj.read()
-            if isinstance(data, str):
-                data = data.encode("utf-8", errors="ignore")
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-        except Exception:
-            pass
-
-    # 2) Try content.seek/read
-    try:
-        if hasattr(content, "seek"):
-            try:
-                content.seek(0)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    try:
-        if hasattr(content, "read"):
-            data = content.read()
             if isinstance(data, str):
                 data = data.encode("utf-8", errors="ignore")
             if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
@@ -478,7 +507,18 @@ def _read_upload_bytes_sync(content) -> bytes:
     except Exception:
         pass
 
-    # 3) Last resort
+    # 3) Known wrappers: content.value / content.body / content.buffer など
+    try:
+        for attr in ("value", "body", "buffer", "raw", "data"):
+            v = getattr(content, attr, None)
+            if v is not None and v is not content:
+                b = await _read_upload_bytes(v, _depth=_depth + 1, _seen=_seen)
+                if b:
+                    return b
+    except Exception:
+        pass
+
+    # 4) Last resort
     try:
         b = bytes(content)
         return b if b else b""
@@ -486,36 +526,46 @@ def _read_upload_bytes_sync(content) -> bytes:
         return b""
 
 
-def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
-    """同期版: upload event → (data_url, filename)
+async def _upload_event_to_data_url(
+    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False
+) -> tuple[str, str]:
+    """Upload event -> data URL（v0.6.9995 と同じ流れに戻す）.
+
+    - event の型ゆれ（object/dict/list）を吸収
+    - content から bytes を確保（sync/async 両対応）
+    - bytes を max_w×max_h に中心トリミング＋リサイズ（cover方式）
+    - data URL 化して返す
 
     NOTE:
-    - on_upload が async を await しない環境でも確実に動くことを最優先にしています。
+    - 成功通知は呼び出し側で行う（場所ごとに文言を変えたい）
     """
-    content, fname, mime = _extract_upload_fields(e)
-    data = _read_upload_bytes_sync(content)
+    payload = _extract_upload_event_payload(e)
+    # UI表示は短い方が安心。保存用も短縮で統一。
+    fname = _short_name(payload.get("name", "") or "uploaded")
+    mime = (payload.get("type") or "").strip()
+    content = payload.get("content")
+
+    # まず payload.content から読む。ダメなら e 自体も読む（古いイベント形状対策）
+    data = await _read_upload_bytes(content)
+    if not data:
+        data = await _read_upload_bytes(e)
 
     if not data:
-        # meta log (no binary)
         try:
             print(
-                f"[UPLOAD] read failed: fname={fname!r} mime={mime!r} content={type(content).__name__} event={type(e).__name__}",
+                "[UPLOAD] empty bytes",
+                json.dumps(
+                    {
+                        "event": _upload_debug_summary(e),
+                        "payload": _upload_debug_summary(payload),
+                        "content": _upload_debug_summary(content),
+                        "name": fname,
+                        "mime": mime,
+                    },
+                    ensure_ascii=False,
+                ),
                 flush=True,
             )
-            try:
-                e0 = _unwrap_upload_event(e)
-                args = _ev_get_args(e0)
-                meta = {
-                    "e0_type": type(e0).__name__,
-                    "name": _ev_get(e0, "name", None),
-                    "type": _ev_get(e0, "type", None),
-                    "content_attr_type": type(_ev_get(e0, "content", None)).__name__,
-                    "args_type": type(args).__name__ if args is not None else None,
-                    "args_keys": sorted(list(args.keys())) if isinstance(args, dict) else None,
-                }
-                print(f"[UPLOAD] meta: {json.dumps(meta, ensure_ascii=False)}", flush=True)
-            except Exception as ex2:
-                print(f"[UPLOAD] meta error: {ex2}", flush=True)
         except Exception:
             pass
         try:
@@ -524,74 +574,47 @@ def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tupl
             pass
         return "", fname
 
-    try:
-        if len(data) > MAX_UPLOAD_BYTES:
-            try:
-                ui.notify("画像ファイルが大きすぎます。サイズを小さくして再アップロードしてください。", type="warning")
-            except Exception:
-                pass
-            return "", fname
-    except Exception:
-        pass
-
-    if not mime:
-        mime = _guess_mime(fname, "image/png")
-
-    try:
-        if max_w and max_h:
-            data, mime = _maybe_resize_image_bytes(data, mime, max_w=max_w, max_h=max_h)
-    except Exception:
-        pass
-
-    try:
-        b64 = base64.b64encode(data).decode("ascii")
-    except Exception:
-        b64 = ""
-
-    if not b64:
+    if len(data) > MAX_UPLOAD_BYTES:
+        try:
+            ui.notify("画像が大きすぎます（10MB以下にしてください）", type="warning")
+        except Exception:
+            pass
         return "", fname
 
-    return f"data:{mime};base64,{b64}", fname
+    mime = mime or _guess_mime(fname, default="image/png")
 
+    # Resize/crop (cover)
+    if max_w and max_h:
+        try:
+            # PIL が重い時でも UI 全体が固まらないようにスレッドへ退避
+            data, mime = await asyncio.to_thread(
+                _maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h, force_png=force_png
+            )
+        except Exception:
+            traceback.print_exc()
 
-
-
-async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[Optional[str], Optional[str]]:
-    """Convert a NiceGUI upload event to a data URL (async).
-
-    - Robustly extracts (content, filename, mime) from several possible event shapes.
-    - Reads bytes with async support (UploadFile.read/seek) and also tries the underlying file object first.
-    - Optionally resizes/crops to keep a strict aspect ratio.
-    """
     try:
-        content, fname, mime = _extract_upload_fields(e)
-        data = await _read_upload_bytes(content)
-
-        if not data:
+        b64 = base64.b64encode(data).decode("ascii")
+        # 成功ログ（バイナリは出さない）
+        try:
             print(
-                f"[UPLOAD] read failed: fname={fname!r} mime={mime!r} content={type(content).__name__} event={type(e).__name__}",
+                "[UPLOAD] ok",
+                json.dumps(
+                    {"name": fname, "mime": mime, "bytes": len(data), "resized": bool(max_w and max_h)},
+                    ensure_ascii=False,
+                ),
                 flush=True,
             )
-            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="negative")
-            return None, None
-
-        if len(data) > MAX_UPLOAD_BYTES:
-            ui.notify(f"画像サイズが大きすぎます（最大 {MAX_UPLOAD_BYTES // 1024 // 1024}MB）", type="negative")
-            return None, None
-
-        if not mime:
-            mime = _guess_mime(fname, default="image/png")
-
-        if max_w and max_h:
-            data, mime = await asyncio.to_thread(_maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h)
-
-        b64 = base64.b64encode(data).decode("ascii")
+        except Exception:
+            pass
         return f"data:{mime};base64,{b64}", fname
-    except Exception as ex:
-        print(f"[UPLOAD] unexpected error: {ex}", flush=True)
-        ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="negative")
-        return None, None
-
+    except Exception:
+        traceback.print_exc()
+        try:
+            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
+        except Exception:
+            pass
+        return "", fname
 # ---------------------------
 # Preview image serving (data URL -> /pv_img/<hash>)
 # 目的: data URL をHTML/WS payloadに毎回乗せない（案件読込・操作を軽くする）
@@ -5229,9 +5252,9 @@ def render_main(u: User) -> None:
                                             ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
                                             ui.label("未設定ならデフォルトを使用します（推奨: 正方形PNG 32×32）").classes("cvhb-muted")
 
-                                            def _on_upload_favicon(e):
+                                            async def _on_upload_favicon(e):
                                                 try:
-                                                    data_url, fname = _upload_event_to_data_url_sync(e)
+                                                    data_url, fname = await _upload_event_to_data_url(e, max_w=32, max_h=32, force_png=True)
                                                     if not data_url:
                                                         return
                                                     step2["favicon_url"] = data_url
@@ -5349,9 +5372,9 @@ def render_main(u: User) -> None:
                                                             update_and_refresh()
                                                             hero_slides_editor.refresh()
 
-                                                        def _on_upload_slide(e, i: int):
+                                                        async def _on_upload_slide(e, i: int):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 _normalize_hero_slides()
@@ -5394,8 +5417,8 @@ def render_main(u: User) -> None:
                                                                         _set_slide_choice(i, e.value)
                                                                     ui.radio(HERO_IMAGE_OPTIONS + ["オリジナル"], value=cc[_i], on_change=_on_choice).props("inline")
                                                                     if cc[_i] == "オリジナル":
-                                                                        def _upload_handler(e, i=_i):
-                                                                            _on_upload_slide(e, i)
+                                                                        async def _upload_handler(e, i=_i):
+                                                                            await _on_upload_slide(e, i)
                                                                         with ui.row().classes("items-center q-gutter-sm"):
                                                                             # 現在反映されている画像（サムネ）
                                                                             try:
@@ -5456,9 +5479,9 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_ph_image(e):
+                                                        async def _on_upload_ph_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 ph["image_url"] = data_url
@@ -5535,9 +5558,9 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_svc_image(e):
+                                                        async def _on_upload_svc_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 svc["image_url"] = data_url
