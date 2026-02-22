@@ -534,58 +534,41 @@ def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tupl
 
 
 
-async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
-    """Convert a NiceGUI upload event into (data_url, filename).
+async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[Optional[str], Optional[str]]:
+    """Convert a NiceGUI upload event to a data URL (async).
 
-    v0.6.996:
-    - 画像は「1280×720（16:9）」に自動でセンターカットして保存（Pillowがある環境のみ）
-    - 極端に大きいファイルは弾く（事故防止）
+    - Robustly extracts (content, filename, mime) from several possible event shapes.
+    - Reads bytes with async support (UploadFile.read/seek) and also tries the underlying file object first.
+    - Optionally resizes/crops to keep a strict aspect ratio.
     """
     try:
-        fname = str(getattr(e, "name", "") or "")
-    except Exception:
-        fname = ""
-    try:
-        mime = str(getattr(e, "type", "") or "")
-    except Exception:
-        mime = ""
-    content = getattr(e, "content", None)
-    data = await _read_upload_bytes(content)
-    if not data:
-        try:
-            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
-        except Exception:
-            pass
-        return "", fname
+        content, fname, mime = _extract_upload_fields(e)
+        data = await _read_upload_bytes(content)
 
-    # safety: too big
-    try:
+        if not data:
+            print(
+                f"[UPLOAD] read failed: fname={fname!r} mime={mime!r} content={type(content).__name__} event={type(e).__name__}",
+                flush=True,
+            )
+            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="negative")
+            return None, None
+
         if len(data) > MAX_UPLOAD_BYTES:
-            try:
-                ui.notify("画像ファイルが大きすぎます。1280×720に縮小してから再アップロードしてください。", type="warning")
-            except Exception:
-                pass
-            return "", fname
-    except Exception:
-        pass
+            ui.notify(f"画像サイズが大きすぎます（最大 {MAX_UPLOAD_BYTES // 1024 // 1024}MB）", type="negative")
+            return None, None
 
-    if not mime:
-        mime = _guess_mime(fname, "image/png")
+        if not mime:
+            mime = _guess_mime(fname, default="image/png")
 
-    # optional resize/compress
-    try:
         if max_w and max_h:
-            data, mime = _maybe_resize_image_bytes(data, mime, max_w=max_w, max_h=max_h)
-    except Exception:
-        pass
+            data, mime = await asyncio.to_thread(_maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h)
 
-    try:
         b64 = base64.b64encode(data).decode("ascii")
-    except Exception:
-        b64 = ""
-    if not b64:
-        return "", fname
-    return f"data:{mime};base64,{b64}", fname
+        return f"data:{mime};base64,{b64}", fname
+    except Exception as ex:
+        print(f"[UPLOAD] unexpected error: {ex}", flush=True)
+        ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="negative")
+        return None, None
 
 # ---------------------------
 # Preview image serving (data URL -> /pv_img/<hash>)
@@ -2700,7 +2683,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.9998")
+VERSION = read_text_file("VERSION", "0.6.9999")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -5224,17 +5207,17 @@ def render_main(u: User) -> None:
                                             ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
                                             ui.label("未設定ならデフォルトを使用します（推奨: 正方形PNG 32×32）").classes("cvhb-muted")
 
-                                            def _on_upload_favicon(e):
+                                            async def _on_upload_favicon(e):
                                                 try:
-                                                    data_url, fname = _upload_event_to_data_url_sync(e)
+                                                    data_url, fname = await _upload_event_to_data_url(e)
                                                     if not data_url:
                                                         return
                                                     step2["favicon_url"] = data_url
                                                     step2["favicon_filename"] = _short_name(fname)
                                                     update_and_refresh()
                                                     favicon_editor.refresh()
-                                                except Exception:
-                                                    pass
+                                                except Exception as ex:
+                                                    print(f"[UPLOAD:favicon] unexpected error: {ex}", flush=True)
 
                                             def _clear_favicon():
                                                 try:
@@ -5344,9 +5327,9 @@ def render_main(u: User) -> None:
                                                             update_and_refresh()
                                                             hero_slides_editor.refresh()
 
-                                                        def _on_upload_slide(e, i: int):
+                                                        async def _on_upload_slide(e, i: int):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 _normalize_hero_slides()
@@ -5357,8 +5340,8 @@ def render_main(u: User) -> None:
                                                                 hero["hero_image"] = hero["hero_slide_choices"][0] if hero.get("hero_slide_choices") else DEFAULT_CHOICES[0]
                                                                 update_and_refresh()
                                                                 hero_slides_editor.refresh()
-                                                            except Exception:
-                                                                pass
+                                                            except Exception as ex:
+                                                                print(f"[UPLOAD:hero_slide {i}] unexpected error: {ex}", flush=True)
 
                                                         def _clear_slide_upload(i: int):
                                                             try:
@@ -5389,8 +5372,8 @@ def render_main(u: User) -> None:
                                                                         _set_slide_choice(i, e.value)
                                                                     ui.radio(HERO_IMAGE_OPTIONS + ["オリジナル"], value=cc[_i], on_change=_on_choice).props("inline")
                                                                     if cc[_i] == "オリジナル":
-                                                                        def _upload_handler(e, i=_i):
-                                                                            _on_upload_slide(e, i)
+                                                                        async def _upload_handler(e, i=_i):
+                                                                            await _on_upload_slide(e, i)
                                                                         with ui.row().classes("items-center q-gutter-sm"):
                                                                             # 現在反映されている画像（サムネ）
                                                                             try:
@@ -5451,17 +5434,17 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_ph_image(e):
+                                                        async def _on_upload_ph_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 ph["image_url"] = data_url
                                                                 ph["image_upload_name"] = _short_name(fname)
                                                                 update_and_refresh()
                                                                 ph_image_editor.refresh()
-                                                            except Exception:
-                                                                pass
+                                                            except Exception as ex:
+                                                                print(f"[UPLOAD:placeholder_image] unexpected error: {ex}", flush=True)
 
                                                         def _clear_ph_image():
                                                             try:
@@ -5530,17 +5513,17 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_svc_image(e):
+                                                        async def _on_upload_svc_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 svc["image_url"] = data_url
                                                                 svc["image_upload_name"] = _short_name(fname)
                                                                 update_and_refresh()
                                                                 svc_image_editor.refresh()
-                                                            except Exception:
-                                                                pass
+                                                            except Exception as ex:
+                                                                print(f"[UPLOAD:service_image] unexpected error: {ex}", flush=True)
 
                                                         def _clear_svc_image():
                                                             try:
@@ -5872,14 +5855,15 @@ def projects_page():
             ui.label("案件名を入力して作成してください。").classes("cvhb-muted q-mb-sm")
             dialog_name = ui.input("案件名（例：〇〇株式会社サイト）").props("outlined").classes("w-full")
 
-            def create_new_project() -> None:
+            async def create_new_project() -> None:
                 name = (dialog_name.value or "").strip()
                 if not name:
                     ui.notify("案件名を入力してください", type="warning")
                     return
                 try:
+                    ui.notify("案件を作成中...", type="info")
                     p = create_project(name, u)
-                    save_project_to_sftp(p, u)
+                    await asyncio.to_thread(save_project_to_sftp, p, u)
                     set_current_project(p, u)
                     ui.notify("案件を作成しました", type="positive")
                     new_project_dialog.close()
@@ -5902,9 +5886,10 @@ def projects_page():
 
         ui.separator().classes("q-my-md")
 
-        def open_project(project_id: str) -> None:
+        async def open_project(project_id: str) -> None:
             try:
-                p = load_project_from_sftp(project_id, u)
+                ui.notify("案件を読み込み中...", type="info")
+                p = await asyncio.to_thread(load_project_from_sftp, project_id, u)
                 set_current_project(p, u)
                 ui.notify("案件を開きました", type="positive")
                 navigate_to("/")
@@ -5943,7 +5928,9 @@ def projects_page():
                             ui.label(f"更新担当者: {updated_by}").classes("cvhb-project-meta")
                         ui.label(f"ID: {pid}").classes("cvhb-project-meta q-mt-xs")
 
-                        ui.button("開く", on_click=lambda project_id=pid: open_project(project_id)).props("color=primary unelevated").classes("w-full q-mt-md")
+                        async def _open(project_id=pid):
+                            await open_project(project_id)
+                        ui.button("開く", on_click=_open).props("color=primary unelevated").classes("w-full q-mt-md")
 
         list_refresh()
 
