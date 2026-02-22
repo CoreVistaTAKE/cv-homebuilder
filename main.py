@@ -10,6 +10,9 @@ import traceback
 import asyncio
 import mimetypes
 import inspect
+import zipfile
+from io import BytesIO
+import html
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -665,6 +668,73 @@ if not _pv_route_added:
 
     try:
         app._cvhb_pv_img_route_added = True
+    except Exception:
+        pass
+
+
+
+# =========================
+# Export ZIP download cache (v0.7.0)
+# =========================
+
+_EXPORT_ZIP_CACHE: dict[str, dict] = {}
+_EXPORT_ZIP_CACHE_MAX = 10
+
+def _export_cache_put(user_id: int, filename: str, data: bytes) -> str:
+    """生成したZIPを一時キャッシュし、ダウンロード用キーを返す。"""
+    key = secrets.token_urlsafe(16)
+    if len(_EXPORT_ZIP_CACHE) >= _EXPORT_ZIP_CACHE_MAX:
+        # drop oldest
+        try:
+            oldest = sorted(_EXPORT_ZIP_CACHE.items(), key=lambda kv: kv[1].get("created_at", ""))[0][0]
+            _EXPORT_ZIP_CACHE.pop(oldest, None)
+        except Exception:
+            _EXPORT_ZIP_CACHE.clear()
+    _EXPORT_ZIP_CACHE[key] = {
+        "user_id": int(user_id),
+        "filename": str(filename),
+        "data": data,
+        "created_at": now_jst_iso(),
+    }
+    return key
+
+try:
+    _export_route_added = getattr(app, "_cvhb_export_route_added", False)
+except Exception:
+    _export_route_added = False
+
+if not _export_route_added:
+
+    @app.get("/export_zip/{key}")
+    def _export_zip_endpoint(key: str):
+        user = current_user()
+        item = _EXPORT_ZIP_CACHE.get(key)
+        if not user or not item:
+            return Response(status_code=404)
+        try:
+            if int(item.get("user_id") or 0) != int(user.id):
+                return Response(status_code=404)
+        except Exception:
+            return Response(status_code=404)
+
+        filename = str(item.get("filename") or "export.zip")
+        data = item.get("data") or b""
+        # One-time download: delete after serving (safety)
+        try:
+            _EXPORT_ZIP_CACHE.pop(key, None)
+        except Exception:
+            pass
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+
+    try:
+        app._cvhb_export_route_added = True
     except Exception:
         pass
 
@@ -2728,7 +2798,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.999991")
+VERSION = read_text_file("VERSION", "0.7.0")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3067,6 +3137,59 @@ def sftp_list_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> list[str]:
         if stat.S_ISDIR(it.st_mode):
             dirs.append(it.filename)
     return sorted(dirs)
+
+def sftp_rmtree(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
+    """SFTP上のディレクトリを中身ごと削除する（危険なので用途限定）。"""
+    remote_dir = (remote_dir or "").rstrip("/")
+    if not remote_dir:
+        raise ValueError("remote_dir is empty")
+    # Safety: projectsディレクトリ配下だけ許可
+    if not remote_dir.startswith(SFTP_PROJECTS_DIR.rstrip("/") + "/"):
+        raise ValueError("unsafe delete path")
+    try:
+        for it in sftp.listdir_attr(remote_dir):
+            p = f"{remote_dir}/{it.filename}"
+            try:
+                if stat.S_ISDIR(it.st_mode):
+                    sftp_rmtree(sftp, p)
+                else:
+                    try:
+                        sftp.remove(p)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        try:
+            sftp.rmdir(remote_dir)
+        except Exception:
+            pass
+    except Exception:
+        # already deleted / not found
+        return
+
+
+def delete_project_from_sftp(project_id: str, user: Optional[User]) -> None:
+    """案件ディレクトリごと削除する（管理者専用）。"""
+    pid = (project_id or "").strip()
+    if not pid:
+        raise ValueError("project_id is empty")
+
+    # Safety: 想定フォーマットだけ許可（pYYYY..._hex）
+    if not re.fullmatch(r"p\d{14}_[0-9a-f]{6}", pid):
+        raise ValueError("invalid project_id format")
+
+    remote_dir = project_dir(pid)
+    with sftp_client() as sftp:
+        sftp_rmtree(sftp, remote_dir)
+
+    # 案件一覧キャッシュを無効化（削除が即反映されるように）
+    try:
+        _projects_cache["ts"] = 0
+    except Exception:
+        pass
+
+    if user:
+        safe_log_action(user, "project_delete", details=json.dumps({"project_id": pid}, ensure_ascii=False))
 
 
 # =========================
@@ -3661,7 +3784,7 @@ def normalize_project(p: dict) -> dict:
     if not isinstance(p, dict):
         p = {}
 
-    p["schema_version"] = "0.6.1"
+    p["schema_version"] = "0.7.0"
     p.setdefault("project_id", new_project_id())
     p.setdefault("project_name", "(no name)")
 
@@ -3930,7 +4053,50 @@ def normalize_project(p: dict) -> dict:
         apply_template_starter_defaults(p, template_id)
         step1["_applied_template_id"] = template_id
 
-    return p
+        # --- v0.7 workflow / publish settings ---
+    workflow = data.get("workflow")
+    if not isinstance(workflow, dict):
+        workflow = {}
+        data["workflow"] = workflow
+
+    approval = workflow.get("approval")
+    if not isinstance(approval, dict):
+        approval = {}
+        workflow["approval"] = approval
+
+    approval.setdefault("status", "draft")  # draft / requested / approved / rejected
+    approval.setdefault("requested_at", "")
+    approval.setdefault("requested_by", "")
+    approval.setdefault("request_note", "")
+    approval.setdefault("reviewed_at", "")
+    approval.setdefault("reviewed_by", "")
+    approval.setdefault("review_note", "")
+    approval.setdefault("approved_at", "")
+    approval.setdefault("approved_by", "")
+    approval.setdefault("approved_note", "")
+
+    workflow.setdefault("last_export_at", "")
+    workflow.setdefault("last_export_by", "")
+    workflow.setdefault("last_publish_at", "")
+    workflow.setdefault("last_publish_by", "")
+    workflow.setdefault("last_publish_target", "")
+
+    publish = data.get("publish")
+    if not isinstance(publish, dict):
+        publish = {}
+        data["publish"] = publish
+
+    publish.setdefault("sftp_host", "")
+    # portは文字列で入っても壊れないようにintへ
+    try:
+        publish["sftp_port"] = int(publish.get("sftp_port", 22) or 22)
+    except Exception:
+        publish["sftp_port"] = 22
+    publish.setdefault("sftp_user", "")
+    publish.setdefault("sftp_dir", "")
+    publish.setdefault("sftp_note", "")  # メモ（例: サーバー会社/案件番号など）
+
+return p
 
 
 
@@ -3973,7 +4139,7 @@ def set_current_project(p: dict, user: Optional[User]) -> None:
 def create_project(name: str, created_by: Optional[User]) -> dict:
     pid = new_project_id()
     p = {
-        "schema_version": "0.6.1",
+        "schema_version": "0.7.0",
         "project_id": pid,
         "project_name": name,
         "created_at": now_jst_iso(),
@@ -4069,6 +4235,800 @@ def list_projects_from_sftp() -> list[dict]:
 
     projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return projects
+
+
+# =========================
+# v0.7.0 Approval / Export / Publish helpers
+# =========================
+
+ADMIN_ONLY_ROLES = {"admin"}
+APPROVER_ROLES = {"admin", "subadmin"}
+EXPORT_ROLES = {"admin", "subadmin"}
+PUBLISH_ROLES = {"admin"}
+
+
+def is_admin(u: Optional[User]) -> bool:
+    return bool(u and u.role in ADMIN_ONLY_ROLES)
+
+
+def can_approve(u: Optional[User]) -> bool:
+    return bool(u and u.role in APPROVER_ROLES)
+
+
+def can_export(u: Optional[User]) -> bool:
+    return bool(u and u.role in EXPORT_ROLES)
+
+
+def can_publish(u: Optional[User]) -> bool:
+    return bool(u and u.role in PUBLISH_ROLES)
+
+
+def get_workflow(p: dict) -> dict:
+    try:
+        data = p.get("data") if isinstance(p, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+        wf = data.get("workflow")
+        if not isinstance(wf, dict):
+            wf = {}
+            data["workflow"] = wf
+        return wf
+    except Exception:
+        return {}
+
+
+def get_approval(p: dict) -> dict:
+    wf = get_workflow(p)
+    a = wf.get("approval")
+    if not isinstance(a, dict):
+        a = {}
+        wf["approval"] = a
+    # normalize keys (in case old project.json)
+    a.setdefault("status", "draft")
+    a.setdefault("requested_at", "")
+    a.setdefault("requested_by", "")
+    a.setdefault("request_note", "")
+    a.setdefault("reviewed_at", "")
+    a.setdefault("reviewed_by", "")
+    a.setdefault("review_note", "")
+    a.setdefault("approved_at", "")
+    a.setdefault("approved_by", "")
+    a.setdefault("approved_note", "")
+    return a
+
+
+def approval_status_label(status: str) -> str:
+    s = (status or "").strip()
+    if s == "approved":
+        return "承認OK"
+    if s == "requested":
+        return "承認待ち"
+    if s == "rejected":
+        return "差戻し"
+    return "編集中"
+
+
+def is_approved(p: dict) -> bool:
+    try:
+        return get_approval(p).get("status") == "approved"
+    except Exception:
+        return False
+
+
+def approval_request(p: dict, actor: User, note: str = "") -> None:
+    a = get_approval(p)
+    a["status"] = "requested"
+    a["requested_at"] = now_jst_iso()
+    a["requested_by"] = actor.username
+    a["request_note"] = (note or "").strip()
+    # reset review
+    a["reviewed_at"] = ""
+    a["reviewed_by"] = ""
+    a["review_note"] = ""
+    a["approved_at"] = ""
+    a["approved_by"] = ""
+    a["approved_note"] = ""
+
+
+def approval_approve(p: dict, actor: User, note: str = "") -> None:
+    a = get_approval(p)
+    a["status"] = "approved"
+    a["approved_at"] = now_jst_iso()
+    a["approved_by"] = actor.username
+    a["approved_note"] = (note or "").strip()
+    # mark review info too
+    a["reviewed_at"] = a.get("approved_at", "")
+    a["reviewed_by"] = a.get("approved_by", "")
+    a["review_note"] = a.get("approved_note", "")
+
+
+def approval_reject(p: dict, actor: User, note: str = "") -> None:
+    a = get_approval(p)
+    a["status"] = "rejected"
+    a["reviewed_at"] = now_jst_iso()
+    a["reviewed_by"] = actor.username
+    a["review_note"] = (note or "").strip()
+    # keep approved fields cleared
+    a["approved_at"] = ""
+    a["approved_by"] = ""
+    a["approved_note"] = ""
+
+
+def compute_final_checks(p: dict) -> dict:
+    """公開前チェック（必須/推奨）を返す。"""
+    data = p.get("data") if isinstance(p, dict) else {}
+    if not isinstance(data, dict):
+        data = {}
+    step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
+    blocks = data.get("blocks") if isinstance(data.get("blocks"), dict) else {}
+
+    company_name = str(step2.get("company_name") or "").strip()
+    phone = str(step2.get("phone") or "").strip()
+    email = str(step2.get("email") or "").strip()
+    address = str(step2.get("address") or "").strip()
+    catch_copy = str(step2.get("catch_copy") or "").strip()
+
+    philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
+    service = blocks.get("service") if isinstance(blocks.get("service"), dict) else {}
+    faq = blocks.get("faq") if isinstance(blocks.get("faq"), dict) else {}
+    news = blocks.get("news") if isinstance(blocks.get("news"), dict) else {}
+
+    svc_items = service.get("items")
+    if not isinstance(svc_items, list):
+        svc_items = []
+    svc_items = [it for it in svc_items if isinstance(it, dict)]
+
+    faq_items = faq.get("items")
+    if not isinstance(faq_items, list):
+        faq_items = []
+    faq_items = [it for it in faq_items if isinstance(it, dict)]
+
+    news_items = news.get("items")
+    if not isinstance(news_items, list):
+        news_items = []
+    news_items = [it for it in news_items if isinstance(it, dict)]
+
+    required = [
+        {"key": "company_name", "label": "会社名（基本情報）", "ok": bool(company_name), "hint": "2. 基本情報設定で入力します"},
+        {"key": "contact", "label": "連絡先（電話かメールどちらか）", "ok": bool(phone or email), "hint": "2. 基本情報設定で入力します"},
+        {"key": "address", "label": "住所（アクセス用）", "ok": bool(address), "hint": "2. 基本情報設定で入力します"},
+    ]
+
+    recommended = [
+        {"key": "catch_copy", "label": "キャッチコピー（ヒーロー）", "ok": bool(catch_copy), "hint": "2. 基本情報設定で入力します"},
+        {"key": "philosophy", "label": "私たちの想い（文章）", "ok": bool(str(philosophy.get("body") or "").strip()), "hint": "3. ブロックで入力します"},
+        {"key": "service", "label": "業務内容（最低1件）", "ok": any(str(it.get("title") or "").strip() and str(it.get("body") or "").strip() for it in svc_items), "hint": "3. ブロックで入力します"},
+        {"key": "faq", "label": "FAQ（任意: 1件以上あると親切）", "ok": any(str(it.get("q") or "").strip() and str(it.get("a") or "").strip() for it in faq_items), "hint": "3. ブロックで入力します"},
+        {"key": "news", "label": "お知らせ（任意: 1件以上あると更新感）", "ok": any(str(it.get("title") or "").strip() for it in news_items), "hint": "3. ブロックで入力します"},
+    ]
+
+    ok_required = all(bool(x.get("ok")) for x in required)
+    return {
+        "required": required,
+        "recommended": recommended,
+        "ok_required": ok_required,
+    }
+
+
+def _is_data_url(s: str) -> bool:
+    try:
+        return bool(s and isinstance(s, str) and s.startswith("data:") and "base64," in s)
+    except Exception:
+        return False
+
+
+def _data_url_meta(s: str) -> tuple[str, bytes]:
+    """dataURL -> (mime, bytes). invalidなら ('', b'')"""
+    try:
+        head, b64part = s.split("base64,", 1)
+        mime = head[5:].split(";", 1)[0].strip() or "application/octet-stream"
+        data = base64.b64decode(b64part.encode("utf-8"))
+        return mime, data
+    except Exception:
+        return "", b""
+
+
+def _mime_to_ext(mime: str) -> str:
+    m = (mime or "").lower().strip()
+    if m in {"image/jpeg", "image/jpg"}:
+        return ".jpg"
+    if m == "image/png":
+        return ".png"
+    if m == "image/webp":
+        return ".webp"
+    if m in {"image/svg+xml", "image/svg"}:
+        return ".svg"
+    return mimetypes.guess_extension(m) or ".bin"
+
+
+def _safe_filename(name: str) -> str:
+    s = (name or "").strip()
+    s = re.sub(r"[\\/:*?\"<>|]+", "_", s)
+    s = re.sub(r"\s+", "_", s)
+    s = s.strip("._")
+    return s or "file"
+
+
+def collect_project_images(p: dict) -> list[dict]:
+    """project.json 内の dataURL 画像を収集（管理者の確認用）。"""
+    out: list[dict] = []
+    try:
+        data = p.get("data") if isinstance(p, dict) else {}
+        if not isinstance(data, dict):
+            return out
+        step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
+        blocks = data.get("blocks") if isinstance(data.get("blocks"), dict) else {}
+
+        def _add(label: str, data_url: str, filename: str = ""):
+            if not _is_data_url(data_url):
+                return
+            mime, b = _data_url_meta(data_url)
+            size_kb = int(round(len(b) / 1024)) if b else 0
+            out.append({
+                "label": label,
+                "filename": filename or "",
+                "mime": mime,
+                "size_kb": size_kb,
+                "data_url": data_url,
+            })
+
+        # favicon
+        _add("favicon", str(step2.get("favicon_url") or ""), str(step2.get("favicon_filename") or ""))
+
+        hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
+        urls = hero.get("hero_image_urls")
+        names = hero.get("hero_upload_names")
+        if isinstance(urls, list):
+            for i, url in enumerate(urls):
+                nm = ""
+                if isinstance(names, list) and i < len(names):
+                    nm = str(names[i] or "")
+                _add(f"hero[{i+1}]", str(url or ""), nm)
+
+        philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
+        _add("philosophy_image", str(philosophy.get("image_url") or ""), str(philosophy.get("image_upload_name") or ""))
+
+        service = blocks.get("service") if isinstance(blocks.get("service"), dict) else {}
+        _add("service_image", str(service.get("image_url") or ""), str(service.get("image_upload_name") or ""))
+
+        # その他：念のため再帰的に拾う（将来の拡張用）
+        def _walk(obj, path=""):
+            try:
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        np = f"{path}.{k}" if path else str(k)
+                        if isinstance(v, str) and _is_data_url(v):
+                            _add(np, v, "")
+                        else:
+                            _walk(v, np)
+                elif isinstance(obj, list):
+                    for idx, v in enumerate(obj):
+                        _walk(v, f"{path}[{idx}]")
+            except Exception:
+                pass
+
+        _walk(data, "data")
+
+    except Exception:
+        pass
+
+    # 重複除去（同じdataURLが複数経路で拾われることがある）
+    uniq = {}
+    for it in out:
+        key = hashlib.sha1((it.get("data_url") or "").encode("utf-8")).hexdigest()
+        uniq[key] = it
+    return list(uniq.values())
+
+
+PRIMARY_COLOR_HEX = {
+    "blue": "#1e5eff",
+    "red": "#e53935",
+    "green": "#2e7d32",
+    "orange": "#ef6c00",
+    "purple": "#6a1b9a",
+    "pink": "#d81b60",
+    "teal": "#00897b",
+    "gray": "#546e7a",
+}
+
+
+def _simple_md_to_html(md: str) -> str:
+    """このアプリの簡易Markdown（privacy向け）を最小変換。"""
+    lines = (md or "").splitlines()
+    html_parts: list[str] = []
+    in_ul = False
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            if in_ul:
+                html_parts.append("</ul>")
+                in_ul = False
+            continue
+        if line.startswith("## "):
+            if in_ul:
+                html_parts.append("</ul>")
+                in_ul = False
+            html_parts.append(f"<h2>{html.escape(line[3:].strip())}</h2>")
+            continue
+        if line.startswith("- "):
+            if not in_ul:
+                html_parts.append("<ul>")
+                in_ul = True
+            html_parts.append(f"<li>{html.escape(line[2:].strip())}</li>")
+            continue
+        if in_ul:
+            html_parts.append("</ul>")
+            in_ul = False
+        html_parts.append(f"<p>{html.escape(line.strip())}</p>")
+    if in_ul:
+        html_parts.append("</ul>")
+    return "\n".join(html_parts)
+
+
+def build_privacy_markdown(p: dict) -> str:
+    data = p.get("data") if isinstance(p, dict) else {}
+    step2 = data.get("step2") if isinstance(data, dict) and isinstance(data.get("step2"), dict) else {}
+    company_name = str(step2.get("company_name") or "当社").strip() or "当社"
+    address = str(step2.get("address") or "").strip()
+    phone = str(step2.get("phone") or "").strip()
+    email = str(step2.get("email") or "").strip()
+
+    contact = ""
+    try:
+        if address:
+            contact += f"\n- 住所: {address}"
+        if phone:
+            contact += f"\n- 電話: {phone}"
+        if email:
+            contact += f"\n- メール: {email}"
+    except Exception:
+        contact = ""
+    if not contact:
+        contact = "\n- 連絡先: このページのお問い合わせ欄をご確認ください。"
+
+    return f"""当社（{company_name}）は、個人情報の重要性を認識し、個人情報保護法その他の関係法令・ガイドラインを遵守するとともに、以下のとおり個人情報を適切に取り扱います。
+
+## 1. 取得する情報
+当社は、以下の情報を取得することがあります。
+
+- お問い合わせ等でお客様が入力・送信する情報（氏名、連絡先（電話番号/メールアドレス）、お問い合わせ内容 等）
+- サイトの利用に伴い自動的に送信される情報（IPアドレス、ブラウザ情報、閲覧履歴、Cookie 等）
+
+## 2. 利用目的
+当社は、取得した個人情報を以下の目的で利用します。
+
+- お問い合わせへの対応、連絡
+- サービスの提供、運用、改善
+- 不正利用の防止、セキュリティ確保
+
+## 3. 第三者提供
+当社は、法令で認められる場合を除き、本人の同意なく個人情報を第三者に提供しません。
+
+## 4. 安全管理
+当社は、個人情報の漏えい、滅失、毀損等を防止するため、必要かつ適切な安全管理措置を講じます。
+
+## 5. 開示・訂正・削除
+本人からの個人情報の開示、訂正、削除等の請求があった場合、本人確認のうえ、法令に従い適切に対応します。
+
+## 6. お問い合わせ窓口
+{company_name} へのお問い合わせは、以下までご連絡ください。
+{contact}
+
+## 7. 改定
+本ポリシーは、必要に応じて内容を改定することがあります。"""
+
+
+def build_static_site_files(p: dict) -> dict[str, bytes]:
+    """案件データから、公開用の静的ファイル一式を生成して返す。"""
+    p = normalize_project(p)
+    data = p.get("data") if isinstance(p, dict) else {}
+    step1 = data.get("step1") if isinstance(data, dict) and isinstance(data.get("step1"), dict) else {}
+    step2 = data.get("step2") if isinstance(data, dict) and isinstance(data.get("step2"), dict) else {}
+    blocks = data.get("blocks") if isinstance(data, dict) and isinstance(data.get("blocks"), dict) else {}
+
+    project_id = str(p.get("project_id") or "")
+    company_name = str(step2.get("company_name") or "会社名").strip() or "会社名"
+    catch_copy = str(step2.get("catch_copy") or "").strip()
+    phone = str(step2.get("phone") or "").strip()
+    address = str(step2.get("address") or "").strip()
+    email = str(step2.get("email") or "").strip()
+
+    primary_key = str(step1.get("primary_color") or "blue")
+    primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
+
+    # --- assets (CSS / images) ---
+    files: dict[str, bytes] = {}
+
+    site_css = f""":root{{--primary:{primary_hex};--text:#111;--muted:#6b7280;--bg:#ffffff;--card:#ffffff;--border:rgba(0,0,0,0.10);}}
+*{{box-sizing:border-box;}}
+body{{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif;color:var(--text);background:var(--bg);}}
+a{{color:var(--primary);text-decoration:none;}}
+.container{{max-width:1000px;margin:0 auto;padding:0 16px;}}
+.header{{position:sticky;top:0;background:rgba(255,255,255,0.92);backdrop-filter:saturate(180%) blur(10px);border-bottom:1px solid var(--border);z-index:10;}}
+.header .inner{{display:flex;align-items:center;justify-content:space-between;padding:12px 0;gap:12px;}}
+.brand{{font-weight:700;}}
+.nav{{display:flex;flex-wrap:wrap;gap:10px;font-size:14px;}}
+.hero{{padding:18px 0 8px;}}
+.hero_card{{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--card);}}
+.hero_img{{width:100%;height:320px;object-fit:cover;display:block;background:#f3f4f6;}}
+.hero_text{{padding:14px 14px 18px;}}
+.hero_title{{font-size:26px;font-weight:800;line-height:1.2;margin:0;}}
+.hero_sub{{margin:10px 0 0;color:var(--muted);}}
+.section{{padding:22px 0;}}
+.h2{{font-size:20px;margin:0 0 12px;font-weight:800;}}
+.card{{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--card);}}
+.grid2{{display:grid;grid-template-columns:1fr;gap:12px;}}
+@media(min-width:880px){{.grid2{{grid-template-columns:1fr 1fr;}}}}
+.p-muted{{color:var(--muted);}}
+.news_list{{display:grid;gap:10px;}}
+.news_item{{border:1px solid var(--border);border-radius:12px;padding:12px;}}
+.badge{{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(30,94,255,0.10);color:var(--primary);margin-right:6px;}}
+.faq details{{border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:#fff;}}
+.faq details+details{{margin-top:10px;}}
+.footer{{padding:18px 0;color:var(--muted);font-size:13px;border-top:1px solid var(--border);}}
+.btn{{display:inline-block;padding:10px 14px;border-radius:12px;background:var(--primary);color:#fff;font-weight:700;}}
+.btn-outline{{display:inline-block;padding:10px 14px;border-radius:12px;border:1px solid var(--primary);color:var(--primary);font-weight:700;background:transparent;}}
+"""
+    files["assets/site.css"] = site_css.encode("utf-8")
+
+    def _asset_from_data_url(data_url: str, base_name: str) -> str:
+        mime, b = _data_url_meta(data_url)
+        ext = _mime_to_ext(mime)
+        fname = _safe_filename(base_name) + ext
+        rel = f"assets/img/{fname}"
+        files[rel] = b
+        return rel
+
+    # favicon
+    favicon_href = ""
+    fav_url = str(step2.get("favicon_url") or "").strip()
+    if _is_data_url(fav_url):
+        try:
+            favicon_href = _asset_from_data_url(fav_url, f"favicon_{project_id}")
+        except Exception:
+            favicon_href = ""
+    else:
+        favicon_href = fav_url
+
+    # hero images
+    hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
+    hero_urls = hero.get("hero_image_urls")
+    hero_names = hero.get("hero_upload_names")
+    hero_imgs: list[str] = []
+    if isinstance(hero_urls, list):
+        for i, url in enumerate(hero_urls):
+            u = str(url or "").strip()
+            if not u:
+                continue
+            if _is_data_url(u):
+                base = f"hero_{i+1}_{project_id}"
+                if isinstance(hero_names, list) and i < len(hero_names) and hero_names[i]:
+                    base = f"hero_{i+1}_{hero_names[i]}"
+                try:
+                    hero_imgs.append(_asset_from_data_url(u, base))
+                except Exception:
+                    pass
+            else:
+                hero_imgs.append(u)
+
+    hero_main = hero_imgs[0] if hero_imgs else ""
+
+    # philosophy image
+    philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
+    ph_img = str(philosophy.get("image_url") or "").strip()
+    ph_img_rel = ""
+    if _is_data_url(ph_img):
+        try:
+            ph_img_rel = _asset_from_data_url(ph_img, f"philosophy_{project_id}")
+        except Exception:
+            ph_img_rel = ""
+    else:
+        ph_img_rel = ph_img
+
+    # service image
+    service = blocks.get("service") if isinstance(blocks.get("service"), dict) else {}
+    svc_img = str(service.get("image_url") or "").strip()
+    svc_img_rel = ""
+    if _is_data_url(svc_img):
+        try:
+            svc_img_rel = _asset_from_data_url(svc_img, f"service_{project_id}")
+        except Exception:
+            svc_img_rel = ""
+    else:
+        svc_img_rel = svc_img
+
+    # text blocks
+    ph_title = str(philosophy.get("title") or "私たちの想い").strip()
+    ph_body = html.escape(str(philosophy.get("body") or "").strip()).replace("\n", "<br>")
+    svc_title = str(service.get("title") or "業務内容").strip()
+    svc_lead = html.escape(str(service.get("lead") or "").strip()).replace("\n", "<br>")
+
+    svc_items = service.get("items")
+    if not isinstance(svc_items, list):
+        svc_items = []
+    svc_items = [it for it in svc_items if isinstance(it, dict)]
+
+    news = blocks.get("news") if isinstance(blocks.get("news"), dict) else {}
+    news_items = news.get("items")
+    if not isinstance(news_items, list):
+        news_items = []
+    news_items = [it for it in news_items if isinstance(it, dict)]
+
+    faq = blocks.get("faq") if isinstance(blocks.get("faq"), dict) else {}
+    faq_items = faq.get("items")
+    if not isinstance(faq_items, list):
+        faq_items = []
+    faq_items = [it for it in faq_items if isinstance(it, dict)]
+
+    access = blocks.get("access") if isinstance(blocks.get("access"), dict) else {}
+    embed_map = bool(access.get("embed_map", True))
+    notes = html.escape(str(access.get("notes") or "").strip()).replace("\n", "<br>")
+
+    contact = blocks.get("contact") if isinstance(blocks.get("contact"), dict) else {}
+    hours = html.escape(str(contact.get("hours") or "").strip()).replace("\n", "<br>")
+    message = html.escape(str(contact.get("message") or "").strip()).replace("\n", "<br>")
+    button_text = str(contact.get("button_text") or "お問い合わせ").strip()
+
+    # news pages
+    def _news_slug(i: int, it: dict) -> str:
+        d = str(it.get("date") or "").strip()
+        d = re.sub(r"[^0-9]", "", d)[:8]
+        return f"{d or 'news'}_{i+1}.html"
+
+    news_list_items_html = ""
+    news_detail_files: dict[str, str] = {}
+    for i, it in enumerate(news_items):
+        title = html.escape(str(it.get("title") or "").strip() or f"お知らせ{i+1}")
+        body = html.escape(str(it.get("body") or "").strip()).replace("\n", "<br>")
+        date = html.escape(str(it.get("date") or "").strip())
+        cat = html.escape(str(it.get("category") or "").strip())
+        slug = _news_slug(i, it)
+        link = f"news/{slug}"
+        news_list_items_html += f"""<div class="news_item"><div><span class="badge">{cat or "NEWS"}</span>{date}</div><div style="font-weight:800;margin-top:6px;"><a href="{link}">{title}</a></div></div>"""
+        detail_html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{title} | {html.escape(company_name)}</title><link rel="stylesheet" href="../assets/site.css"></head><body>
+<header class="header"><div class="container inner"><div class="brand"><a href="../index.html">{html.escape(company_name)}</a></div><div class="nav"><a href="../news/index.html">お知らせ一覧</a><a href="../privacy.html">プライバシー</a></div></div></header>
+<main class="container section"><h1 class="h2">{title}</h1><div class="p-muted">{date} {cat}</div><div class="card" style="margin-top:12px;">{body or "<p class='p-muted'>本文がありません</p>"}</div><div style="margin-top:14px;"><a class="btn-outline" href="../news/index.html">一覧へ戻る</a></div></main>
+<footer class="footer"><div class="container">© {html.escape(company_name)}</div></footer></body></html>"""
+        news_detail_files[f"news/{slug}"] = detail_html
+
+    news_index_html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>お知らせ | {html.escape(company_name)}</title><link rel="stylesheet" href="../assets/site.css"></head><body>
+<header class="header"><div class="container inner"><div class="brand"><a href="../index.html">{html.escape(company_name)}</a></div><div class="nav"><a href="../index.html#contact">{html.escape(button_text)}</a><a href="../privacy.html">プライバシー</a></div></div></header>
+<main class="container section"><h1 class="h2">お知らせ</h1><div class="news_list">{news_list_items_html or "<p class='p-muted'>お知らせはまだありません</p>"}</div></main>
+<footer class="footer"><div class="container"><a href="../index.html">トップへ戻る</a></div></footer></body></html>"""
+    files["news/index.html"] = news_index_html.encode("utf-8")
+    for path, body in news_detail_files.items():
+        files[path] = body.encode("utf-8")
+
+    # map embed
+    map_html = ""
+    if address:
+        q = quote_plus(address)
+        if embed_map:
+            map_html = f"""<iframe title="map" src="https://www.google.com/maps?q={q}&output=embed" style="width:100%;height:260px;border:0;border-radius:12px;"></iframe>"""
+        else:
+            map_html = f"""<a class="btn-outline" href="https://www.google.com/maps?q={q}" target="_blank" rel="noopener">地図を開く</a>"""
+    else:
+        map_html = '<p class="p-muted">住所が未入力のため地図を表示できません</p>'
+
+    # service items html
+    svc_items_html = ""
+    for it in svc_items:
+        t = html.escape(str(it.get("title") or "").strip())
+        b = html.escape(str(it.get("body") or "").strip()).replace("\n", "<br>")
+        if not (t or b):
+            continue
+        svc_items_html += f"""<div class="card"><div style="font-weight:800;">{t or "項目"}</div><div class="p-muted" style="margin-top:6px;">{b}</div></div>"""
+    if not svc_items_html:
+        svc_items_html = '<p class="p-muted">業務内容は準備中です</p>'
+
+    # faq html
+    faq_html = ""
+    for it in faq_items:
+        q = html.escape(str(it.get("q") or "").strip())
+        a = html.escape(str(it.get("a") or "").strip()).replace("\n", "<br>")
+        if not (q or a):
+            continue
+        faq_html += f"""<details><summary style="font-weight:800;">{q or "質問"}</summary><div style="margin-top:8px;" class="p-muted">{a}</div></details>"""
+    if not faq_html:
+        faq_html = '<p class="p-muted">FAQはまだありません</p>'
+
+    hero_sub = html.escape(catch_copy) if catch_copy else html.escape("ここにキャッチコピーが入ります")
+    hero_img_tag = f'<img class="hero_img" src="{html.escape(hero_main)}" alt="hero">' if hero_main else '<div class="hero_img"></div>'
+
+    contact_warn_html = "" if (email or phone) else '<p class="p-muted" style="margin-top:10px;">連絡先が未入力です（2. 基本情報設定で入力）</p>'
+
+    # index page
+    index_html = f"""<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(company_name)}</title>
+<link rel="stylesheet" href="assets/site.css">
+{f'<link rel="icon" href="{html.escape(favicon_href)}">' if favicon_href else ''}
+</head>
+<body>
+<header class="header">
+  <div class="container inner">
+    <div class="brand"><a href="#top">{html.escape(company_name)}</a></div>
+    <nav class="nav">
+      <a href="#about">私たちの想い</a>
+      <a href="#service">業務内容</a>
+      <a href="news/index.html">お知らせ</a>
+      <a href="#faq">FAQ</a>
+      <a href="#access">アクセス</a>
+      <a href="#contact">{html.escape(button_text)}</a>
+      <a href="privacy.html">プライバシー</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top" class="container">
+  <section class="hero">
+    <div class="hero_card">
+      {hero_img_tag}
+      <div class="hero_text">
+        <h1 class="hero_title">{html.escape(company_name)}</h1>
+        <div class="hero_sub">{hero_sub}</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="about" class="section">
+    <h2 class="h2">{html.escape(ph_title)}</h2>
+    <div class="grid2">
+      <div class="card">{ph_body or '<p class="p-muted">内容は準備中です</p>'}</div>
+      <div class="card">
+        {f'<img src="{html.escape(ph_img_rel)}" alt="about" style="width:100%;height:260px;object-fit:cover;border-radius:12px;">' if ph_img_rel else '<p class="p-muted">画像は未設定です</p>'}
+      </div>
+    </div>
+  </section>
+
+  <section id="service" class="section">
+    <h2 class="h2">{html.escape(svc_title)}</h2>
+    {f'<p class="p-muted">{svc_lead}</p>' if svc_lead else ''}
+    <div class="grid2">
+      <div class="card">
+        {f'<img src="{html.escape(svc_img_rel)}" alt="service" style="width:100%;height:260px;object-fit:cover;border-radius:12px;">' if svc_img_rel else '<p class="p-muted">画像は未設定です</p>'}
+      </div>
+      <div class="news_list">{svc_items_html}</div>
+    </div>
+  </section>
+
+  <section id="news" class="section">
+    <h2 class="h2">お知らせ</h2>
+    <div class="news_list">{news_list_items_html or '<p class="p-muted">お知らせはまだありません</p>'}</div>
+    <div style="margin-top:12px;"><a class="btn-outline" href="news/index.html">お知らせ一覧へ</a></div>
+  </section>
+
+  <section id="faq" class="section faq">
+    <h2 class="h2">FAQ</h2>
+    {faq_html}
+  </section>
+
+  <section id="access" class="section">
+    <h2 class="h2">アクセス</h2>
+    <div class="grid2">
+      <div class="card">
+        <div style="font-weight:800;">住所</div>
+        <div class="p-muted" style="margin-top:6px;">{html.escape(address) if address else '（未入力）'}</div>
+        {f'<div class="p-muted" style="margin-top:10px;">{notes}</div>' if notes else ''}
+        <div style="margin-top:12px;">{map_html}</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:800;">連絡先</div>
+        <div class="p-muted" style="margin-top:6px;">{html.escape(phone) if phone else ''} {html.escape(email) if email else ''}</div>
+        {f'<div class="p-muted" style="margin-top:10px;">受付: {hours}</div>' if hours else ''}
+      </div>
+    </div>
+  </section>
+
+  <section id="contact" class="section">
+    <h2 class="h2">{html.escape(button_text)}</h2>
+    <div class="card">
+      {f'<p class="p-muted">{message}</p>' if message else ''}
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;">
+        {f'<a class="btn" href="mailto:{html.escape(email)}">メールで問い合わせる</a>' if email else ''}
+        {f'<a class="btn-outline" href="tel:{html.escape(phone)}">電話する</a>' if phone else ''}
+      </div>
+      {contact_warn_html}
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div>© {html.escape(company_name)}</div>
+    <div style="margin-top:6px;"><a href="privacy.html">プライバシーポリシー</a></div>
+  </div>
+</footer>
+</body>
+</html>
+"""
+
+    files["index.html"] = index_html.encode("utf-8")
+
+    # privacy page
+    privacy_md = build_privacy_markdown(p)
+    privacy_html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>プライバシーポリシー | {html.escape(company_name)}</title><link rel="stylesheet" href="assets/site.css"></head><body>
+<header class="header"><div class="container inner"><div class="brand"><a href="index.html">{html.escape(company_name)}</a></div><div class="nav"><a href="news/index.html">お知らせ</a><a href="index.html#contact">{html.escape(button_text)}</a></div></div></header>
+<main class="container section"><h1 class="h2">プライバシーポリシー</h1><div class="card">{_simple_md_to_html(privacy_md)}</div><div style="margin-top:14px;"><a class="btn-outline" href="index.html">トップへ戻る</a></div></main>
+<footer class="footer"><div class="container">© {html.escape(company_name)}</div></footer></body></html>"""
+    files["privacy.html"] = privacy_html.encode("utf-8")
+
+    return files
+
+
+def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
+    """静的サイト一式をZIP化して返す。"""
+    p = normalize_project(p)
+    pid = str(p.get("project_id") or "project")
+    files = build_static_site_files(p)
+
+    mem = BytesIO()
+    with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for path, content in files.items():
+            try:
+                z.writestr(path, content)
+            except Exception:
+                # 1ファイルで失敗しても全体を落とさない
+                pass
+    return mem.getvalue(), f"{pid}_site.zip"
+
+
+def publish_site_via_sftp(p: dict, actor: User, password: str) -> tuple[bool, str]:
+    """案件の静的サイトを、案件に保存されているSFTP情報へアップロードする。"""
+    p = normalize_project(p)
+    data = p.get("data") if isinstance(p, dict) else {}
+    publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
+    host = str(publish.get("sftp_host") or "").strip()
+    user = str(publish.get("sftp_user") or "").strip()
+    remote_dir = str(publish.get("sftp_dir") or "").strip()
+    try:
+        port = int(publish.get("sftp_port", 22) or 22)
+    except Exception:
+        port = 22
+
+    if not (host and user and remote_dir):
+        return False, "SFTP情報（host/user/dir）が未入力です"
+    if not password:
+        return False, "SFTPパスワードが未入力です"
+
+    files = build_static_site_files(p)
+    total = len(files)
+
+    # NOTE: パスワードはログに出さない
+    print(f"[PUBLISH] start host={host} port={port} user={user} dir={remote_dir} files={total}", flush=True)
+
+    transport = paramiko.Transport((host, port))
+    try:
+        transport.connect(username=user, password=password)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        for rel_path, content in files.items():
+            rpath = remote_dir.rstrip("/") + "/" + rel_path.lstrip("/")
+            rdir = "/".join(rpath.split("/")[:-1])
+            try:
+                sftp_mkdirs(sftp, rdir)
+            except Exception:
+                pass
+            with sftp.open(rpath, "wb") as f:
+                f.write(content)
+
+        # publish log (project.jsonにも反映してから保存するのは呼び出し側で行う)
+        safe_log_action(actor, "project_publish", details=json.dumps({"project_id": p.get("project_id"), "host": host, "dir": remote_dir, "files": total}, ensure_ascii=False))
+        print(f"[PUBLISH] done host={host} files={total}", flush=True)
+        return True, f"アップロード完了（{total}ファイル）"
+    except Exception as e:
+        print(f"[PUBLISH] failed: {sanitize_error_text(e)}", flush=True)
+        return False, f"アップロードに失敗しました: {sanitize_error_text(e)}"
+    finally:
+        try:
+            transport.close()
+        except Exception:
+            pass
+
+
 def render_header(u: Optional[User]) -> None:
     with ui.element("div").classes("w-full bg-white shadow-1").style("position: sticky; top: 0; z-index: 1000;"):
         with ui.row().classes("w-full items-center justify-between q-pa-md").style("gap: 12px;"):
@@ -5763,12 +6723,287 @@ def render_main(u: User) -> None:
                                     # Step 4 / 5
                                     # -----------------
                                     with ui.tab_panel("s4"):
-                                        ui.label("4. 承認・最終チェック").classes("text-h6")
-                                        ui.label("v0.7.0で承認フロー（OK/差戻し）を実装します。").classes("cvhb-muted q-mt-sm")
+                                        ui.label("4. 承認・最終チェック").classes("text-h6 q-mb-sm")
+                                        ui.label("公開前に「必須チェック」と「承認」を行います。").classes("cvhb-muted q-mb-md")
+
+                                        approval_ui_state = {"request_note": "", "review_note": ""}
+
+                                        @ui.refreshable
+                                        def approval_panel():
+                                            checks = compute_final_checks(p)
+                                            a = get_approval(p)
+                                            status = str(a.get("status") or "draft")
+
+                                            # 現在状態
+                                            with ui.row().classes("items-center q-gutter-sm q-mb-sm"):
+                                                ui.label(f"現在の状態: {approval_status_label(status)}").classes("text-subtitle2")
+                                                try:
+                                                    if status == "approved":
+                                                        ui.badge("OK").props("color=positive")
+                                                    elif status == "requested":
+                                                        ui.badge("待ち").props("color=warning")
+                                                    elif status == "rejected":
+                                                        ui.badge("差戻し").props("color=negative")
+                                                    else:
+                                                        ui.badge("編集").props("outline")
+                                                except Exception:
+                                                    pass
+
+                                            # 必須チェック
+                                            with ui.card().classes("q-pa-sm rounded-borders q-mb-sm w-full").props("flat bordered"):
+                                                ui.label("必須チェック").classes("text-subtitle1")
+                                                ui.label("ここがOKにならないと、承認依頼ができません。").classes("cvhb-muted q-mb-sm")
+                                                req = checks.get("required") or []
+                                                ok_req = bool(checks.get("ok_required"))
+                                                for it in req:
+                                                    mark = "✅" if it.get("ok") else "⬜"
+                                                    ui.label(f"{mark} {it.get('label')}").classes("text-body2")
+                                                    if not it.get("ok") and it.get("hint"):
+                                                        ui.label(f"  → {it.get('hint')}").classes("cvhb-muted q-ml-md")
+                                                if ok_req:
+                                                    ui.label("必須チェック：OK").classes("text-positive q-mt-sm")
+                                                else:
+                                                    ui.label("必須チェック：未完了（2/3/などを入力してください）").classes("text-negative q-mt-sm")
+
+                                            # 推奨チェック
+                                            with ui.card().classes("q-pa-sm rounded-borders q-mb-sm w-full").props("flat bordered"):
+                                                ui.label("推奨チェック（任意）").classes("text-subtitle1")
+                                                ui.label("必須ではないですが、あると完成度が上がります。").classes("cvhb-muted q-mb-sm")
+                                                rec = checks.get("recommended") or []
+                                                for it in rec:
+                                                    mark = "✅" if it.get("ok") else "⬜"
+                                                    ui.label(f"{mark} {it.get('label')}").classes("text-body2")
+                                                    if not it.get("ok") and it.get("hint"):
+                                                        ui.label(f"  → {it.get('hint')}").classes("cvhb-muted q-ml-md")
+
+                                            # 承認アクション
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                                ui.label("承認フロー").classes("text-subtitle1")
+                                                ui.label("編集者：承認依頼 → 管理者：OK/差戻し").classes("cvhb-muted q-mb-sm")
+
+                                                # 表示情報
+                                                if a.get("requested_at"):
+                                                    ui.label(f"承認依頼: {fmt_jst(a.get('requested_at'))} / {a.get('requested_by') or ''}").classes("cvhb-muted")
+                                                if a.get("reviewed_at"):
+                                                    ui.label(f"最終レビュー: {fmt_jst(a.get('reviewed_at'))} / {a.get('reviewed_by') or ''}").classes("cvhb-muted")
+                                                if a.get("approved_at"):
+                                                    ui.label(f"承認OK: {fmt_jst(a.get('approved_at'))} / {a.get('approved_by') or ''}").classes("cvhb-muted")
+
+                                                # 依頼メモ
+                                                if status in {"draft", "rejected"}:
+                                                    def _on_req_note(e):
+                                                        approval_ui_state["request_note"] = e.value or ""
+
+                                                    ui.textarea("承認依頼メモ（任意）", value=approval_ui_state.get("request_note", ""), on_change=_on_req_note).props("outlined autogrow").classes("w-full q-mt-sm")
+
+                                                    async def _request():
+                                                        checks2 = compute_final_checks(p)
+                                                        if not checks2.get("ok_required"):
+                                                            ui.notify("必須チェックが未完了です（2/3などを入力してください）", type="warning")
+                                                            return
+                                                        try:
+                                                            approval_request(p, u, approval_ui_state.get("request_note", ""))
+                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                            set_current_project(p, u)
+                                                            safe_log_action(u, "approval_request", details=json.dumps({"project_id": p.get("project_id")}, ensure_ascii=False))
+                                                            ui.notify("承認依頼を出しました", type="positive")
+                                                            approval_panel.refresh()
+                                                            publish_panel.refresh()
+                                                        except Exception as e:
+                                                            ui.notify(f"承認依頼に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                    ui.button("承認依頼する", on_click=_request).props("color=primary unelevated").classes("q-mt-sm")
+
+                                                elif status == "requested":
+                                                    if can_approve(u):
+                                                        def _on_review_note(e):
+                                                            approval_ui_state["review_note"] = e.value or ""
+
+                                                        ui.textarea("レビュー/メモ（任意）", value=approval_ui_state.get("review_note", ""), on_change=_on_review_note).props("outlined autogrow").classes("w-full q-mt-sm")
+
+                                                        async def _approve():
+                                                            checks2 = compute_final_checks(p)
+                                                            if not checks2.get("ok_required"):
+                                                                ui.notify("必須チェックが未完了のため、承認OKにできません", type="warning")
+                                                                return
+                                                            try:
+                                                                approval_approve(p, u, approval_ui_state.get("review_note", ""))
+                                                                await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                                set_current_project(p, u)
+                                                                safe_log_action(u, "approval_approve", details=json.dumps({"project_id": p.get("project_id")}, ensure_ascii=False))
+                                                                ui.notify("承認OKにしました", type="positive")
+                                                                approval_panel.refresh()
+                                                                publish_panel.refresh()
+                                                            except Exception as e:
+                                                                ui.notify(f"承認に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                        async def _reject():
+                                                            try:
+                                                                approval_reject(p, u, approval_ui_state.get("review_note", ""))
+                                                                await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                                set_current_project(p, u)
+                                                                safe_log_action(u, "approval_reject", details=json.dumps({"project_id": p.get("project_id")}, ensure_ascii=False))
+                                                                ui.notify("差戻しにしました", type="warning")
+                                                                approval_panel.refresh()
+                                                                publish_panel.refresh()
+                                                            except Exception as e:
+                                                                ui.notify(f"差戻しに失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                        with ui.row().classes("q-gutter-sm q-mt-sm"):
+                                                            ui.button("承認OK", on_click=_approve).props("color=positive unelevated")
+                                                            ui.button("差戻し", on_click=_reject).props("color=negative outline")
+                                                    else:
+                                                        ui.label("承認待ちです（管理者が確認します）").classes("cvhb-muted q-mt-sm")
+                                                        if a.get("request_note"):
+                                                            ui.label(f"依頼メモ: {a.get('request_note')}").classes("cvhb-muted")
+
+                                                elif status == "approved":
+                                                    ui.label("承認OKです。書き出し/公開に進めます。").classes("text-positive q-mt-sm")
+                                                    if can_approve(u):
+                                                        def _on_review_note2(e):
+                                                            approval_ui_state["review_note"] = e.value or ""
+
+                                                        ui.textarea("メモ（任意）", value=approval_ui_state.get("review_note", ""), on_change=_on_review_note2).props("outlined autogrow").classes("w-full q-mt-sm")
+
+                                                        async def _unapprove():
+                                                            try:
+                                                                approval_reject(p, u, approval_ui_state.get("review_note", ""))
+                                                                await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                                set_current_project(p, u)
+                                                                safe_log_action(u, "approval_unapprove", details=json.dumps({"project_id": p.get("project_id")}, ensure_ascii=False))
+                                                                ui.notify("差戻しにしました（承認解除）", type="warning")
+                                                                approval_panel.refresh()
+                                                                publish_panel.refresh()
+                                                            except Exception as e:
+                                                                ui.notify(f"更新に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                        ui.button("承認を解除して差戻しにする", on_click=_unapprove).props("color=negative outline").classes("q-mt-sm")
+                                                else:
+                                                    ui.label("状態を確認できません").classes("text-negative")
+
+                                        approval_panel()
 
                                     with ui.tab_panel("s5"):
-                                        ui.label("5. 公開（管理者権限のみ）").classes("text-h6")
-                                        ui.label("v0.7.0で公開（アップロード）を実装します。").classes("cvhb-muted q-mt-sm")
+                                        ui.label("5. 書き出し・公開（管理者権限）").classes("text-h6 q-mb-sm")
+                                        ui.label("承認OKになったら、ZIPの書き出しや公開（アップロード）ができます。").classes("cvhb-muted q-mb-md")
+
+                                        export_state = {"url": "", "filename": ""}
+                                        publish_ui_state = {"password": ""}
+
+                                        @ui.refreshable
+                                        def publish_panel():
+                                            a = get_approval(p)
+                                            status = str(a.get("status") or "draft")
+                                            wf = get_workflow(p)
+
+                                            # -----------------
+                                            # 1) ZIP書き出し
+                                            # -----------------
+                                            with ui.card().classes("q-pa-sm rounded-borders q-mb-sm w-full").props("flat bordered"):
+                                                ui.label("書き出し（ZIP）").classes("text-subtitle1")
+                                                ui.label("公開前のバックアップとして ZIP を作れます。").classes("cvhb-muted")
+                                                if status != "approved":
+                                                    ui.label("※ 承認OKになっていないため、まだ書き出しできません。").classes("text-negative q-mt-sm")
+                                                else:
+                                                    ui.label("承認OK：書き出し可能").classes("text-positive q-mt-sm")
+
+                                                async def _do_export():
+                                                    if status != "approved":
+                                                        ui.notify("承認OKになってから書き出ししてください", type="warning")
+                                                        return
+                                                    if not can_export(u):
+                                                        ui.notify("書き出しは管理者（admin/subadmin）のみです", type="negative")
+                                                        return
+                                                    try:
+                                                        ui.notify("ZIPを作成中...", type="info")
+                                                        zip_bytes, filename = await asyncio.to_thread(build_site_zip_bytes, p)
+                                                        key = _export_cache_put(u.id, filename, zip_bytes)
+                                                        export_state["url"] = f"/export_zip/{key}"
+                                                        export_state["filename"] = filename
+
+                                                        # workflow更新（保存）
+                                                        wf2 = get_workflow(p)
+                                                        wf2["last_export_at"] = now_jst_iso()
+                                                        wf2["last_export_by"] = u.username
+                                                        await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                        set_current_project(p, u)
+
+                                                        ui.notify("ZIPを作成しました（ダウンロードできます）", type="positive")
+                                                        publish_panel.refresh()
+                                                    except Exception as e:
+                                                        ui.notify(f"書き出しに失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                if can_export(u) and status == "approved":
+                                                    ui.button("ZIPを書き出す", on_click=_do_export).props("color=primary unelevated").classes("q-mt-sm")
+                                                else:
+                                                    ui.label("書き出しは管理者（admin/subadmin）のみ操作できます。").classes("cvhb-muted q-mt-sm")
+
+                                                if export_state.get("url"):
+                                                    ui.label(f"作成済み: {export_state.get('filename') or ''}").classes("cvhb-muted q-mt-sm")
+                                                    ui.link("ダウンロードリンクを開く", export_state["url"]).classes("q-mt-xs")
+                                                if wf.get("last_export_at"):
+                                                    ui.label(f"最終書き出し: {fmt_jst(wf.get('last_export_at'))} / {wf.get('last_export_by') or ''}").classes("cvhb-muted q-mt-sm")
+
+                                            # -----------------
+                                            # 2) 公開（SFTP）
+                                            # -----------------
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                                ui.label("公開（SFTPアップロード）").classes("text-subtitle1")
+                                                ui.label("※ ここは管理者（admin）のみ。公開先サーバーの情報がある案件だけ使えます。").classes("cvhb-muted")
+
+                                                data = p.get("data") if isinstance(p, dict) else {}
+                                                publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
+
+                                                def _set_publish(key: str, value):
+                                                    publish[key] = value
+
+                                                ui.input("SFTPホスト", value=str(publish.get("sftp_host") or ""), on_change=lambda e: _set_publish("sftp_host", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("ポート（通常22）", value=str(publish.get("sftp_port") or 22), on_change=lambda e: _set_publish("sftp_port", e.value or "22")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("SFTPユーザー名", value=str(publish.get("sftp_user") or ""), on_change=lambda e: _set_publish("sftp_user", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("公開ディレクトリ（例: /public_html）", value=str(publish.get("sftp_dir") or ""), on_change=lambda e: _set_publish("sftp_dir", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("メモ（任意）", value=str(publish.get("sftp_note") or ""), on_change=lambda e: _set_publish("sftp_note", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+
+                                                def _on_pw(e):
+                                                    publish_ui_state["password"] = e.value or ""
+
+                                                ui.input("SFTPパスワード（保存されません）", value=publish_ui_state.get("password", ""), on_change=_on_pw).props("outlined dense type=password").classes("w-full q-mt-sm")
+                                                pub_confirm = ui.checkbox("公開する（上書きアップロード）").classes("q-mt-sm")
+
+                                                async def _do_publish():
+                                                    if not can_publish(u):
+                                                        ui.notify("公開は admin のみ実行できます", type="negative")
+                                                        return
+                                                    if status != "approved":
+                                                        ui.notify("承認OKになってから公開してください", type="warning")
+                                                        return
+                                                    if not pub_confirm.value:
+                                                        ui.notify("チェックをONにしてください", type="warning")
+                                                        return
+                                                    try:
+                                                        ui.notify("公開（アップロード）中...", type="info")
+                                                        ok, msg = await asyncio.to_thread(publish_site_via_sftp, p, u, publish_ui_state.get("password", ""))
+                                                        if ok:
+                                                            wf2 = get_workflow(p)
+                                                            wf2["last_publish_at"] = now_jst_iso()
+                                                            wf2["last_publish_by"] = u.username
+                                                            wf2["last_publish_target"] = f"{publish.get('sftp_host', '')}:{publish.get('sftp_dir', '')}"
+                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                            set_current_project(p, u)
+                                                            ui.notify(msg, type="positive")
+                                                        else:
+                                                            ui.notify(msg, type="negative")
+                                                        publish_panel.refresh()
+                                                    except Exception as e:
+                                                        ui.notify(f"公開に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                if can_publish(u):
+                                                    ui.button("公開する（SFTPへアップロード）", on_click=_do_publish).props("color=positive unelevated").classes("q-mt-sm")
+                                                    if wf.get("last_publish_at"):
+                                                        ui.label(f"最終公開: {fmt_jst(wf.get('last_publish_at'))} / {wf.get('last_publish_by') or ''}").classes("cvhb-muted q-mt-sm")
+                                                else:
+                                                    ui.label("公開は admin のみ実行できます。").classes("cvhb-muted q-mt-sm")
+
+                                        publish_panel()
 
                 # -----------------
                 # RIGHT (preview)
@@ -5920,8 +7155,8 @@ def projects_page():
                 ui.button("キャンセル", on_click=new_project_dialog.close).props("flat")
                 ui.button("作成", on_click=create_new_project).props("color=primary unelevated")
 
-        # --- 画面ヘッダー（タイトル＋ボタン） ---
-        with ui.element("div").classes("cvhb-projects-actions q-mb-md"):
+        # --- ヘッダー ---
+        with ui.row().classes("items-start justify-between q-mb-md"):
             with ui.column():
                 ui.label("案件一覧").classes("text-h5 cvhb-card-title")
                 ui.label("案件を開いて編集します。新規作成もここからできます。").classes("cvhb-muted")
@@ -5931,6 +7166,145 @@ def projects_page():
 
         ui.separator().classes("q-my-md")
 
+        # =========================
+        # 管理者用：画像一覧 / 案件削除（/projects 上で実行）
+        # =========================
+        img_state = {"loading": False, "error": "", "items": [], "project_id": "", "project_name": ""}
+        del_state = {"project_id": "", "project_name": ""}
+
+        # --- 画像一覧ダイアログ（管理者のみ） ---
+        with ui.dialog() as images_dialog, ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+            ui.label("登録画像の一覧（管理者のみ）").classes("text-subtitle1 q-mb-sm")
+            ui.label("案件に保存されている画像（アップロード画像）を確認できます。").classes("cvhb-muted q-mb-sm")
+            img_title = ui.label("").classes("cvhb-muted q-mb-sm")
+
+            @ui.refreshable
+            def images_dialog_body():
+                if img_state["loading"]:
+                    ui.label("読み込み中...").classes("cvhb-muted")
+                    ui.spinner(size="lg")
+                    return
+                if img_state["error"]:
+                    ui.label(img_state["error"]).classes("text-negative")
+                    return
+
+                items = img_state.get("items") or []
+                total_kb = sum(int(it.get("size_kb") or 0) for it in items)
+                ui.label(f"{len(items)}件 / 合計 約{total_kb}KB").classes("text-subtitle2 q-mt-sm")
+
+                if not items:
+                    ui.label("画像は登録されていません（または、すべてプリセット画像です）。").classes("cvhb-muted q-mt-sm")
+                    return
+
+                with ui.element("div").classes("q-mt-sm"):
+                    for it in items:
+                        label = str(it.get("label") or "")
+                        fn = str(it.get("filename") or "")
+                        mime = str(it.get("mime") or "")
+                        size_kb = int(it.get("size_kb") or 0)
+                        data_url = str(it.get("data_url") or "")
+
+                        with ui.row().classes("items-center q-gutter-sm q-mb-sm"):
+                            try:
+                                ui.image(data_url).style("width: 92px; height: 52px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);")
+                            except Exception:
+                                ui.element("div").style("width: 92px; height: 52px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15); background: #f3f4f6;")
+
+                            with ui.column():
+                                ui.label(label).classes("text-body2")
+                                ui.label(f"{fn or '(filenameなし)'} / {mime} / {size_kb}KB").classes("cvhb-muted")
+
+            images_dialog_body()
+
+            with ui.row().classes("q-gutter-sm q-mt-md"):
+                ui.button("閉じる", on_click=images_dialog.close).props("flat")
+
+        # --- 削除準備ダイアログ（チェック必須） ---
+        with ui.dialog() as delete_prepare_dialog, ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+            ui.label("案件を削除（管理者のみ）").classes("text-subtitle1 q-mb-sm")
+            ui.label("この操作は取り消せません。").classes("text-negative q-mb-sm")
+            del_title = ui.label("").classes("cvhb-muted q-mb-sm")
+            del_checkbox = ui.checkbox("削除する（最終確認へ進むためのチェック）")
+
+            def _go_delete_final():
+                if not del_checkbox.value:
+                    ui.notify("チェックをONにしてください", type="warning")
+                    return
+                delete_final_dialog.open()
+
+            with ui.row().classes("q-gutter-sm q-mt-md"):
+                ui.button("キャンセル", on_click=delete_prepare_dialog.close).props("flat")
+                ui.button("次へ（最終確認）", on_click=_go_delete_final).props("color=negative unelevated")
+
+        # --- 最終確認ダイアログ（本当に削除するか） ---
+        with ui.dialog() as delete_final_dialog, ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+            ui.label("最終確認").classes("text-subtitle1 q-mb-sm")
+            ui.label("本当に削除しますか？（元に戻せません）").classes("text-negative q-mb-sm")
+            del_final_title = ui.label("").classes("cvhb-muted q-mb-sm")
+
+            async def _confirm_delete():
+                if not is_admin(u):
+                    ui.notify("権限がありません", type="negative")
+                    delete_final_dialog.close()
+                    delete_prepare_dialog.close()
+                    return
+                pid = str(del_state.get("project_id") or "")
+                if not pid:
+                    ui.notify("削除対象が未選択です", type="warning")
+                    return
+                try:
+                    ui.notify("削除中...", type="info")
+                    await asyncio.to_thread(delete_project_from_sftp, pid, u)
+                    ui.notify("削除しました", type="positive")
+                    delete_final_dialog.close()
+                    delete_prepare_dialog.close()
+                    list_refresh.refresh()
+                except Exception as e:
+                    ui.notify(f"削除に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+            with ui.row().classes("q-gutter-sm q-mt-md"):
+                ui.button("やめる", on_click=delete_final_dialog.close).props("flat")
+                ui.button("削除（確定）", on_click=_confirm_delete).props("color=negative unelevated")
+
+        async def open_images_dialog(project_id: str, project_name: str) -> None:
+            if not is_admin(u):
+                ui.notify("権限がありません", type="negative")
+                return
+            img_state["project_id"] = project_id
+            img_state["project_name"] = project_name
+            img_state["loading"] = True
+            img_state["error"] = ""
+            img_state["items"] = []
+            img_title.text = f"案件: {project_name}（ID: {project_id}）"
+            images_dialog.open()
+            images_dialog_body.refresh()
+
+            try:
+                p = await asyncio.to_thread(load_project_from_sftp, project_id, u)
+                items = collect_project_images(p)
+                try:
+                    items.sort(key=lambda x: int(x.get("size_kb") or 0), reverse=True)
+                except Exception:
+                    pass
+                img_state["items"] = items
+            except Exception as e:
+                img_state["error"] = f"読み込みに失敗しました: {sanitize_error_text(e)}"
+            finally:
+                img_state["loading"] = False
+                images_dialog_body.refresh()
+
+        def open_delete_prepare(project_id: str, project_name: str) -> None:
+            if not is_admin(u):
+                ui.notify("権限がありません", type="negative")
+                return
+            del_state["project_id"] = project_id
+            del_state["project_name"] = project_name
+            del_checkbox.value = False
+            del_title.text = f"案件: {project_name}（ID: {project_id}）"
+            del_final_title.text = f"案件: {project_name}（ID: {project_id}）"
+            delete_prepare_dialog.open()
+
+        # --- 案件を開く ---
         async def open_project(project_id: str) -> None:
             try:
                 ui.notify("案件を読み込み中...", type="info")
@@ -5956,28 +7330,32 @@ def projects_page():
                     ui.button("新規作成", on_click=lambda: new_project_dialog.open()).props("color=primary unelevated").classes("q-mt-md")
                 return
 
-            # --- グリッド表示（PCで見栄えUP） ---
-            with ui.element("div").classes("cvhb-project-grid"):
-                for it in items:
-                    pid = it.get("project_id", "")
-                    pname = it.get("project_name", "")
-                    updated_at = fmt_jst(it.get("updated_at"))
-                    created_at = fmt_jst(it.get("created_at"))
-                    updated_by = it.get("updated_by", "")
+            for it in items:
+                pid = it.get("project_id", "")
+                pname = it.get("project_name", "")
+                updated_at = fmt_jst(it.get("updated_at"))
+                created_at = fmt_jst(it.get("created_at"))
+                updated_by = it.get("updated_by", "")
 
-                    with ui.card().classes("q-pa-md rounded-borders cvhb-project-card").props("bordered"):
-                        ui.label(pname).classes("text-subtitle1")
-                        ui.label(f"最終更新: {updated_at}").classes("cvhb-project-meta q-mt-xs")
-                        ui.label(f"案件開始: {created_at}").classes("cvhb-project-meta")
-                        if updated_by:
-                            ui.label(f"更新担当者: {updated_by}").classes("cvhb-project-meta")
-                        ui.label(f"ID: {pid}").classes("cvhb-project-meta q-mt-xs")
+                with ui.card().classes("q-pa-md rounded-borders q-mb-sm").props("bordered"):
+                    ui.label(pname).classes("text-subtitle1")
+                    ui.label(f"最終更新: {updated_at}").classes("cvhb-project-meta q-mt-xs")
+                    ui.label(f"案件開始: {created_at}").classes("cvhb-project-meta")
+                    if updated_by:
+                        ui.label(f"更新担当者: {updated_by}").classes("cvhb-project-meta")
+                    ui.label(f"ID: {pid}").classes("cvhb-project-meta q-mt-xs")
 
-                        async def _open(project_id=pid):
-                            await open_project(project_id)
-                        ui.button("開く", on_click=_open).props("color=primary unelevated").classes("w-full q-mt-md")
+                    async def _open(project_id=pid):
+                        await open_project(project_id)
+
+                    with ui.row().classes("q-gutter-sm q-mt-md"):
+                        ui.button("開く", on_click=_open).props("color=primary unelevated")
+                        if is_admin(u):
+                            ui.button("登録画像一覧", on_click=lambda pid=pid, pname=pname: open_images_dialog(pid, pname)).props("outline")
+                            ui.button("削除", on_click=lambda pid=pid, pname=pname: open_delete_prepare(pid, pname)).props("color=negative outline")
 
         list_refresh()
+
 
 
 @ui.page("/audit")
