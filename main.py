@@ -496,6 +496,28 @@ def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tupl
     data = _read_upload_bytes_sync(content)
 
     if not data:
+        # meta log (no binary)
+        try:
+            print(
+                f"[UPLOAD] read failed: fname={fname!r} mime={mime!r} content={type(content).__name__} event={type(e).__name__}",
+                flush=True,
+            )
+            try:
+                e0 = _unwrap_upload_event(e)
+                args = _ev_get_args(e0)
+                meta = {
+                    "e0_type": type(e0).__name__,
+                    "name": _ev_get(e0, "name", None),
+                    "type": _ev_get(e0, "type", None),
+                    "content_attr_type": type(_ev_get(e0, "content", None)).__name__,
+                    "args_type": type(args).__name__ if args is not None else None,
+                    "args_keys": sorted(list(args.keys())) if isinstance(args, dict) else None,
+                }
+                print(f"[UPLOAD] meta: {json.dumps(meta, ensure_ascii=False)}", flush=True)
+            except Exception as ex2:
+                print(f"[UPLOAD] meta error: {ex2}", flush=True)
+        except Exception:
+            pass
         try:
             ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
         except Exception:
@@ -2683,7 +2705,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.9999")
+VERSION = read_text_file("VERSION", "0.6.999991")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -5207,9 +5229,9 @@ def render_main(u: User) -> None:
                                             ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
                                             ui.label("未設定ならデフォルトを使用します（推奨: 正方形PNG 32×32）").classes("cvhb-muted")
 
-                                            async def _on_upload_favicon(e):
+                                            def _on_upload_favicon(e):
                                                 try:
-                                                    data_url, fname = await _upload_event_to_data_url(e)
+                                                    data_url, fname = _upload_event_to_data_url_sync(e)
                                                     if not data_url:
                                                         return
                                                     step2["favicon_url"] = data_url
@@ -5327,9 +5349,9 @@ def render_main(u: User) -> None:
                                                             update_and_refresh()
                                                             hero_slides_editor.refresh()
 
-                                                        async def _on_upload_slide(e, i: int):
+                                                        def _on_upload_slide(e, i: int):
                                                             try:
-                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 _normalize_hero_slides()
@@ -5372,8 +5394,8 @@ def render_main(u: User) -> None:
                                                                         _set_slide_choice(i, e.value)
                                                                     ui.radio(HERO_IMAGE_OPTIONS + ["オリジナル"], value=cc[_i], on_change=_on_choice).props("inline")
                                                                     if cc[_i] == "オリジナル":
-                                                                        async def _upload_handler(e, i=_i):
-                                                                            await _on_upload_slide(e, i)
+                                                                        def _upload_handler(e, i=_i):
+                                                                            _on_upload_slide(e, i)
                                                                         with ui.row().classes("items-center q-gutter-sm"):
                                                                             # 現在反映されている画像（サムネ）
                                                                             try:
@@ -5434,9 +5456,9 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        async def _on_upload_ph_image(e):
+                                                        def _on_upload_ph_image(e):
                                                             try:
-                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 ph["image_url"] = data_url
@@ -5513,9 +5535,9 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        async def _on_upload_svc_image(e):
+                                                        def _on_upload_svc_image(e):
                                                             try:
-                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 svc["image_url"] = data_url
