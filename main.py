@@ -159,17 +159,19 @@ IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動�
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
 
-def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int) -> tuple[bytes, str]:
-    """画像を target(max_w×max_h) に「16:9でセンタークロップ + リサイズ」して返す（v0.6.996）。
+def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False) -> tuple[bytes, str]:
+    """画像を target(max_w×max_h) に「比率を合わせてセンタークロップ + リサイズ」して返す。
 
     目的:
-    - 画像の保存/表示の比率を 1280×720（16:9）に統一したい
-    - 元画像が縦長/横長でも、できるだけ残しつつ中心を基準にカットする
+    - 画像の保存/表示の比率を 1280×720（16:9）に統一したい（ヒーロー/理念/業務内容など）
+    - 元画像が縦長/横長でも、できるだけ残しつつ中心を基準にカットする（cover方式）
+    - ファビコンは 32×32 の PNG（正方形）にしたい → force_png=True を使う
 
     仕様:
     - Pillow(PIL) が無い環境では元データを返す（安全優先）
     - 画像は EXIF の回転を補正してから処理する
-    - 出力は: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
+    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
+      ただし force_png=True の場合は常に PNG を返す
     """
     try:
         if not data:
@@ -210,7 +212,7 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
         target_ratio = target_w / float(target_h)
         src_ratio = w / float(h)
 
-        # --- センタークロップで 16:9 に寄せる（できるだけ残す） ---
+        # --- センタークロップで target_ratio に寄せる（できるだけ残す） ---
         # 縦横どちらが大きいかをベースにして、はみ出る分だけをカット
         try:
             if src_ratio > target_ratio:
@@ -227,7 +229,7 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
             # crop に失敗しても元のまま続行（落ちない方が大事）
             pass
 
-        # --- 1280×720 にリサイズ（小さければ拡大もする） ---
+        # --- target にリサイズ（小さければ拡大もする） ---
         try:
             im = im.resize((target_w, target_h), Image.LANCZOS)
         except Exception:
@@ -236,14 +238,25 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
             except Exception:
                 pass
 
+        from io import BytesIO  # local import（PILがあるときだけ到達）
+        out = BytesIO()
+
+        # force_png のときは常に PNG
+        if force_png:
+            out_mime = "image/png"
+            try:
+                im.save(out, format="PNG", optimize=True)
+            except Exception:
+                return data, mime
+            out_bytes = out.getvalue()
+            return (out_bytes, out_mime) if out_bytes else (data, mime)
+
         # 透過がある場合は PNG、それ以外は JPEG（軽量化）
         has_alpha = (
             im.mode in ("RGBA", "LA")
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
         )
 
-        from io import BytesIO  # local import（PILがあるときだけ到達）
-        out = BytesIO()
         if has_alpha:
             out_mime = "image/png"
             try:
@@ -268,24 +281,183 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int)
         return data, mime
 
 
+def _upload_debug_summary(obj) -> str:
+    """Heroku logs 向けの安全な要約（生bytes/base64は絶対に出さない）"""
+    try:
+        if obj is None:
+            return "None"
+        if isinstance(obj, (bytes, bytearray, memoryview)):
+            return f"{type(obj).__name__}(len={len(obj)})"
+        if isinstance(obj, str):
+            s = obj.strip()
+            if s.startswith("data:") and "base64," in s:
+                return f"str(data_url,len={len(s)})"
+            return f"str(len={len(s)})"
+        if isinstance(obj, dict):
+            keys = list(obj.keys())
+            if len(keys) > 12:
+                keys = keys[:12] + ["..."]
+            return f"dict(keys={keys})"
+        if isinstance(obj, (list, tuple)):
+            return f"{type(obj).__name__}(len={len(obj)})"
+        return type(obj).__name__
+    except Exception:
+        return "unknown"
 
-async def _read_upload_bytes(content) -> bytes:
-    """Read bytes from NiceGUI upload content safely (supports sync/async).
 
-    v0.6.998:
-    - ui.upload の content は環境により UploadFile / BufferedReader 等が混在します。
-    - on_upload のタイミングによっては async read/seek 中に content が閉じられて
-      0バイトになることがあるため、まずは content.file を「同期読み込み」で試します。
-    - それでもダメなら content.read()（sync/async）へフォールバックします。
+def _extract_upload_event_payload(e) -> dict:
+    """NiceGUI upload のイベント引数の揺れ（object / dict / list）を吸収して payload を返す。
+
+    返り値の形:
+      {"name": str, "type": str, "content": Any}
+
+    ねらい:
+    - NiceGUI側のバージョン差・イベント型の差をここで吸収する
+    - 後段は「content から bytes を取れるか」だけに集中できる
+    """
+    # list/tuple: 先頭から「それっぽい」ものを拾う
+    if isinstance(e, (list, tuple)):
+        for it in e:
+            p = _extract_upload_event_payload(it)
+            if p.get("content") is not None or p.get("name") or p.get("type"):
+                return p
+        return {"name": "", "type": "", "content": None}
+
+    # dict: キー名ゆれを吸収
+    if isinstance(e, dict):
+        name = str(
+            e.get("name")
+            or e.get("filename")
+            or e.get("fileName")
+            or e.get("file_name")
+            or ""
+        ).strip()
+        mime = str(
+            e.get("type")
+            or e.get("mime")
+            or e.get("mimetype")
+            or e.get("content_type")
+            or ""
+        ).strip()
+
+        content = e.get("content")
+        if content is None:
+            content = e.get("file")
+        if content is None:
+            content = e.get("data")
+        if content is None:
+            content = e.get("bytes")
+
+        # 入れ子（files/args/payload/value）にも対応
+        if content is None:
+            for k in ("files", "args", "payload", "value"):
+                if k in e:
+                    nested = e.get(k)
+                    p = _extract_upload_event_payload(nested)
+                    # 上書きできる情報があれば反映
+                    if not name:
+                        name = p.get("name", "") or name
+                    if not mime:
+                        mime = p.get("type", "") or mime
+                    if p.get("content") is not None:
+                        content = p.get("content")
+                        break
+
+        return {"name": name, "type": mime, "content": content}
+
+    # object: attribute 名ゆれを吸収
+    try:
+        name = str(getattr(e, "name", "") or getattr(e, "filename", "") or "").strip()
+        mime = str(getattr(e, "type", "") or getattr(e, "mime", "") or "").strip()
+
+        content = getattr(e, "content", None)
+        if content is None:
+            content = getattr(e, "file", None)
+        if content is None:
+            content = getattr(e, "data", None)
+        if content is None:
+            # some wrappers use .files/.args/.payload/.value
+            for attr in ("files", "args", "payload", "value"):
+                nested = getattr(e, attr, None)
+                if nested is not None:
+                    p = _extract_upload_event_payload(nested)
+                    if not name:
+                        name = p.get("name", "") or name
+                    if not mime:
+                        mime = p.get("type", "") or mime
+                    if p.get("content") is not None:
+                        content = p.get("content")
+                        break
+
+        # それでも取れない場合は「e 自体」を content として渡す（後段で深掘り）
+        if content is None:
+            content = e
+
+        return {"name": name, "type": mime, "content": content}
+    except Exception:
+        return {"name": "", "type": "", "content": e}
+
+
+async def _read_upload_bytes(content, *, _depth: int = 0, _seen: Optional[set[int]] = None) -> bytes:
+    """Upload content から bytes を確実に取り出す（同期/非同期・dict/list の揺れを吸収）。
+
+    重要:
+    - NiceGUI/Starlette の UploadFile は read() が async のことがある（= await 必須）
+    - 逆に file.read() は sync のこともある
+    - ここで「両方」吸収して、必ず bytes を確保する
     """
     if content is None:
         return b""
+    # 再帰ループ防止
+    if _seen is None:
+        _seen = set()
+    try:
+        obj_id = id(content)
+        if obj_id in _seen:
+            return b""
+        _seen.add(obj_id)
+    except Exception:
+        pass
 
-    # すでに bytes の場合
+    if _depth > 8:
+        return b""
+    # bytes 直
     if isinstance(content, (bytes, bytearray, memoryview)):
         return bytes(content)
 
-    # 1) Prefer underlying file object (sync) to avoid async timing issues
+    # dict
+    if isinstance(content, dict):
+        # よくあるキーから優先して掘る
+        for k in ("content", "data", "bytes", "file", "raw", "body", "buffer"):
+            if k in content:
+                b = await _read_upload_bytes(content.get(k), _depth=_depth + 1, _seen=_seen)
+                if b:
+                    return b
+
+        # 入れ子（files/args/payload/value）
+        for k in ("files", "args", "payload", "value"):
+            if k in content:
+                b = await _read_upload_bytes(content.get(k), _depth=_depth + 1, _seen=_seen)
+                if b:
+                    return b
+
+        return b""
+    # list/tuple: 先頭から読めるものを探す
+    if isinstance(content, (list, tuple)):
+        for it in content:
+            b = await _read_upload_bytes(it, _depth=_depth + 1, _seen=_seen)
+            if b:
+                return b
+        return b""
+    # data URL（念のため）
+    try:
+        if isinstance(content, str) and content.startswith("data:") and "base64," in content:
+            b64 = content.split("base64,", 1)[1]
+            return base64.b64decode(b64)
+    except Exception:
+        pass
+
+    # 1) Prefer underlying file object (UploadFile.file 等) (sync)
     try:
         fobj = getattr(content, "file", None)
     except Exception:
@@ -293,18 +465,23 @@ async def _read_upload_bytes(content) -> bytes:
 
     if fobj is not None and hasattr(fobj, "read"):
         try:
+            # seek(0) できるなら戻す（同じイベントの再読みでも事故らない）
             if hasattr(fobj, "seek"):
                 try:
                     fobj.seek(0)
                 except Exception:
                     pass
             data = fobj.read()
+            if inspect.isawaitable(data):
+                data = await data
+            if isinstance(data, str):
+                data = data.encode("utf-8", errors="ignore")
             if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
                 return bytes(data)
         except Exception:
             pass
 
-    # 2) Rewind content itself (sync/async)
+    # 2) Try seek/read on the content itself (sync/async)
     try:
         seek_fn = getattr(content, "seek", None)
         if callable(seek_fn):
@@ -317,160 +494,12 @@ async def _read_upload_bytes(content) -> bytes:
     except Exception:
         pass
 
-    # 3) Read via content.read (sync/async)
     try:
         read_fn = getattr(content, "read", None)
-    except Exception:
-        read_fn = None
-
-    try:
         if callable(read_fn):
             data = read_fn()
             if inspect.isawaitable(data):
                 data = await data
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-    except Exception:
-        pass
-
-    # 4) Last resort: try bytes()
-    try:
-        b = bytes(content)
-        return b if b else b""
-    except Exception:
-        return b""
-
-
-
-
-
-
-def _unwrap_upload_event(e):
-    """ui.upload のイベントが list/tuple/dict でも壊れないように正規化します。"""
-    if e is None:
-        return None
-    try:
-        if isinstance(e, (list, tuple)) and len(e) > 0:
-            return e[0]
-    except Exception:
-        pass
-    return e
-
-
-def _ev_get(e, key: str, default=None):
-    """イベントが dict / オブジェクトどちらでも値を取れるようにします。"""
-    if e is None:
-        return default
-    try:
-        if isinstance(e, dict):
-            return e.get(key, default)
-    except Exception:
-        pass
-    try:
-        return getattr(e, key, default)
-    except Exception:
-        return default
-
-
-def _ev_get_args(e) -> Optional[dict]:
-    """NiceGUI/Quasarイベントの args を吸い出す（dict / list[dict] 両対応）"""
-    try:
-        if isinstance(e, dict):
-            args = e.get("args")
-            if isinstance(args, dict):
-                return args
-            if isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
-                return args[0]
-    except Exception:
-        pass
-    try:
-        args = getattr(e, "args", None)
-        if isinstance(args, dict):
-            return args
-        if isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
-            return args[0]
-    except Exception:
-        return None
-    return None
-def _extract_upload_fields(e) -> tuple[object, str, str]:
-    """upload event から (content, filename, mime) を取り出します。"""
-    e0 = _unwrap_upload_event(e)
-    args = _ev_get_args(e0) or {}
-    content = _ev_get(e0, "content", None)
-    if content is None:
-        content = args.get("content")
-    fname = _ev_get(e0, "name", "") or args.get("name", "") or ""
-    mime = _ev_get(e0, "type", "") or args.get("type", "") or ""
-    return content, str(fname), str(mime)
-
-
-def _read_upload_bytes_sync(content) -> bytes:
-    """同期版: ui.upload の content から bytes を取り出します。
-
-    画像アップロード不具合の根本対策:
-    - 環境によって on_upload が async を await しない場合があり、content が閉じられた後に
-      coroutine が走ると 0バイトになりがちです。
-    - そこで「同期で即読み」して、閉じられる前にバイト列を確保します。
-    """
-    if content is None:
-        return b""
-
-    if isinstance(content, (bytes, bytearray, memoryview)):
-        return bytes(content)
-
-    # data URL が来るケースも吸収（念のため）
-    try:
-        if isinstance(content, str) and content.startswith("data:") and "base64," in content:
-            b64 = content.split("base64,", 1)[1]
-            return base64.b64decode(b64)
-    except Exception:
-        pass
-
-    # dict の場合（まれ）
-    try:
-        if isinstance(content, dict):
-            if "data" in content and isinstance(content["data"], (bytes, bytearray, memoryview)):
-                return bytes(content["data"])
-            if "file" in content:
-                content = content["file"]
-    except Exception:
-        pass
-
-    # 1) Prefer underlying file object (UploadFile.file 等)
-    fobj = None
-    try:
-        fobj = getattr(content, "file", None)
-    except Exception:
-        fobj = None
-
-    if fobj is not None and hasattr(fobj, "read"):
-        try:
-            if hasattr(fobj, "seek"):
-                try:
-                    fobj.seek(0)
-                except Exception:
-                    pass
-            data = fobj.read()
-            if isinstance(data, str):
-                data = data.encode("utf-8", errors="ignore")
-            if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
-                return bytes(data)
-        except Exception:
-            pass
-
-    # 2) Try content.seek/read
-    try:
-        if hasattr(content, "seek"):
-            try:
-                content.seek(0)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    try:
-        if hasattr(content, "read"):
-            data = content.read()
             if isinstance(data, str):
                 data = data.encode("utf-8", errors="ignore")
             if isinstance(data, (bytes, bytearray, memoryview)) and len(data) > 0:
@@ -478,7 +507,18 @@ def _read_upload_bytes_sync(content) -> bytes:
     except Exception:
         pass
 
-    # 3) Last resort
+    # 3) Known wrappers: content.value / content.body / content.buffer など
+    try:
+        for attr in ("value", "body", "buffer", "raw", "data"):
+            v = getattr(content, attr, None)
+            if v is not None and v is not content:
+                b = await _read_upload_bytes(v, _depth=_depth + 1, _seen=_seen)
+                if b:
+                    return b
+    except Exception:
+        pass
+
+    # 4) Last resort
     try:
         b = bytes(content)
         return b if b else b""
@@ -486,36 +526,46 @@ def _read_upload_bytes_sync(content) -> bytes:
         return b""
 
 
-def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tuple[str, str]:
-    """同期版: upload event → (data_url, filename)
+async def _upload_event_to_data_url(
+    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False
+) -> tuple[str, str]:
+    """Upload event -> data URL（v0.6.9995 と同じ流れに戻す）.
+
+    - event の型ゆれ（object/dict/list）を吸収
+    - content から bytes を確保（sync/async 両対応）
+    - bytes を max_w×max_h に中心トリミング＋リサイズ（cover方式）
+    - data URL 化して返す
 
     NOTE:
-    - on_upload が async を await しない環境でも確実に動くことを最優先にしています。
+    - 成功通知は呼び出し側で行う（場所ごとに文言を変えたい）
     """
-    content, fname, mime = _extract_upload_fields(e)
-    data = _read_upload_bytes_sync(content)
+    payload = _extract_upload_event_payload(e)
+    # UI表示は短い方が安心。保存用も短縮で統一。
+    fname = _short_name(payload.get("name", "") or "uploaded")
+    mime = (payload.get("type") or "").strip()
+    content = payload.get("content")
+
+    # まず payload.content から読む。ダメなら e 自体も読む（古いイベント形状対策）
+    data = await _read_upload_bytes(content)
+    if not data:
+        data = await _read_upload_bytes(e)
 
     if not data:
-        # meta log (no binary)
         try:
             print(
-                f"[UPLOAD] read failed: fname={fname!r} mime={mime!r} content={type(content).__name__} event={type(e).__name__}",
+                "[UPLOAD] empty bytes",
+                json.dumps(
+                    {
+                        "event": _upload_debug_summary(e),
+                        "payload": _upload_debug_summary(payload),
+                        "content": _upload_debug_summary(content),
+                        "name": fname,
+                        "mime": mime,
+                    },
+                    ensure_ascii=False,
+                ),
                 flush=True,
             )
-            try:
-                e0 = _unwrap_upload_event(e)
-                args = _ev_get_args(e0)
-                meta = {
-                    "e0_type": type(e0).__name__,
-                    "name": _ev_get(e0, "name", None),
-                    "type": _ev_get(e0, "type", None),
-                    "content_attr_type": type(_ev_get(e0, "content", None)).__name__,
-                    "args_type": type(args).__name__ if args is not None else None,
-                    "args_keys": sorted(list(args.keys())) if isinstance(args, dict) else None,
-                }
-                print(f"[UPLOAD] meta: {json.dumps(meta, ensure_ascii=False)}", flush=True)
-            except Exception as ex2:
-                print(f"[UPLOAD] meta error: {ex2}", flush=True)
         except Exception:
             pass
         try:
@@ -524,74 +574,47 @@ def _upload_event_to_data_url_sync(e, *, max_w: int = 0, max_h: int = 0) -> tupl
             pass
         return "", fname
 
-    try:
-        if len(data) > MAX_UPLOAD_BYTES:
-            try:
-                ui.notify("画像ファイルが大きすぎます。サイズを小さくして再アップロードしてください。", type="warning")
-            except Exception:
-                pass
-            return "", fname
-    except Exception:
-        pass
-
-    if not mime:
-        mime = _guess_mime(fname, "image/png")
-
-    try:
-        if max_w and max_h:
-            data, mime = _maybe_resize_image_bytes(data, mime, max_w=max_w, max_h=max_h)
-    except Exception:
-        pass
-
-    try:
-        b64 = base64.b64encode(data).decode("ascii")
-    except Exception:
-        b64 = ""
-
-    if not b64:
+    if len(data) > MAX_UPLOAD_BYTES:
+        try:
+            ui.notify("画像が大きすぎます（10MB以下にしてください）", type="warning")
+        except Exception:
+            pass
         return "", fname
 
-    return f"data:{mime};base64,{b64}", fname
+    mime = mime or _guess_mime(fname, default="image/png")
 
+    # Resize/crop (cover)
+    if max_w and max_h:
+        try:
+            # PIL が重い時でも UI 全体が固まらないようにスレッドへ退避
+            data, mime = await asyncio.to_thread(
+                _maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h, force_png=force_png
+            )
+        except Exception:
+            traceback.print_exc()
 
-
-
-async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tuple[Optional[str], Optional[str]]:
-    """Convert a NiceGUI upload event to a data URL (async).
-
-    - Robustly extracts (content, filename, mime) from several possible event shapes.
-    - Reads bytes with async support (UploadFile.read/seek) and also tries the underlying file object first.
-    - Optionally resizes/crops to keep a strict aspect ratio.
-    """
     try:
-        content, fname, mime = _extract_upload_fields(e)
-        data = await _read_upload_bytes(content)
-
-        if not data:
+        b64 = base64.b64encode(data).decode("ascii")
+        # 成功ログ（バイナリは出さない）
+        try:
             print(
-                f"[UPLOAD] read failed: fname={fname!r} mime={mime!r} content={type(content).__name__} event={type(e).__name__}",
+                "[UPLOAD] ok",
+                json.dumps(
+                    {"name": fname, "mime": mime, "bytes": len(data), "resized": bool(max_w and max_h)},
+                    ensure_ascii=False,
+                ),
                 flush=True,
             )
-            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="negative")
-            return None, None
-
-        if len(data) > MAX_UPLOAD_BYTES:
-            ui.notify(f"画像サイズが大きすぎます（最大 {MAX_UPLOAD_BYTES // 1024 // 1024}MB）", type="negative")
-            return None, None
-
-        if not mime:
-            mime = _guess_mime(fname, default="image/png")
-
-        if max_w and max_h:
-            data, mime = await asyncio.to_thread(_maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h)
-
-        b64 = base64.b64encode(data).decode("ascii")
+        except Exception:
+            pass
         return f"data:{mime};base64,{b64}", fname
-    except Exception as ex:
-        print(f"[UPLOAD] unexpected error: {ex}", flush=True)
-        ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="negative")
-        return None, None
-
+    except Exception:
+        traceback.print_exc()
+        try:
+            ui.notify("画像の読み込みに失敗しました（JPG/PNG をお試しください）", type="warning")
+        except Exception:
+            pass
+        return "", fname
 # ---------------------------
 # Preview image serving (data URL -> /pv_img/<hash>)
 # 目的: data URL をHTML/WS payloadに毎回乗せない（案件読込・操作を軽くする）
@@ -695,13 +718,1644 @@ def inject_global_styles() -> None:
     ui.add_head_html(
         """
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2360a5fa'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='8' width='48' height='48' rx='14' fill='url(%23g)'/%3E%3Cpath d='M20 36c8 8 16 8 24 0' stroke='rgba(255,255,255,.85)' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
-        """,
+<style>
+  /* ====== Page base ====== */
+  .cvhb-page {
+    background: #f5f5f5;
+    min-height: calc(100vh - 64px);
+  }
+  .cvhb-container {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 16px;
+  }
+
+  /* ====== Split layout (PC builder) ====== */
+  .cvhb-split {
+    display: grid;
+    grid-template-columns: 520px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .cvhb-left-col,
+  .cvhb-right-col {
+    width: 100%;
+  }
+
+  /* 左側フォームはカード幅いっぱいを使う（左寄せで細く見えるのを防ぐ） */
+  .cvhb-left-col .q-field,
+  .cvhb-left-col .q-input,
+  .cvhb-left-col .q-textarea {
+    width: 100%;
+  }
+
+  /* v0.6.992: 左入力欄の見た目（横幅・余白）を微調整 */
+  .cvhb-left-col .q-card { width: 100%; }
+  .cvhb-left-col .q-card.q-pa-md { padding: 14px !important; }
+  .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
+  .cvhb-left-col .q-field__bottom { padding-left: 0; }
+
+
+
+  /* 右プレビューはデスクトップ時に追従 */
+  @media (min-width: 761px) {
+    .cvhb-right-col {
+      position: sticky;
+      top: 88px;
+      align-self: start;
+    }
+  }
+
+  /* スマホ：縦並び */
+  @media (max-width: 760px) {
+    .cvhb-container { padding: 8px; }
+    .cvhb-split { grid-template-columns: 1fr; }
+    .cvhb-right-col { position: static; }
+  }
+
+  /* ====== Common ====== */
+  .cvhb-card-title {
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
+  .cvhb-muted {
+    color: rgba(0,0,0,.60);
+    font-size: 12px;
+  }
+
+  /* 左カラム：カード同士の間隔 */
+  .cvhb-left-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* ====== Step menu (left) ====== */
+  .cvhb-step-tabs { width: 100%; }
+  .cvhb-step-tabs .q-tabs__content { align-items: stretch; }
+  .cvhb-step-tabs .q-tab {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+    border-radius: 12px;
+    margin: 0 0 8px 0;
+    padding: 10px 12px;
+    background: rgba(0,0,0,.03);
+    border: 1px solid rgba(0,0,0,.10);
+  }
+  .cvhb-step-tabs .q-tab__content { justify-content: flex-start; }
+  .cvhb-step-tabs .q-tab__label {
+    white-space: normal;
+    line-height: 1.3;
+  }
+  .cvhb-step-tabs .q-tab--active {
+    background: rgba(25,118,210,0.08);
+    border-color: rgba(25,118,210,0.35);
+    font-weight: 700;
+  }
+
+  /* ====== Step3 block tabs ====== */
+  .cvhb-block-tabs .q-tabs__content { flex-wrap: wrap; }
+  .cvhb-block-tabs .q-tab {
+    min-height: 34px;
+    padding: 0 12px;
+  }
+  .cvhb-block-tabs .q-tab__label {
+    white-space: normal;
+    line-height: 1.2;
+  }
+
+  /* ====== Choice cards (industry/color) ====== */
+  .cvhb-choice {
+    border-radius: 12px;
+    transition: transform .08s ease, box-shadow .08s ease, border-color .08s ease;
+    cursor: pointer;
+  }
+  .cvhb-choice:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+  }
+  .cvhb-choice.is-selected {
+    border: 2px solid var(--q-primary);
+    background: rgba(25,118,210,0.06);
+  }
+  .cvhb-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(0,0,0,.20);
+    display: inline-block;
+  }
+
+  /* ====== Projects page ====== */
+  .cvhb-projects-actions {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .cvhb-project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .cvhb-project-card { height: 100%; }
+  .cvhb-project-meta {
+    font-size: 12px;
+    color: rgba(0,0,0,.60);
+    line-height: 1.4;
+  }
+
+  /* ====== Preview inside builder ====== */
+  .cvhb-preview .q-card { width: 100%; }
+/* ====== Preview PC（実サイト寄り） ====== */
+.cvhb-preview-pc { background: #f5f5f5; }
+.cvhb-pc-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid rgba(0,0,0,.10);
+}
+.cvhb-pc-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 24px;
+}
+.cvhb-pc-logo {
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.cvhb-pc-hero {
+  height: 380px;
+  background-size: cover;
+  background-position: center;
+}
+.cvhb-pc-hero-overlay {
+  height: 100%;
+  background: rgba(0,0,0,.52);
+}
+.cvhb-pc-hero-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-bottom: 40px;
+}
+.cvhb-pc-section { padding: 28px 0; }
+.cvhb-pc-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.cvhb-pc-grid-2-uneven {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.cvhb-pc-card { width: 100%; border-radius: 14px; }
+
+@media (max-width: 900px) {
+  .cvhb-pc-container { padding: 16px; }
+  .cvhb-pc-hero { height: 320px; }
+  .cvhb-pc-grid-2,
+  .cvhb-pc-grid-2-uneven { grid-template-columns: 1fr; }
+}
+
+
+  
+        /* ====== Preview (Glassmorphism) ====== */
+        .cvhb-preview-glass {
+          height: 100%;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          color: var(--pv-text);
+          background-image: var(--pv-bg-img);
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          border: 1px solid var(--pv-border);
+          border-radius: 18px;
+          overflow: hidden;
+        }
+
+        .pv-topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          background: var(--pv-card);
+          backdrop-filter: blur(12px);
+          border-bottom: 1px solid var(--pv-line);
+        }
+
+        .pv-brand {
+          font-weight: 900;
+          letter-spacing: .02em;
+          font-size: 15px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 48%;
+        }
+
+        .pv-nav {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          overflow-x: auto;
+          white-space: nowrap;
+          scrollbar-width: none;
+          max-width: 100%;
+        }
+        .pv-nav::-webkit-scrollbar { height: 0; }
+
+        .pv-navbtn {
+          font-weight: 900;
+          color: var(--pv-accent);
+        }
+        .pv-navbtn.q-btn--flat { padding: 4px 8px; border-radius: 999px; }
+        .pv-navbtn.q-btn--flat:hover { background: rgba(255,255,255,.22); }
+
+        .pv-topcta {
+          font-weight: 900;
+          border-radius: 999px;
+          background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+          color: white;
+          padding: 6px 12px;
+          box-shadow: 0 12px 28px rgba(0,0,0,.18);
+        }
+
+        .pv-scroll {
+          flex: 1;
+          overflow: auto;
+          padding: 14px 0 16px;
+        }
+
+        .pv-container {
+          width: min(1040px, calc(100% - 24px));
+          margin: 0 auto;
+        }
+
+        .pv-band { padding: 18px 0; }
+        .pv-band + .pv-band { border-top: 1px solid var(--pv-line); }
+
+        .pv-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+          align-items: start;
+        }
+        @media (max-width: 920px) { .pv-grid-2 { grid-template-columns: 1fr; } }
+
+        .pv-panel {
+          background: var(--pv-card);
+          border: 1px solid var(--pv-border);
+          border-radius: 22px;
+          box-shadow: var(--pv-shadow);
+          backdrop-filter: blur(14px);
+          padding: 16px;
+          animation: pvIn .45s ease both;
+        }
+        @keyframes pvIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @media (prefers-reduced-motion: reduce) { .pv-panel { animation: none; } }
+
+        .pv-kicker {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 900;
+          letter-spacing: .02em;
+          color: var(--pv-muted);
+          margin-bottom: 10px;
+        }
+        .pv-kicker .q-icon { color: var(--pv-accent); }
+
+        .pv-title {
+          font-weight: 900;
+          letter-spacing: .01em;
+          font-size: 26px;
+          line-height: 1.2;
+          margin: 0 0 6px;
+        }
+        .pv-h2 {
+          font-weight: 900;
+          letter-spacing: .01em;
+          font-size: 18px;
+          margin: 0 0 6px;
+        }
+        .pv-sub {
+          color: var(--pv-muted);
+          font-size: 14px;
+          line-height: 1.55;
+          margin: 0 0 12px;
+        }
+
+        .pv-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border-radius: 999px;
+          padding: 5px 10px;
+          background: var(--pv-chip-bg);
+          border: 1px solid var(--pv-chip-border);
+          font-size: 12px;
+          font-weight: 900;
+          color: var(--pv-muted);
+          margin: 4px 6px 0 0;
+        }
+        .pv-chip .q-icon { color: var(--pv-accent); }
+
+        /* Hero split layout */
+        .pv-hero-grid {
+          display: grid;
+          grid-template-columns: 1.05fr .95fr;
+          gap: 14px;
+          align-items: stretch;
+        }
+        @media (max-width: 920px) { .pv-hero-grid { grid-template-columns: 1fr; } }
+
+        .pv-hero-media { position: relative; }
+        .pv-hero-image {
+          position: relative;
+          height: 360px;
+          border-radius: 26px;
+          overflow: hidden;
+          border: 1px solid rgba(255,255,255,.45);
+          box-shadow: 0 22px 60px rgba(15,23,42,.18);
+          background-size: cover;
+          background-position: center;
+        }
+        .pv-hero-image::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(135deg, rgba(0,0,0,.55), rgba(0,0,0,.10));
+        }
+        .pv-hero-image-inner {
+          position: relative;
+          z-index: 1;
+          height: 100%;
+          display: flex;
+          align-items: flex-end;
+          padding: 14px;
+        }
+
+        .pv-hero-cta-row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-top: 6px;
+        }
+        .pv-cta {
+          border-radius: 999px;
+          font-weight: 900;
+        }
+        .pv-cta-primary {
+          background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+          color: white;
+          padding: 10px 14px;
+          box-shadow: 0 14px 32px rgba(0,0,0,.22);
+        }
+        .pv-cta-secondary {
+          background: rgba(255,255,255,.18);
+          color: white;
+          border: 1px solid rgba(255,255,255,.35);
+          padding: 10px 14px;
+        }
+
+        .pv-hero-float {
+          position: absolute;
+          top: 14px;
+          right: 14px;
+          width: min(340px, 78%);
+          z-index: 2;
+        }
+        @media (max-width: 520px) {
+          .pv-hero-image { height: 250px; }
+          .pv-hero-float { position: static; width: 100%; margin-top: 12px; }
+          .pv-brand { max-width: 42%; }
+        }
+
+        /* News / FAQ lists */
+        .pv-news-item, .pv-faq-item {
+          padding: 12px 6px;
+          border-bottom: 1px solid var(--pv-line);
+        }
+        .pv-news-item:last-child, .pv-faq-item:last-child { border-bottom: none; }
+
+        .pv-news-meta {
+          font-size: 12px;
+          color: var(--pv-muted);
+          display: flex;
+          gap: 10px;
+          align-items: center;
+        }
+        .pv-badge {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 2px 8px;
+          background: var(--pv-chip-bg);
+          border: 1px solid var(--pv-chip-border);
+          color: var(--pv-accent);
+          font-weight: 900;
+          font-size: 11px;
+        }
+        .pv-q { font-weight: 900; }
+        .pv-a { color: var(--pv-muted); }
+
+        /* Actions */
+        .pv-action {
+          border-radius: 12px;
+          font-weight: 900;
+          padding: 10px 12px;
+          background: var(--pv-chip-bg);
+          border: 1px solid var(--pv-chip-border);
+        }
+        .pv-action-primary {
+          background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+          color: white;
+          border: none;
+          box-shadow: 0 14px 32px rgba(0,0,0,.22);
+        }
+
+        .pv-prefooter {
+          padding: 12px 12px;
+          color: var(--pv-muted);
+          font-size: 12px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+        }
+        .pv-prefooter a { color: var(--pv-muted); text-decoration: none; }
+        .pv-prefooter a:hover { text-decoration: underline; }
+/* ====== 260218 Layout (Preview) ====== */
+.pv-shell.pv-layout-260218{
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  background: var(--pv-bg-img);
+  color: var(--pv-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+}
+
+/* ===== Builder内プレビューの基準幅（重要） =====
+   - スマホ: 720px
+   - PC: 1920px（プレビューは縮小表示／最低1280px）
+   ※ 実際の幅は JS の fit 関数が style.width で制御します。
+      ここで max-width:100% を付けると「PCもスマホも同じ」に見える原因になるので付けません。
+*/
+.pv-shell.pv-layout-260218.pv-mode-mobile{
+  width: 720px;      /* JS未適用時のフォールバック */
+  max-width: none;
+  height: 100%;
+  margin: 0;
+}
+
+.pv-shell.pv-layout-260218.pv-mode-pc{
+  width: 1920px;     /* JS未適用時のフォールバック */
+  max-width: none;
+  height: 100%;
+  margin: 0;
+}
+
+.pv-layout-260218 .pv-scroll{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  background: var(--pv-bg-img);
+}
+
+.pv-layout-260218 .pv-topbar-260218{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 12px 14px;
+  backdrop-filter: blur(16px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.64), rgba(255,255,255,0.50));
+  border-bottom: 1px solid rgba(255,255,255,0.28);
+}
+
+.pv-layout-260218.pv-dark .pv-topbar-260218{
+  background: linear-gradient(180deg, rgba(13,16,22,0.74), rgba(13,16,22,0.56));
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-topbar-inner{
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+/* ヘッダー内：会社名は左、メニューは右に固定 */
+
+.pv-layout-260218 .pv-brand{
+  cursor: pointer;
+  gap: 10px;
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.pv-layout-260218 .pv-favicon{
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.9);
+}
+
+.pv-layout-260218.pv-dark .pv-favicon{
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.20);
+}
+
+.pv-layout-260218 .pv-brand-name{
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-layout-260218 .pv-menu-btn{
+  opacity: 0.92;
+}
+
+/* 画像のように「三本線＋MENU（下）」にする */
+.pv-layout-260218 .pv-menu-btn.q-btn{
+  color: var(--pv-text);
+  padding: 6px 8px;
+  min-width: 48px;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-btn__content{
+  flex-direction: column;
+  line-height: 1;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-icon{
+  font-size: 24px;
+  margin: 0;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-btn__content .block{
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+
+.pv-layout-260218 .pv-nav-card{
+  width: min(92vw, 360px);
+  border-radius: 18px;
+}
+
+.pv-layout-260218 .pv-nav-item{
+  justify-content: flex-start;
+}
+
+.pv-layout-260218 .pv-nav-item.q-btn{
+  color: var(--pv-text) !important;
+  font-weight: 800;
+}
+
+.pv-layout-260218 .pv-nav-item.q-btn:hover{
+  background: rgba(255,255,255,0.22);
+}
+
+.pv-layout-260218.pv-dark .pv-nav-item.q-btn:hover{
+  background: rgba(255,255,255,0.08);
+}
+
+.pv-layout-260218 .pv-menu-btn.q-btn{
+  color: var(--pv-text) !important;
+}
+
+/* PCヘッダー：デスクトップナビ（PCモードだけ表示） */
+.pv-layout-260218 .pv-desktop-nav{
+  display: none;
+  gap: 6px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.pv-layout-260218.pv-mode-pc .pv-desktop-nav{
+  display: flex;
+}
+.pv-layout-260218 .pv-desktop-nav .q-btn{
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--pv-text) !important;
+}
+.pv-layout-260218 .pv-desktop-nav .q-btn:hover{
+  background: rgba(255,255,255,0.22);
+}
+.pv-layout-260218.pv-dark .pv-desktop-nav .q-btn:hover{
+  background: rgba(255,255,255,0.08);
+}
+
+.pv-layout-260218 .pv-main{
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 18px 0;
+  font-size: 18px; /* v0.6.992: 本文を大きく（ヘッダー/フッターは除外） */
+}
+
+.pv-layout-260218 .pv-section{
+  margin: 22px 0 34px;
+}
+
+.pv-layout-260218 .pv-section-head{
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-section-title{
+  font-weight: 900;
+  font-size: 1.24rem; /* v0.6.992 */
+}
+
+.pv-layout-260218 .pv-section-en{
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  opacity: 0.55;
+}
+
+.pv-layout-260218 .pv-panel{
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid var(--pv-border);
+  box-shadow: var(--pv-shadow);
+}
+
+.pv-layout-260218 .pv-panel::before{
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(520px 420px at 18% 18%, var(--pv-blob4), transparent 62%),
+    radial-gradient(420px 340px at 92% 0%, rgba(255,255,255,0.22), transparent 60%);
+  opacity: 0.55;
+}
+
+.pv-layout-260218.pv-dark .pv-panel::before{
+  background:
+    radial-gradient(520px 420px at 18% 18%, var(--pv-blob4), transparent 62%),
+    radial-gradient(420px 340px at 92% 0%, rgba(255,255,255,0.10), transparent 60%);
+  opacity: 0.45;
+}
+
+.pv-layout-260218 .pv-panel > *{
+  position: relative;
+}
+
+.pv-layout-260218 .pv-panel-glass{
+  background: var(--pv-card);
+}
+
+.pv-layout-260218 .pv-panel-flat{
+  background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.30));
+  border: 1px solid rgba(255,255,255,0.26);
+  border-radius: 18px;
+  backdrop-filter: blur(14px);
+  padding: 16px;
+}
+
+.pv-layout-260218.pv-dark .pv-panel-flat{
+  background: linear-gradient(180deg, rgba(15,18,25,0.62), rgba(15,18,25,0.40));
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-muted{
+  color: var(--pv-muted);
+}
+
+.pv-layout-260218 .pv-h2{
+  font-weight: 900;
+  font-size: 1.15rem; /* v0.6.992 */
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-bodytext{
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-bullets{
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--pv-text);
+  opacity: 0.84;
+  line-height: 1.7;
+}
+
+
+/* ====== About: 要点カード（v0.6.992） ====== */
+.pv-layout-260218 .pv-points{
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pv-layout-260218 .pv-point-card{
+  flex: 1 1 180px;
+  min-width: 160px;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.18);
+  background: linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.28));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
+  backdrop-filter: blur(14px);
+  border-left: 6px solid var(--pv-primary);
+}
+.pv-layout-260218.pv-dark .pv-point-card{
+  background: linear-gradient(180deg, rgba(15,18,25,0.58), rgba(15,18,25,0.38));
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.42);
+}
+.pv-layout-260218 .pv-point-text{
+  font-weight: 900;
+  line-height: 1.55;
+}
+
+.pv-layout-260218 .pv-hero-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-grid{
+  grid-template-columns: 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.pv-layout-260218 .pv-hero-title{
+  font-weight: 1000;
+  font-size: clamp(1.45rem, 3.8vw, 2.55rem);
+  line-height: 1.18;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-hero-sub{
+  color: var(--pv-muted);
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-cta-row{
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pv-layout-260218 .pv-btn.q-btn{
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.pv-layout-260218 .pv-hero-slider{
+  border-radius: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.40);
+  box-shadow: var(--pv-shadow);
+  background: rgba(255,255,255,0.20);
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-slider{
+  height: 240px;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-slider{
+  height: 420px;
+}
+
+
+.pv-layout-260218.pv-dark .pv-hero-slider{
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.14);
+}
+
+/* ===== Hero: フル幅 & 大きく（nagomi-support.com のTOPみたいに） ===== */
+.pv-layout-260218 .pv-hero-wide{
+  position: relative;
+  margin: 0;
+}
+.pv-layout-260218 .pv-hero-slider-wide{
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: rgba(255,255,255,0.10);
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
+  height: auto;
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
+  height: auto;
+}
+.pv-layout-260218.pv-dark .pv-hero-slider-wide{
+  background: rgba(0,0,0,0.16);
+}
+
+/* ===== Hero slider dots (4 dots) ===== */
+.pv-layout-260218 .pv-hero-stage{
+  position: relative;
+}
+
+/* PC: dots are shown "below" the hero image, so we keep some space under the hero */
+.pv-layout-260218.pv-mode-pc .pv-hero-wide{
+  margin-bottom: 44px;
+}
+
+.pv-layout-260218 .pv-hero-dots{
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-dots{
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-dots{
+  left: 50%;
+  bottom: -28px;
+  transform: translateX(-50%);
+  flex-direction: row;
+}
+
+.pv-layout-260218 .pv-hero-dot{
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,0.72);
+  background: rgba(255,255,255,0.30);
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.16);
+  transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.pv-layout-260218 .pv-hero-dot:hover{
+  transform: scale(1.15);
+}
+
+.pv-layout-260218 .pv-hero-dot.is-active{
+  background: var(--pv-primary);
+  border-color: rgba(255,255,255,0.92);
+  opacity: 1;
+}
+
+.pv-layout-260218.pv-dark .pv-hero-dot{
+  border-color: rgba(255,255,255,0.62);
+  background: rgba(0,0,0,0.24);
+  box-shadow: 0 12px 26px rgba(0,0,0,0.26);
+}
+
+.pv-layout-260218.pv-dark .pv-hero-dot.is-active{
+  background: rgba(255,255,255,0.92);
+  border-color: rgba(255,255,255,0.96);
+}
+
+.pv-layout-260218 .pv-hero-caption{
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: inline-block;
+  width: fit-content;
+  max-width: min(92%, 980px);
+  padding: 18px 22px;
+  border-radius: 18px;
+  text-align: center;
+  backdrop-filter: blur(18px);
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(255,255,255,0.42);
+  box-shadow: 0 22px 54px rgba(0,0,0,0.12);
+}
+
+/* SP: キャッチは画像に重ねず下へ（画像の下で目立たせる） */
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption{
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: min(92%, 680px);
+  margin: 14px auto 0;
+  padding: 16px 18px;
+  border-radius: 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(12px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.72));
+  border: 1px solid rgba(0,0,0,0.06);
+  border-top: 5px solid var(--pv-primary);
+  box-shadow: 0 20px 52px rgba(0,0,0,0.14);
+}
+.pv-layout-260218.pv-dark.pv-mode-mobile .pv-hero-caption{
+  background: rgba(0,0,0,0.55);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.pv-layout-260218.pv-dark .pv-hero-caption{
+  background: rgba(0,0,0,0.45);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.22);
+}
+
+/* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.996） */
+.pv-layout-260218.pv-mode-pc .pv-hero-caption{
+  bottom: 42px;
+  display: inline-block;
+  width: fit-content;
+  max-width: min(92%, 1120px);
+  padding: 26px 32px;
+  border-radius: 26px;
+  text-align: center;
+  backdrop-filter: blur(22px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
+  border: 1px solid rgba(255,255,255,0.56);
+  box-shadow: 0 40px 120px rgba(0,0,0,0.16);
+}
+.pv-layout-260218.pv-dark.pv-mode-pc .pv-hero-caption{
+  background: linear-gradient(180deg, rgba(0,0,0,0.46), rgba(0,0,0,0.28));
+  border-color: rgba(255,255,255,0.18);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.26);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title{
+  font-size: clamp(2.25rem, 3.2vw, 3.9rem);
+  letter-spacing: 0.02em;
+  text-shadow: 0 12px 30px rgba(0,0,0,0.18);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub{
+  font-size: clamp(1.18rem, 1.45vw, 1.45rem);
+  text-shadow: 0 10px 24px rgba(0,0,0,0.16);
+}
+/* ===== Hero: キャッチ/サブキャッチ 文字サイズ（大/中/小） ===== */
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-l{
+  font-size: clamp(2.6rem, 3.6vw, 4.4rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-s{
+  font-size: clamp(2.0rem, 2.8vw, 3.5rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-l{
+  font-size: clamp(1.35rem, 1.65vw, 1.75rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-s{
+  font-size: clamp(1.02rem, 1.25vw, 1.25rem);
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-l{ font-size: 2.05rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-s{ font-size: 1.55rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{ font-size: 1.02rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-l{ font-size: 1.15rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-s{ font-size: 0.95rem; }
+
+
+.pv-layout-260218 .pv-hero-caption-title{
+  font-weight: 1000;
+  font-size: clamp(1.4rem, 2.8vw, 2.8rem);
+  line-height: 1.15;
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
+  font-size: 1.75rem;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title,
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{
+  width: 100%;
+  text-align: center;
+}
+.pv-layout-260218 .pv-hero-caption-sub{
+  margin-top: 8px;
+  line-height: 1.7;
+  color: var(--pv-muted);
+}
+
+.pv-layout-260218 .pv-hero-track{
+  display: flex;
+  height: 100%;
+  transition: transform 500ms ease;
+}
+
+.pv-layout-260218 .pv-hero-slide{
+  flex: 0 0 100%;
+  height: 100%;
+  position: relative;
+}
+
+.pv-layout-260218 .pv-hero-img{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+
+.pv-layout-260218 .pv-news-list{
+  margin-top: 6px;
+}
+
+.pv-layout-260218 .pv-news-item{
+  display: grid;
+  grid-template-columns: 110px 92px 1fr 24px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pv-line);
+}
+
+.pv-layout-260218.pv-dark .pv-news-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-news-date{
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.pv-layout-260218 .pv-news-cat{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--pv-primary-weak);
+  color: var(--pv-primary);
+  font-weight: 900;
+  font-size: 0.72rem;
+}
+
+.pv-layout-260218.pv-dark .pv-news-cat{
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.86);
+}
+
+.pv-layout-260218 .pv-news-title{
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-news-empty{
+  opacity: 0;
+}
+
+.pv-layout-260218 .pv-news-arrow{
+  justify-self: end;
+  opacity: 0.45;
+}
+
+.pv-layout-260218.pv-dark .pv-news-arrow{
+  opacity: 0.55;
+}
+
+.pv-layout-260218 .pv-link-btn.q-btn{
+  margin-top: 10px;
+  font-weight: 900;
+}
+
+.pv-layout-260218 .pv-about-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-about-grid{
+  grid-template-columns: 1.12fr 0.88fr;
+}
+
+.pv-layout-260218 .pv-about-img{
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border-radius: 22px;
+  object-fit: cover;
+  border: 1px solid var(--pv-border);
+  box-shadow: var(--pv-shadow);
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-about-img{
+  height: auto;
+}
+
+.pv-layout-260218 .pv-surface-white{
+  background: linear-gradient(180deg, rgba(255,255,255,0.52), rgba(255,255,255,0.34));
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 22px;
+  box-shadow: var(--pv-shadow);
+  backdrop-filter: blur(16px);
+  padding: 16px;
+}
+
+.pv-layout-260218.pv-dark .pv-surface-white{
+  background: linear-gradient(180deg, rgba(12,15,22,0.64), rgba(12,15,22,0.44));
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-services-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-services-grid{
+  grid-template-columns: 0.95fr 1.05fr;
+  align-items: center;
+}
+
+.pv-layout-260218 .pv-services-img{
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border-radius: 18px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.pv-layout-260218.pv-dark .pv-services-img{
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218.pv-mode-pc .pv-services-img{
+  height: auto;
+}
+
+.pv-layout-260218 .pv-service-item{
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pv-line);
+}
+
+.pv-layout-260218.pv-dark .pv-service-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-service-title{
+  font-weight: 900;
+  margin-bottom: 2px;
+}
+
+.pv-layout-260218 .pv-faq-item{
+  padding: 12px 0;
+  border-bottom: 1px solid var(--pv-line);
+}
+
+.pv-layout-260218.pv-dark .pv-faq-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-faq-q{
+  font-weight: 900;
+}
+
+.pv-layout-260218 .pv-faq-a{
+  margin-top: 4px;
+  color: var(--pv-muted);
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-access-card{
+  padding: 16px;
+}
+
+.pv-layout-260218 .pv-access-company{
+  font-weight: 900;
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+.pv-layout-260218 .pv-access-meta{
+  flex-wrap: wrap;
+}
+.pv-layout-260218 .pv-access-icon{
+  font-size: 18px;
+  opacity: 0.92;
+}
+
+
+/* ====== Access: 地図枠（画像風）+ GoogleMap iframe（任意）+ 地図を開くリンク（v0.6.995） ====== */
+.pv-layout-260218 .pv-mapframe{
+  margin-top: 12px;
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+  height: 260px;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 26px 70px rgba(15,23,42,0.14);
+  background:
+    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.36), transparent 70%),
+    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.22), transparent 72%),
+    linear-gradient(135deg, var(--pv-primary-weak), rgba(255,255,255,0.14)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.16) 0, rgba(255,255,255,0.16) 2px, transparent 2px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0, rgba(255,255,255,0.14) 2px, transparent 2px, transparent 30px),
+    repeating-linear-gradient(45deg, rgba(15,23,42,0.05) 0, rgba(15,23,42,0.05) 2px, transparent 2px, transparent 78px),
+    repeating-linear-gradient(-45deg, rgba(15,23,42,0.04) 0, rgba(15,23,42,0.04) 2px, transparent 2px, transparent 92px);
+}
+.pv-layout-260218.pv-mode-mobile .pv-mapframe{
+  height: 230px;
+}
+.pv-layout-260218.pv-mode-pc .pv-mapframe{
+  height: 310px;
+}
+.pv-layout-260218.pv-dark .pv-mapframe{
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.28);
+  background:
+    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.10), transparent 70%),
+    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.06), transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,0.06), rgba(0,0,0,0.22)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 30px),
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0, rgba(255,255,255,0.05) 2px, transparent 2px, transparent 78px),
+    repeating-linear-gradient(-45deg, rgba(255,255,255,0.04) 0, rgba(255,255,255,0.04) 2px, transparent 2px, transparent 92px);
+}
+
+.pv-layout-260218 .pv-mapframe-link{
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* live map (iframe) */
+.pv-layout-260218 .pv-mapframe-live{
+  background: rgba(255,255,255,0.06);
+}
+.pv-layout-260218.pv-dark .pv-mapframe-live{
+  background: rgba(0,0,0,0.20);
+}
+.pv-layout-260218 .pv-map-iframe{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.pv-layout-260218 .pv-mapframe-ui{
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pv-layout-260218 .pv-mapframe-ui .pv-mapframe-open{
+  pointer-events: auto;
+}
+
+.pv-layout-260218 .pv-mapframe-badge{
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  background: rgba(255,255,255,0.66);
+  border: 1px solid rgba(255,255,255,0.28);
+  color: var(--pv-text);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+.pv-layout-260218.pv-dark .pv-mapframe-badge{
+  background: rgba(0,0,0,0.32);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.90);
+}
+
+.pv-layout-260218 .pv-mapframe-pin{
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -70%);
+  font-size: 44px;
+  color: var(--pv-primary);
+  filter: drop-shadow(0 14px 24px rgba(0,0,0,0.22));
+}
+.pv-layout-260218 .pv-mapframe-bottom{
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.20);
+  backdrop-filter: blur(10px);
+}
+.pv-layout-260218.pv-dark .pv-mapframe-bottom{
+  background: rgba(0,0,0,0.22);
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-mapframe-label{
+  font-weight: 900;
+  color: var(--pv-text);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.28);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-mapframe-open{
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+  color: #fff;
+  font-weight: 900;
+  box-shadow: 0 14px 28px rgba(0,0,0,0.22);
+}
+
+.pv-layout-260218 .pv-map-openlink{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-weight: 900;
+  text-decoration: none;
+  color: var(--pv-primary);
+}
+.pv-layout-260218 .pv-map-openlink:hover{
+  text-decoration: underline;
+}
+.pv-layout-260218 .pv-map-openlink .q-icon{
+  font-size: 18px;
+}
+
+.pv-layout-260218 .pv-contact-card{
+  padding: 16px;
+}
+
+.pv-layout-260218 .pv-contact-actions{
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.pv-layout-260218 .pv-companybar{
+  margin: 22px 0 0;
+  padding: 0 18px 18px;
+}
+
+.pv-layout-260218 .pv-companybar-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+  border-radius: 22px;
+  padding: 14px 16px;
+  font-size: 18px; /* v0.6.992: 下部バーも読みやすく */
+  background: linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.26));
+  border: 1px solid rgba(255,255,255,0.22);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pv-layout-260218.pv-dark .pv-companybar-inner{
+  background: linear-gradient(180deg, rgba(13,16,22,0.62), rgba(13,16,22,0.44));
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-companybar-name{
+  font-weight: 1000;
+}
+
+.pv-layout-260218 .pv-companybar-meta{
+  color: var(--pv-muted);
+  font-size: 0.95rem; /* v0.6.992 */
+  margin-top: 2px;
+}
+
+.pv-layout-260218 .pv-mapshot{
+  padding: 0 18px 18px;
+}
+
+.pv-layout-260218 .pv-mapshot-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.pv-layout-260218 .pv-mapshot-card{
+  padding: 14px;
+}
+
+.pv-layout-260218 .pv-mapshot-head{
+  margin-bottom: 10px;
+}
+
+.pv-layout-260218 .pv-mapshot-label{
+  font-weight: 900;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  opacity: 0.65;
+}
+
+.pv-layout-260218 .pv-mapshot-img-link{
+  display: block;
+  text-decoration: none;
+}
+
+.pv-layout-260218 .pv-mapshot-img{
+  position: relative;
+  height: 220px;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: var(--pv-shadow);
+  background:
+    radial-gradient(520px 220px at 18% 22%, rgba(255,255,255,0.44), transparent 62%),
+    radial-gradient(420px 240px at 88% 18%, rgba(255,255,255,0.28), transparent 62%),
+    linear-gradient(160deg, rgba(255,255,255,0.30), rgba(255,255,255,0.14)),
+    repeating-linear-gradient(0deg, rgba(15,23,42,0.06), rgba(15,23,42,0.06) 1px, transparent 1px, transparent 14px),
+    repeating-linear-gradient(90deg, rgba(15,23,42,0.04), rgba(15,23,42,0.04) 1px, transparent 1px, transparent 18px);
+}
+
+.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
+  height: 280px;
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-img{
+  border-color: rgba(255,255,255,0.12);
+  background:
+    radial-gradient(520px 220px at 18% 22%, rgba(255,255,255,0.14), transparent 62%),
+    radial-gradient(420px 240px at 88% 18%, rgba(255,255,255,0.08), transparent 62%),
+    linear-gradient(160deg, rgba(15,18,25,0.66), rgba(15,18,25,0.42)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.08) 1px, transparent 1px, transparent 14px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.06) 1px, transparent 1px, transparent 18px);
+}
+
+.pv-layout-260218 .pv-mapshot-pin{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -62%);
+  font-size: 46px;
+  color: var(--pv-primary) !important;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.12));
+  opacity: 0.90;
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-pin{
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.32));
+}
+
+.pv-layout-260218 .pv-mapshot-open{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, 42%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.34);
+  border: 1px solid rgba(255,255,255,0.22);
+  color: var(--pv-text);
+  font-weight: 900;
+  font-size: 0.82rem;
+  backdrop-filter: blur(10px);
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-open{
+  background: rgba(15,18,25,0.50);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.86);
+}
+
+.pv-layout-260218 .pv-mapshot-address{
+  margin-top: 10px;
+  color: var(--pv-text);
+  opacity: 0.80;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.pv-layout-260218 .pv-footer{
+  margin-top: 8px;
+  padding: 18px;
+  background: rgba(10,12,18,0.92);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.78);
+}
+
+.pv-layout-260218 .pv-footer-grid{
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-footer-grid{
+  grid-template-columns: 1fr;
+}
+
+.pv-layout-260218 .pv-footer-brand{
+  font-weight: 1000;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-footer-cap{
+  font-weight: 900;
+  color: rgba(255,255,255,0.92);
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-footer-link.q-btn,
+.pv-layout-260218 .pv-footer-link.q-btn .q-btn__content,
+.pv-layout-260218 .pv-footer-link.q-btn .q-btn__content span{
+  color: rgba(255,255,255,0.86) !important;
+}
+.pv-layout-260218 .pv-footer-link.q-btn{
+  justify-content: flex-start;
+  padding-left: 0;
+}
+
+.pv-layout-260218 .pv-footer-link.q-btn:hover{
+  color: #fff !important;
+}
+
+.pv-layout-260218 .pv-footer-text{
+  color: rgba(255,255,255,0.76);
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-footer-copy{
+  max-width: 1280px;
+  margin: 12px auto 0;
+  opacity: 0.62;
+  font-size: 0.8rem;
+}
+/* ====== Legal (Privacy Policy) ====== */
+.pv-legal-title{
+  font-weight: 900;
+  font-size: 1.05rem;
+}
+.pv-legal-md{
+  font-size: 0.98rem;
+  line-height: 1.85;
+}
+.pv-legal-md h1,
+.pv-legal-md h2,
+.pv-legal-md h3{
+  margin: 14px 0 8px;
+  font-weight: 900;
+}
+.pv-legal-md h2{ font-size: 1.05rem; }
+.pv-legal-md h3{ font-size: 1.0rem; }
+.pv-legal-md ul{ padding-left: 1.2em; }
+.pv-legal-md li{ margin: 6px 0; }
+
+/* ====== Preview tabs icon spacing ====== */
+.cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
+</style>
+"""
     )
 
-    # CSS is served from static/cvhb.css (moved out of main.py)
-    ui.add_head_html(f'<link rel="stylesheet" href="/static/cvhb.css?v={VERSION}">')
-
-    # JS stays inline for now
     ui.add_head_html(
         """
 <script>
@@ -1061,8 +2715,11 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
 
 })();
 </script>
-        """,
+""",
     )
+# =========================
+# [BLK-03] Config
+# =========================
 
 def read_text_file(path: str, default: str = "") -> str:
     try:
@@ -3595,9 +5252,9 @@ def render_main(u: User) -> None:
                                             ui.label("ファビコン（任意）").classes("text-body1 q-mt-sm")
                                             ui.label("未設定ならデフォルトを使用します（推奨: 正方形PNG 32×32）").classes("cvhb-muted")
 
-                                            def _on_upload_favicon(e):
+                                            async def _on_upload_favicon(e):
                                                 try:
-                                                    data_url, fname = _upload_event_to_data_url_sync(e)
+                                                    data_url, fname = await _upload_event_to_data_url(e, max_w=32, max_h=32, force_png=True)
                                                     if not data_url:
                                                         return
                                                     step2["favicon_url"] = data_url
@@ -3715,9 +5372,9 @@ def render_main(u: User) -> None:
                                                             update_and_refresh()
                                                             hero_slides_editor.refresh()
 
-                                                        def _on_upload_slide(e, i: int):
+                                                        async def _on_upload_slide(e, i: int):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 _normalize_hero_slides()
@@ -3760,8 +5417,8 @@ def render_main(u: User) -> None:
                                                                         _set_slide_choice(i, e.value)
                                                                     ui.radio(HERO_IMAGE_OPTIONS + ["オリジナル"], value=cc[_i], on_change=_on_choice).props("inline")
                                                                     if cc[_i] == "オリジナル":
-                                                                        def _upload_handler(e, i=_i):
-                                                                            _on_upload_slide(e, i)
+                                                                        async def _upload_handler(e, i=_i):
+                                                                            await _on_upload_slide(e, i)
                                                                         with ui.row().classes("items-center q-gutter-sm"):
                                                                             # 現在反映されている画像（サムネ）
                                                                             try:
@@ -3822,9 +5479,9 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（E: 木）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_ph_image(e):
+                                                        async def _on_upload_ph_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 ph["image_url"] = data_url
@@ -3901,9 +5558,9 @@ def render_main(u: User) -> None:
                                                         ui.label("未設定ならデフォルト（F: 手）を使用").classes("cvhb-muted")
                                                         ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
 
-                                                        def _on_upload_svc_image(e):
+                                                        async def _on_upload_svc_image(e):
                                                             try:
-                                                                data_url, fname = _upload_event_to_data_url_sync(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
                                                                 if not data_url:
                                                                     return
                                                                 svc["image_url"] = data_url
