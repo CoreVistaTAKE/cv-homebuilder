@@ -18,6 +18,7 @@ from typing import Optional
 from urllib.parse import urlparse, unquote, quote_plus
 
 import paramiko
+from fastapi import Response
 import psycopg
 from psycopg.rows import dict_row
 
@@ -372,20 +373,25 @@ def _ev_get(e, key: str, default=None):
 
 
 def _ev_get_args(e) -> Optional[dict]:
-    """NiceGUI のイベントが args(dict) を持つ場合の救済。"""
+    """NiceGUI/Quasarイベントの args を吸い出す（dict / list[dict] 両対応）"""
     try:
         if isinstance(e, dict):
-            a = e.get("args")
-            return a if isinstance(a, dict) else None
+            args = e.get("args")
+            if isinstance(args, dict):
+                return args
+            if isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
+                return args[0]
     except Exception:
         pass
     try:
-        a = getattr(e, "args", None)
-        return a if isinstance(a, dict) else None
+        args = getattr(e, "args", None)
+        if isinstance(args, dict):
+            return args
+        if isinstance(args, (list, tuple)) and args and isinstance(args[0], dict):
+            return args[0]
     except Exception:
         return None
-
-
+    return None
 def _extract_upload_fields(e) -> tuple[object, str, str]:
     """upload event から (content, filename, mime) を取り出します。"""
     e0 = _unwrap_upload_event(e)
@@ -580,6 +586,59 @@ async def _upload_event_to_data_url(e, *, max_w: int = 0, max_h: int = 0) -> tup
     if not b64:
         return "", fname
     return f"data:{mime};base64,{b64}", fname
+
+# ---------------------------
+# Preview image serving (data URL -> /pv_img/<hash>)
+# 目的: data URL をHTML/WS payloadに毎回乗せない（案件読込・操作を軽くする）
+# ---------------------------
+
+_PV_IMG_CACHE: dict[str, tuple[str, bytes]] = {}
+_PV_IMG_CACHE_MAX = 256  # safety cap
+
+def pv_img_src(url: Optional[str]) -> str:
+    """Preview用: data URL を短いURLに置き換える（巨大payload削減）"""
+    if not url or not isinstance(url, str):
+        return url or ''
+    s = url.strip()
+    if not s.startswith('data:') or 'base64,' not in s:
+        return s
+    key = hashlib.sha1(s.encode('utf-8')).hexdigest()[:16]
+    if key not in _PV_IMG_CACHE:
+        try:
+            head, b64part = s.split('base64,', 1)
+            mime = head[5:].split(';', 1)[0].strip() or 'application/octet-stream'
+            data = base64.b64decode(b64part)
+            if len(_PV_IMG_CACHE) >= _PV_IMG_CACHE_MAX:
+                _PV_IMG_CACHE.clear()
+            _PV_IMG_CACHE[key] = (mime, data)
+        except Exception:
+            return s
+    return f'/pv_img/{key}'
+
+
+try:
+    _pv_route_added = getattr(app, "_cvhb_pv_img_route_added", False)
+except Exception:
+    _pv_route_added = False
+
+if not _pv_route_added:
+
+    @app.get('/pv_img/{key}')
+    def _pv_img_endpoint(key: str):
+        item = _PV_IMG_CACHE.get(key)
+        if not item:
+            return Response(status_code=404)
+        mime, data = item
+        return Response(
+            content=data,
+            media_type=mime,
+            headers={'Cache-Control': 'public, max-age=31536000, immutable'},
+        )
+
+    try:
+        app._cvhb_pv_img_route_added = True
+    except Exception:
+        pass
 
 def _preview_preflight_error() -> Optional[str]:
     """プレビュー描画前に、必要な定義が揃っているかチェックして事故を減らす。"""
@@ -2641,7 +2700,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.6.998")
+VERSION = read_text_file("VERSION", "0.6.9998")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3932,31 +3991,56 @@ def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
 
 
 def list_projects_from_sftp() -> list[dict]:
+    """案件一覧は project.json が肥大化しやすい（data URL画像）ため、先頭だけ読んでメタ情報を抜く。
+
+    目的:
+    - /projects の表示を高速化（SFTP転送量・JSONデコード量を最小化）
+    - WebSocket切断（Connection lost）を起こしにくくする
+    """
+    HEAD_BYTES = 24 * 1024
+
+    def _json_head_get_str(head: str, key: str) -> str:
+        try:
+            m = re.search(rf'"{re.escape(key)}"\s*:\s*"((?:\\.|[^"])*)"', head)
+            if not m:
+                return ""
+            return json.loads('"' + m.group(1) + '"')
+        except Exception:
+            return ""
+
     projects: list[dict] = []
     with sftp_client() as sftp:
         dirs = sftp_list_dirs(sftp, SFTP_PROJECTS_DIR)
         for d in dirs:
             try:
-                body = sftp_read_text(sftp, project_json_path(d))
-                p = normalize_project(json.loads(body))
+                path = project_json_path(d)
+                head = ""
+                try:
+                    # NOTE: 全文を読まない（巨大な data URL 画像を避ける）
+                    with sftp.open(path, "rb") as f:
+                        head = f.read(HEAD_BYTES).decode("utf-8", errors="ignore")
+                except Exception:
+                    head = ""
+
+                project_id = _json_head_get_str(head, "project_id") or d
+                project_name = _json_head_get_str(head, "project_name") or "(no name)"
+                updated_at = _json_head_get_str(head, "updated_at")
+                created_at = _json_head_get_str(head, "created_at")
+                updated_by = _json_head_get_str(head, "updated_by")
+
+                # 最低限の表示用に欠損を埋める（壊れたJSONでも一覧は出す）
                 projects.append({
-                    "project_id": p.get("project_id", d),
-                    "project_name": p.get("project_name", "(no name)"),
-                    "updated_at": p.get("updated_at", ""),
-                    "created_at": p.get("created_at", ""),
-                    "updated_by": p.get("updated_by", ""),
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "updated_at": updated_at,
+                    "created_at": created_at,
+                    "updated_by": updated_by,
                 })
             except Exception:
                 projects.append({"project_id": d, "project_name": "(broken project.json)", "updated_at": "", "created_at": "", "updated_by": ""})
 
     projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return projects
-
-
-# =========================
-# [BLK-09] UI parts
-# =========================
-
 def render_header(u: Optional[User]) -> None:
     with ui.element("div").classes("w-full bg-white shadow-1").style("position: sticky; top: 0; z-index: 1000;"):
         with ui.row().classes("w-full items-center justify-between q-pa-md").style("gap: 12px;"):
@@ -4284,11 +4368,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     else:
         d = {}
 
-    # Normalize preview data (do not mutate original) so defaults like 4 hero slides are always present.
-    try:
-        d = normalize_project({"data": json.loads(json.dumps(d, ensure_ascii=False))}).get("data", d)
-    except Exception:
-        pass
+    # NOTE: ここで deep-copy + normalize を回すと（特に data URL を含む案件で）重くなるため、
+    #       プレビュー側では参照時に不足キーを補完して表示する。
 
     step1 = d.get("step1", {}) if isinstance(d.get("step1"), dict) else {}
     step2 = d.get("step2", {}) if isinstance(d.get("step2"), dict) else {}
@@ -4421,7 +4502,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                 # brand (favicon + name)
                 with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
                     if favicon_url:
-                        ui.image(favicon_url).classes("pv-favicon")
+                        ui.image(pv_img_src(favicon_url)).classes("pv-favicon")
                     ui.label(company_name).classes("pv-brand-name")
 
                 if mode == "pc":
@@ -4469,7 +4550,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         with ui.element("div").classes("pv-hero-track"):
                             for url in hero_urls:
                                 with ui.element("div").classes("pv-hero-slide"):
-                                    ui.image(url).classes("pv-hero-img")
+                                    ui.image(pv_img_src(url)).classes("pv-hero-img")
 
                     # dots (4 dots)
                     if len(hero_urls) > 1:
@@ -4537,7 +4618,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                     # 並び：見出し → 画像 → 要点 → 本文
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
                         if about_image_url:
-                            ui.image(about_image_url).classes("pv-about-img q-mb-sm")
+                            ui.image(pv_img_src(about_image_url)).classes("pv-about-img q-mb-sm")
 
                         # points (cards)
                         if about_points:
@@ -4563,7 +4644,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                     # 並び：業務内容タイトル → 画像 → リード文 → 項目
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
                         if svc_image_url:
-                            ui.image(svc_image_url).classes("pv-services-img q-mb-sm")
+                            ui.image(pv_img_src(svc_image_url)).classes("pv-services-img q-mb-sm")
 
                         if svc_lead:
                             ui.label(svc_lead).classes("pv-bodytext")
@@ -4796,12 +4877,44 @@ def render_main(u: User) -> None:
 
     editor_ref = {"refresh": (lambda: None)}
 
-    def refresh_preview() -> None:
-        # プレビューは1つに統合（表示モードだけ切替）
+    # プレビューは更新が重くなりがちなので、入力中はデバウンスして負荷を下げる
+    _preview_refresh_handle: Optional[asyncio.TimerHandle] = None
+    _PREVIEW_DEBOUNCE_SEC = 0.25
+
+    def refresh_preview(force: bool = False) -> None:
+        """プレビュー更新（デバウンス対応）"""
+        nonlocal _preview_refresh_handle
+
+        def _do_refresh() -> None:
+            nonlocal _preview_refresh_handle
+            _preview_refresh_handle = None
+            try:
+                preview_ref["refresh"]()
+            except Exception:
+                pass
+
+        if force:
+            if _preview_refresh_handle is not None:
+                try:
+                    _preview_refresh_handle.cancel()
+                except Exception:
+                    pass
+                _preview_refresh_handle = None
+            _do_refresh()
+            return
+
         try:
-            preview_ref["refresh"]()
+            loop = asyncio.get_running_loop()
         except Exception:
-            pass
+            _do_refresh()
+            return
+
+        if _preview_refresh_handle is not None:
+            try:
+                _preview_refresh_handle.cancel()
+            except Exception:
+                pass
+        _preview_refresh_handle = loop.call_later(_PREVIEW_DEBOUNCE_SEC, _do_refresh)
 
     def save_now() -> None:
         nonlocal p
@@ -5140,7 +5253,7 @@ def render_main(u: User) -> None:
                                                 with ui.row().classes("items-center q-gutter-sm"):
                                                     ui.image(show_url).style("width:32px;height:32px;border-radius:6px;")
                                                     ui.upload(on_upload=_on_upload_favicon, auto_upload=True).props("accept=image/*")
-                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props(
+                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props(
                                                         "color=primary unelevated dense no-caps"
                                                     )
                                                     ui.button("クリア", on_click=_clear_favicon).props("outline dense")
@@ -5286,7 +5399,7 @@ def render_main(u: User) -> None:
                                                                                 pass
                                                                             ui.upload(on_upload=_upload_handler, auto_upload=True).props("accept=image/*")
                                                                             ui.button("クリア", on_click=lambda i=_i: _clear_slide_upload(i)).props("outline dense")
-                                                                            ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
+                                                                            ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated dense no-caps")
                                                                         ui.label(f"ファイル: {nn[_i] or '未アップロード'}").classes("cvhb-muted")
                                                                     else:
                                                                         ui.label(f"選択中: {cc[_i]}").classes("cvhb-muted")
@@ -5294,7 +5407,7 @@ def render_main(u: User) -> None:
                                                         hero_slides_editor()
 
                                                         with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
-                                                            ui.button("画像を反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated no-caps")
+                                                            ui.button("画像を反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated no-caps")
                                                             ui.label("※アップロード後は、このボタンで保存すると安心です。").classes("cvhb-muted")
 
                                                         # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
@@ -5372,7 +5485,7 @@ def render_main(u: User) -> None:
                                                                     pass
                                                                 ui.upload(on_upload=_on_upload_ph_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_ph_image).props("outline dense")
-                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
+                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated dense no-caps")
                                                             ui.label(f"現在: {'デフォルト(E: 木)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         ph_image_editor()
@@ -5451,7 +5564,7 @@ def render_main(u: User) -> None:
                                                                     pass
                                                                 ui.upload(on_upload=_on_upload_svc_image, auto_upload=True).props("accept=image/*")
                                                                 ui.button("クリア", on_click=_clear_svc_image).props("outline dense")
-                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(), save_now())).props("color=primary unelevated dense no-caps")
+                                                                ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated dense no-caps")
                                                             ui.label(f"現在: {'デフォルト(F: 手)' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                                         svc_image_editor()
