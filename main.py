@@ -2798,7 +2798,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.7.0")
+VERSION = read_text_file("VERSION", "0.7.1")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3120,6 +3120,14 @@ def sftp_write_text(sftp: paramiko.SFTPClient, remote_path: str, text: str) -> N
     sftp_mkdirs(sftp, remote_dir)
     with sftp.open(remote_path, "w") as f:
         f.write(text)
+
+
+def sftp_write_bytes(sftp: paramiko.SFTPClient, remote_path: str, data: bytes) -> None:
+    """SFTPにバイナリを書き込む（ZIPなど）。"""
+    remote_dir = "/".join(remote_path.split("/")[:-1])
+    sftp_mkdirs(sftp, remote_dir)
+    with sftp.open(remote_path, "wb") as f:
+        f.write(data or b"")
 
 
 def sftp_read_text(sftp: paramiko.SFTPClient, remote_path: str) -> str:
@@ -4077,6 +4085,9 @@ def normalize_project(p: dict) -> dict:
 
     workflow.setdefault("last_export_at", "")
     workflow.setdefault("last_export_by", "")
+    workflow.setdefault("last_backup_zip_at", "")
+    workflow.setdefault("last_backup_zip_by", "")
+    workflow.setdefault("last_backup_zip_file", "")
     workflow.setdefault("last_publish_at", "")
     workflow.setdefault("last_publish_by", "")
     workflow.setdefault("last_publish_target", "")
@@ -4096,7 +4107,7 @@ def normalize_project(p: dict) -> dict:
     publish.setdefault("sftp_dir", "")
     publish.setdefault("sftp_note", "")  # メモ（例: サーバー会社/案件番号など）
 
-return p
+    return p
 
 
 
@@ -4639,35 +4650,44 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     # --- assets (CSS / images) ---
     files: dict[str, bytes] = {}
 
-    site_css = f""":root{{--primary:{primary_hex};--text:#111;--muted:#6b7280;--bg:#ffffff;--card:#ffffff;--border:rgba(0,0,0,0.10);}}
+    site_css = f""":root{{--primary:{primary_hex};--text:#111;--muted:#6b7280;--bg:#ffffff;--card:#ffffff;--border:rgba(0,0,0,0.10);--shadow:0 10px 30px rgba(0,0,0,0.06);}}
 *{{box-sizing:border-box;}}
-body{{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif;color:var(--text);background:var(--bg);}}
+body{{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','Noto Sans JP','Meiryo',sans-serif;color:var(--text);background:var(--bg);line-height:1.7;}}
 a{{color:var(--primary);text-decoration:none;}}
-.container{{max-width:1000px;margin:0 auto;padding:0 16px;}}
-.header{{position:sticky;top:0;background:rgba(255,255,255,0.92);backdrop-filter:saturate(180%) blur(10px);border-bottom:1px solid var(--border);z-index:10;}}
-.header .inner{{display:flex;align-items:center;justify-content:space-between;padding:12px 0;gap:12px;}}
-.brand{{font-weight:700;}}
-.nav{{display:flex;flex-wrap:wrap;gap:10px;font-size:14px;}}
-.hero{{padding:18px 0 8px;}}
-.hero_card{{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--card);}}
+a:hover{{text-decoration:underline;}}
+.container{{max-width:980px;margin:0 auto;padding:0 16px;}}
+.header{{position:sticky;top:0;background:rgba(255,255,255,0.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);z-index:10;}}
+.header_in{{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 0;flex-wrap:wrap;}}
+.brand{{font-weight:800;letter-spacing:.2px;}}
+.nav{{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;}}
+.main{{padding:18px 0 40px;}}
+.hero_card{{border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--card);box-shadow:var(--shadow);}}
 .hero_img{{width:100%;height:320px;object-fit:cover;display:block;background:#f3f4f6;}}
-.hero_text{{padding:14px 14px 18px;}}
-.hero_title{{font-size:26px;font-weight:800;line-height:1.2;margin:0;}}
-.hero_sub{{margin:10px 0 0;color:var(--muted);}}
-.section{{padding:22px 0;}}
-.h2{{font-size:20px;margin:0 0 12px;font-weight:800;}}
-.card{{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--card);}}
+
+.hero_slider{{position:relative;}}
+.hero_slides{{position:relative;width:100%;height:320px;background:#f3f4f6;}}
+.hero_slide{{position:absolute;inset:0;opacity:0;transition:opacity .35s ease;}}
+.hero_slide.is-active{{opacity:1;}}
+.hero_slide .hero_img{{width:100%;height:320px;object-fit:cover;display:block;}}
+.hero_dots{{position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center;gap:8px;}}
+.hero_dot{{width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,0.85);background:rgba(0,0,0,0.25);cursor:pointer;padding:0;}}
+.hero_dot.is-active{{background:rgba(255,255,255,0.95);}}
+
+.hero_body{{padding:16px;}}
+.hero_title{{font-size:24px;margin:0 0 6px;}}
+.hero_sub{{color:var(--muted);margin:0;}}
+.section{{margin-top:18px;}}
+.section_title{{font-size:18px;font-weight:800;margin:0 0 8px;}}
+.card{{border:1px solid var(--border);border-radius:16px;background:var(--card);padding:14px;box-shadow:var(--shadow);}}
 .grid2{{display:grid;grid-template-columns:1fr;gap:12px;}}
-@media(min-width:880px){{.grid2{{grid-template-columns:1fr 1fr;}}}}
+@media(min-width:860px){{.grid2{{grid-template-columns:1fr 1fr;}} .hero_title{{font-size:28px;}} .hero_img{{height:420px;}} .hero_slides{{height:420px;}} .hero_slide .hero_img{{height:420px;}}}}
 .p-muted{{color:var(--muted);}}
-.news_list{{display:grid;gap:10px;}}
-.news_item{{border:1px solid var(--border);border-radius:12px;padding:12px;}}
-.badge{{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(30,94,255,0.10);color:var(--primary);margin-right:6px;}}
-.faq details{{border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:#fff;}}
+.btn{{display:inline-block;background:var(--primary);color:white;padding:10px 14px;border-radius:12px;font-weight:700;}}
+.btn-outline{{display:inline-block;border:1px solid var(--primary);color:var(--primary);padding:10px 14px;border-radius:12px;font-weight:700;}}
+.news_item{{border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--card);box-shadow:var(--shadow);}}
+.footer{{border-top:1px solid var(--border);padding:18px 0;color:var(--muted);font-size:14px;}}
+.faq details{{border:1px solid var(--border);border-radius:14px;padding:10px 12px;background:var(--card);box-shadow:var(--shadow);}}
 .faq details+details{{margin-top:10px;}}
-.footer{{padding:18px 0;color:var(--muted);font-size:13px;border-top:1px solid var(--border);}}
-.btn{{display:inline-block;padding:10px 14px;border-radius:12px;background:var(--primary);color:#fff;font-weight:700;}}
-.btn-outline{{display:inline-block;padding:10px 14px;border-radius:12px;border:1px solid var(--primary);color:var(--primary);font-weight:700;background:transparent;}}
 """
     files["assets/site.css"] = site_css.encode("utf-8")
 
@@ -4833,7 +4853,43 @@ a{{color:var(--primary);text-decoration:none;}}
         faq_html = '<p class="p-muted">FAQはまだありません</p>'
 
     hero_sub = html.escape(catch_copy) if catch_copy else html.escape("ここにキャッチコピーが入ります")
-    hero_img_tag = f'<img class="hero_img" src="{html.escape(hero_main)}" alt="hero">' if hero_main else '<div class="hero_img"></div>'
+
+    # 書き出しHTMLもプレビューの見た目に寄せる：ヒーローは複数画像ならスライダー化
+    hero_slider_script_tag = ""
+    if len(hero_imgs) >= 2:
+        slides = ""
+        dots = ""
+        for i, src in enumerate(hero_imgs):
+            esc = html.escape(src)
+            active = " is-active" if i == 0 else ""
+            slides += f'<div class="hero_slide{active}" data-idx="{i}"><img class="hero_img" src="{esc}" alt="hero {i+1}"></div>'
+            dots += f'<button type="button" class="hero_dot{active}" data-idx="{i}" aria-label="スライド{i+1}"></button>'
+        hero_media_tag = f'<div class="hero_slider"><div class="hero_slides">{slides}</div><div class="hero_dots">{dots}</div></div>'
+        hero_slider_script_tag = """<script>
+(function(){
+  var slider = document.querySelector('.hero_slider');
+  if (!slider) return;
+  var slides = Array.prototype.slice.call(slider.querySelectorAll('.hero_slide'));
+  var dots = Array.prototype.slice.call(slider.querySelectorAll('.hero_dot'));
+  if (!slides.length) return;
+  var idx = 0;
+  function show(i){
+    idx = (i + slides.length) % slides.length;
+    slides.forEach(function(s, j){ s.classList.toggle('is-active', j === idx); });
+    dots.forEach(function(d, j){ d.classList.toggle('is-active', j === idx); });
+  }
+  dots.forEach(function(d){
+    d.addEventListener('click', function(){
+      var n = parseInt(d.getAttribute('data-idx') || '0', 10);
+      if (!isNaN(n)) show(n);
+    });
+  });
+  show(0);
+  setInterval(function(){ show(idx + 1); }, 5000);
+})();
+</script>"""
+    else:
+        hero_media_tag = f'<img class="hero_img" src="{html.escape(hero_main)}" alt="hero">' if hero_main else '<div class="hero_img"></div>'
 
     contact_warn_html = "" if (email or phone) else '<p class="p-muted" style="margin-top:10px;">連絡先が未入力です（2. 基本情報設定で入力）</p>'
 
@@ -4866,7 +4922,7 @@ a{{color:var(--primary);text-decoration:none;}}
 <main id="top" class="container">
   <section class="hero">
     <div class="hero_card">
-      {hero_img_tag}
+      {hero_media_tag}
       <div class="hero_text">
         <h1 class="hero_title">{html.escape(company_name)}</h1>
         <div class="hero_sub">{hero_sub}</div>
@@ -4946,6 +5002,12 @@ a{{color:var(--primary);text-decoration:none;}}
 </html>
 """
 
+    if hero_slider_script_tag:
+        try:
+            index_html = index_html.replace("</footer>\n</body>", f"</footer>\n{hero_slider_script_tag}\n</body>")
+        except Exception:
+            pass
+
     files["index.html"] = index_html.encode("utf-8")
 
     # privacy page
@@ -4976,8 +5038,174 @@ def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
     return mem.getvalue(), f"{pid}_site.zip"
 
 
-def publish_site_via_sftp(p: dict, actor: User, password: str) -> tuple[bool, str]:
-    """案件の静的サイトを、案件に保存されているSFTP情報へアップロードする。"""
+def save_site_zip_backup_to_project(p: dict, actor: User, zip_bytes: bytes, filename: str) -> str:
+    """書き出しZIPを案件内（SFTP To Go）へバックアップ保存する。"""
+    p = normalize_project(p)
+    pid = str(p.get("project_id") or "project")
+
+    # ファイル名を安全にする（日本語OKだが、念のため記号を置換）
+    base = _safe_filename((filename or f"{pid}_site.zip").replace(".zip", ""))
+    ts = datetime.now(JST).strftime("%Y%m%d_%H%M%S")
+    backup_filename = f"{base}_{ts}.zip"
+    remote_path = f"{project_dir(pid)}/backups/{backup_filename}"
+
+    with sftp_client() as sftp:
+        sftp_write_bytes(sftp, remote_path, zip_bytes or b"")
+
+    # ログ（SFTPのURL/パスワード等は出さない）
+    try:
+        safe_log_action(actor, "project_export_backup_zip", details=json.dumps({"project_id": pid, "file": backup_filename}, ensure_ascii=False))
+    except Exception:
+        pass
+
+    return remote_path
+
+
+
+
+def _mask_text_keep_ends(s: str, *, head: int = 2, tail: int = 2) -> str:
+    """ログ/画面で、値をそのまま出さないためのマスク。"""
+    v = str(s or "").strip()
+    if not v:
+        return ""
+    if len(v) <= head + tail:
+        return "*" * len(v)
+    return v[:head] + "…" + v[-tail:]
+
+
+def _mask_remote_dir(path: str) -> str:
+    v = str(path or "").strip()
+    if not v:
+        return ""
+    v = v.rstrip("/")
+    parts = [p for p in v.split("/") if p]
+    if not parts:
+        return "/"
+    # 最後の1要素だけ見せる（それ以外は省略）
+    last = parts[-1]
+    return "/…/" + last
+
+
+def _remote_list_files_recursive(sftp: paramiko.SFTPClient, root_dir: str, *, max_files: int = 8000) -> list[str]:
+    """SFTP上の root_dir 配下の「ファイル」を相対パスで列挙する（再帰）。"""
+    root = (root_dir or "").rstrip("/")
+    if not root or root == "/":
+        return []
+    out: list[str] = []
+
+    def _walk(cur: str):
+        # 安全のため上限
+        if len(out) >= max_files:
+            return
+        try:
+            items = sftp.listdir_attr(cur)
+        except Exception:
+            return
+        for it in items:
+            if len(out) >= max_files:
+                return
+            name = it.filename
+            if not name:
+                continue
+            full = cur.rstrip("/") + "/" + name
+            try:
+                if stat.S_ISDIR(it.st_mode):
+                    _walk(full)
+                else:
+                    rel = full[len(root) + 1 :] if full.startswith(root + "/") else full
+                    out.append(rel)
+            except Exception:
+                continue
+
+    _walk(root)
+    # ばらけるので並べる
+    try:
+        out.sort()
+    except Exception:
+        pass
+    return out
+
+
+def _remote_is_delete_candidate(rel_path: str) -> bool:
+    """『不要ファイル削除』の対象にしてよいか（安全フィルタ）。"""
+    p = str(rel_path or "").lstrip("/")
+    if not p:
+        return False
+
+    # 触らない（サーバー側で使われがち）
+    if p == ".htaccess" or p.startswith("."):
+        return False
+    if p.startswith(".well-known/") or "/.well-known/" in p:
+        return False
+    if p.startswith("cgi-bin/") or "/cgi-bin/" in p:
+        return False
+
+    # このビルダーが作る可能性が高い拡張子だけ削除対象にする（事故防止）
+    ext = (Path(p).suffix or "").lower()
+    allow = {".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".json", ".txt"}
+    return ext in allow
+
+
+def compute_remote_extra_files_for_cleanup(
+    *, host: str, port: int, user: str, password: str, remote_dir: str, keep_files: set[str]
+) -> tuple[bool, str, list[str]]:
+    """公開先SFTPの不要ファイル候補を事前に調べる（プレビュー用）。
+
+    返り値: (ok, message, extra_files_rel)
+    """
+    host = str(host or "").strip()
+    user = str(user or "").strip()
+    remote_dir = str(remote_dir or "").strip()
+    try:
+        port = int(port or 22)
+    except Exception:
+        port = 22
+
+    if not (host and user and remote_dir):
+        return False, "SFTP情報（host/user/dir）が未入力です", []
+    if not password:
+        return False, "SFTPパスワードが未入力です", []
+
+    rd = remote_dir.rstrip("/")
+    if rd in ("", "/"):
+        return False, "安全のため、公開ディレクトリが不正です（'/' は不可）", []
+
+    # keep_files を正規化
+    keep = set()
+    for k in (keep_files or set()):
+        kk = str(k or "").lstrip("/")
+        if kk:
+            keep.add(kk)
+
+    transport = paramiko.Transport((host, port))
+    try:
+        transport.connect(username=user, password=password)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        existing = _remote_list_files_recursive(sftp, rd)
+        extra = [p for p in existing if (p not in keep and _remote_is_delete_candidate(p))]
+        # 上限（事故防止）
+        if len(existing) >= 8000:
+            return False, "ファイル数が多すぎるため（8000件超）、安全のため中止しました", []
+        return True, f"削除候補: {len(extra)}件（全{len(existing)}件中）", extra
+    except Exception as e:
+        return False, f"確認に失敗しました: {sanitize_error_text(e)}", []
+    finally:
+        try:
+            transport.close()
+        except Exception:
+            pass
+
+
+
+def publish_site_via_sftp(p: dict, actor: User, password: str, *, delete_extra: bool = False) -> tuple[bool, str]:
+    """案件の静的サイトを、案件に保存されているSFTP情報へアップロードする。
+
+    delete_extra=True のとき（危険）:
+      - 公開ディレクトリ配下の「このビルダーが作りそうな拡張子」のファイルだけを対象に
+        『今回の出力に含まれないもの』を削除する（事故防止の安全フィルタあり）
+      - .htaccess / .well-known / cgi-bin / 隠しファイル は触らない
+    """
     p = normalize_project(p)
     data = p.get("data") if isinstance(p, dict) else {}
     publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
@@ -4994,33 +5222,132 @@ def publish_site_via_sftp(p: dict, actor: User, password: str) -> tuple[bool, st
     if not password:
         return False, "SFTPパスワードが未入力です"
 
+    rd = remote_dir.rstrip("/")
+    if rd in ("", "/"):
+        return False, "安全のため、公開ディレクトリが不正です（'/' は不可）"
+
     files = build_static_site_files(p)
     total = len(files)
 
-    # NOTE: パスワードはログに出さない
-    print(f"[PUBLISH] start host={host} port={port} user={user} dir={remote_dir} files={total}", flush=True)
+    keep_files = set()
+    for k in files.keys():
+        kk = str(k or "").lstrip("/")
+        if kk:
+            keep_files.add(kk)
+
+    # NOTE: パスワードはログに出さない（host/user/dir もマスク）
+    try:
+        print(
+            "[PUBLISH] start",
+            json.dumps(
+                {
+                    "target": f"{_mask_text_keep_ends(host)}{_mask_remote_dir(rd)}",
+                    "port": port,
+                    "user": _mask_text_keep_ends(user, head=1, tail=0),
+                    "files": total,
+                    "delete_extra": bool(delete_extra),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+    except Exception:
+        pass
 
     transport = paramiko.Transport((host, port))
+    deleted = 0
+    delete_failed = 0
+    cleanup_warn = ""
     try:
         transport.connect(username=user, password=password)
         sftp = paramiko.SFTPClient.from_transport(transport)
 
+        # 1) upload
         for rel_path, content in files.items():
-            rpath = remote_dir.rstrip("/") + "/" + rel_path.lstrip("/")
+            rpath = rd.rstrip("/") + "/" + str(rel_path).lstrip("/")
             rdir = "/".join(rpath.split("/")[:-1])
             try:
                 sftp_mkdirs(sftp, rdir)
             except Exception:
                 pass
-            with sftp.open(rpath, "wb") as f:
-                f.write(content)
+            try:
+                with sftp.open(rpath, "wb") as f:
+                    f.write(content)
+            except Exception as e:
+                return False, f"アップロードに失敗しました: {sanitize_error_text(e)}"
 
-        # publish log (project.jsonにも反映してから保存するのは呼び出し側で行う)
-        safe_log_action(actor, "project_publish", details=json.dumps({"project_id": p.get("project_id"), "host": host, "dir": remote_dir, "files": total}, ensure_ascii=False))
-        print(f"[PUBLISH] done host={host} files={total}", flush=True)
+        # 2) optional cleanup (danger)
+        if delete_extra:
+            try:
+                existing = _remote_list_files_recursive(sftp, rd)
+                if len(existing) >= 8000:
+                    cleanup_warn = "ファイル数が多すぎるため（8000件超）、不要ファイル削除は中止しました"
+                else:
+                    extra = [p for p in existing if (p not in keep_files and _remote_is_delete_candidate(p))]
+
+                    for rel in extra:
+                        full = rd.rstrip("/") + "/" + rel.lstrip("/")
+                        try:
+                            sftp.remove(full)
+                            deleted += 1
+                        except Exception:
+                            delete_failed += 1
+
+                    if delete_failed > 0:
+                        cleanup_warn = f"不要ファイル削除で失敗がありました（成功{deleted} / 失敗{delete_failed}）"
+            except Exception as e:
+                cleanup_warn = f"不要ファイル削除に失敗しました: {sanitize_error_text(e)}"
+
+        # publish log（host等は保存しない）
+        try:
+            safe_log_action(
+                actor,
+                "project_publish",
+                details=json.dumps(
+                    {
+                        "project_id": p.get("project_id"),
+                        "files": total,
+                        "delete_extra": bool(delete_extra),
+                        "deleted": deleted,
+                        "delete_failed": delete_failed,
+                        "cleanup_warn": cleanup_warn,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        except Exception:
+            pass
+
+        try:
+            print(
+                "[PUBLISH] done",
+                json.dumps(
+                    {
+                        "files": total,
+                        "delete_extra": bool(delete_extra),
+                        "deleted": deleted,
+                        "delete_failed": delete_failed,
+                        "cleanup_warn": cleanup_warn,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        except Exception:
+            pass
+
+        if delete_extra:
+            if cleanup_warn:
+                return True, f"（注意）アップロード完了（{total}ファイル）。不要ファイル削除: {deleted}件。{cleanup_warn}"
+            return True, f"アップロード完了（{total}ファイル）。不要ファイル削除: {deleted}件"
+
         return True, f"アップロード完了（{total}ファイル）"
+
     except Exception as e:
-        print(f"[PUBLISH] failed: {sanitize_error_text(e)}", flush=True)
+        try:
+            print(f"[PUBLISH] failed: {sanitize_error_text(e)}", flush=True)
+        except Exception:
+            pass
         return False, f"アップロードに失敗しました: {sanitize_error_text(e)}"
     finally:
         try:
@@ -6890,6 +7217,69 @@ def render_main(u: User) -> None:
                                         export_state = {"url": "", "filename": ""}
                                         publish_ui_state = {"password": ""}
 
+                                        # 危険オプション（不要ファイル削除）用：段階確認ダイアログ
+                                        publish_actions = {"run": None}
+                                        cleanup_state = {"loading": False, "ok": False, "message": "", "extra": [], "target": ""}
+
+                                        with ui.dialog() as cleanup_dialog, ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+                                            ui.label("危険：不要ファイル削除つきで公開").classes("text-subtitle1 q-mb-sm")
+                                            ui.label("この操作は、公開ディレクトリ内の『古いファイル』を削除します。").classes("text-negative")
+                                            ui.label("※ そのフォルダに手作業で置いたファイルがある場合、それも消える可能性があります。").classes("text-negative text-caption q-mt-xs")
+
+                                            cleanup_target_label = ui.label("").classes("cvhb-muted q-mt-sm")
+
+                                            @ui.refreshable
+                                            def cleanup_body():
+                                                if cleanup_state.get("loading"):
+                                                    ui.label("削除候補を確認中...").classes("cvhb-muted")
+                                                    ui.spinner(size="lg")
+                                                    return
+
+                                                msg = str(cleanup_state.get("message") or "")
+                                                if msg:
+                                                    ui.label(msg).classes("cvhb-muted q-mt-sm")
+
+                                                if not cleanup_state.get("ok"):
+                                                    if msg:
+                                                        ui.label("※ 確認に失敗したため、このモードは実行できません。").classes("text-negative q-mt-sm")
+                                                    return
+
+                                                extra = cleanup_state.get("extra") or []
+                                                if not extra:
+                                                    ui.label("削除候補はありません（削除しなくてもOKです）。").classes("cvhb-muted q-mt-sm")
+                                                    return
+
+                                                ui.label("削除候補（先頭30件だけ表示）").classes("text-subtitle2 q-mt-sm")
+                                                with ui.element("div").classes("q-mt-xs"):
+                                                    for pth in extra[:30]:
+                                                        ui.label(str(pth)).classes("cvhb-muted text-caption")
+                                                    if len(extra) > 30:
+                                                        ui.label(f"...他 {len(extra)-30}件").classes("cvhb-muted text-caption")
+
+                                            cleanup_body()
+
+                                            cleanup_confirm_cb = ui.checkbox("理解しました。削除して公開します（最終確認）").classes("q-mt-md")
+
+                                            async def _cleanup_publish_go():
+                                                if not cleanup_confirm_cb.value:
+                                                    ui.notify("最終確認のチェックをONにしてください", type="warning")
+                                                    return
+                                                if not cleanup_state.get("ok"):
+                                                    ui.notify("削除候補の確認に失敗したため中止しました", type="negative")
+                                                    return
+                                                fn = publish_actions.get("run")
+                                                if not fn:
+                                                    ui.notify("内部エラー：公開処理が未準備です", type="negative")
+                                                    return
+                                                cleanup_dialog.close()
+                                                r = fn(True)
+                                                if inspect.isawaitable(r):
+                                                    await r
+
+                                            with ui.row().classes("q-gutter-sm q-mt-md"):
+                                                ui.button("やめる", on_click=cleanup_dialog.close).props("flat")
+                                                ui.button("削除して公開する", on_click=_cleanup_publish_go).props("color=negative unelevated")
+
                                         @ui.refreshable
                                         def publish_panel():
                                             a = get_approval(p)
@@ -6933,16 +7323,51 @@ def render_main(u: User) -> None:
                                                     except Exception as e:
                                                         ui.notify(f"書き出しに失敗しました: {sanitize_error_text(e)}", type="negative")
 
+                                                async def _do_export_backup():
+                                                    if status != "approved":
+                                                        ui.notify("承認OKになってからバックアップ保存してください", type="warning")
+                                                        return
+                                                    if not can_export(u):
+                                                        ui.notify("バックアップ保存は管理者（admin/subadmin）のみです", type="negative")
+                                                        return
+                                                    try:
+                                                        ui.notify("ZIPを作成して、案件バックアップへ保存中...", type="info")
+                                                        zip_bytes, filename = await asyncio.to_thread(build_site_zip_bytes, p)
+                                                        remote_path = await asyncio.to_thread(save_site_zip_backup_to_project, p, u, zip_bytes, filename)
+
+                                                        # workflow更新（保存）
+                                                        wf2 = get_workflow(p)
+                                                        wf2["last_backup_zip_at"] = now_jst_iso()
+                                                        wf2["last_backup_zip_by"] = u.username
+                                                        try:
+                                                            wf2["last_backup_zip_file"] = Path(str(remote_path or "")).name
+                                                        except Exception:
+                                                            wf2["last_backup_zip_file"] = ""
+                                                        await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                        set_current_project(p, u)
+
+                                                        ui.notify("案件バックアップに保存しました", type="positive")
+                                                        publish_panel.refresh()
+                                                    except Exception as e:
+                                                        ui.notify(f"バックアップ保存に失敗しました: {sanitize_error_text(e)}", type="negative")
+
                                                 if can_export(u) and status == "approved":
-                                                    ui.button("ZIPを書き出す", on_click=_do_export).props("color=primary unelevated").classes("q-mt-sm")
+                                                    with ui.row().classes("q-gutter-sm q-mt-sm"):
+                                                        ui.button("ZIPを書き出す", on_click=_do_export).props("color=primary unelevated")
+                                                        ui.button("ZIPを案件バックアップへ保存", on_click=_do_export_backup).props("color=primary outline")
                                                 else:
-                                                    ui.label("書き出しは管理者（admin/subadmin）のみ操作できます。").classes("cvhb-muted q-mt-sm")
+                                                    ui.label("書き出し/バックアップ保存は管理者（admin/subadmin）のみ操作できます。").classes("cvhb-muted q-mt-sm")
 
                                                 if export_state.get("url"):
                                                     ui.label(f"作成済み: {export_state.get('filename') or ''}").classes("cvhb-muted q-mt-sm")
                                                     ui.link("ダウンロードリンクを開く", export_state["url"]).classes("q-mt-xs")
                                                 if wf.get("last_export_at"):
                                                     ui.label(f"最終書き出し: {fmt_jst(wf.get('last_export_at'))} / {wf.get('last_export_by') or ''}").classes("cvhb-muted q-mt-sm")
+                                                if wf.get("last_backup_zip_at"):
+                                                    label = f"最終バックアップ: {fmt_jst(wf.get('last_backup_zip_at'))} / {wf.get('last_backup_zip_by') or ''}"
+                                                    if wf.get("last_backup_zip_file"):
+                                                        label += f" / {wf.get('last_backup_zip_file')}"
+                                                    ui.label(label).classes("cvhb-muted q-mt-xs")
 
                                             # -----------------
                                             # 2) 公開（SFTP）
@@ -6968,6 +7393,50 @@ def render_main(u: User) -> None:
 
                                                 ui.input("SFTPパスワード（保存されません）", value=publish_ui_state.get("password", ""), on_change=_on_pw).props("outlined dense type=password").classes("w-full q-mt-sm")
                                                 pub_confirm = ui.checkbox("公開する（上書きアップロード）").classes("q-mt-sm")
+                                                cleanup_confirm = ui.checkbox("危険：リモートの不要ファイルも削除する（通常OFF）").classes("q-mt-xs")
+                                                ui.label("※ ONにすると、公開ディレクトリ内の古いファイルが消える可能性があります。").classes("text-negative text-caption q-mt-xs")
+
+                                                async def _run_publish(delete_extra: bool):
+                                                    # 念のため毎回チェック（画面がズレても事故らない）
+                                                    if not can_publish(u):
+                                                        ui.notify("公開は admin のみ実行できます", type="negative")
+                                                        return
+                                                    a2 = get_approval(p)
+                                                    status2 = str(a2.get("status") or "draft")
+                                                    if status2 != "approved":
+                                                        ui.notify("承認OKになってから公開してください", type="warning")
+                                                        return
+                                                    if not pub_confirm.value:
+                                                        ui.notify("『公開する』チェックをONにしてください", type="warning")
+                                                        return
+                                                    try:
+                                                        ui.notify("公開（アップロード）中...", type="info")
+                                                        ok, msg = await asyncio.to_thread(
+                                                            publish_site_via_sftp,
+                                                            p,
+                                                            u,
+                                                            publish_ui_state.get("password", ""),
+                                                            delete_extra=bool(delete_extra),
+                                                        )
+                                                        if ok:
+                                                            wf2 = get_workflow(p)
+                                                            wf2["last_publish_at"] = now_jst_iso()
+                                                            wf2["last_publish_by"] = u.username
+                                                            wf2["last_publish_target"] = f"{publish.get('sftp_host', '')}:{publish.get('sftp_dir', '')}"
+                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                            set_current_project(p, u)
+                                                            if str(msg).startswith("（注意）"):
+                                                                ui.notify(msg, type="warning")
+                                                            else:
+                                                                ui.notify(msg, type="positive")
+                                                        else:
+                                                            ui.notify(msg, type="negative")
+                                                        publish_panel.refresh()
+                                                    except Exception as e:
+                                                        ui.notify(f"公開に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                # ダイアログ側から呼べるように保持
+                                                publish_actions["run"] = _run_publish
 
                                                 async def _do_publish():
                                                     if not can_publish(u):
@@ -6977,24 +7446,56 @@ def render_main(u: User) -> None:
                                                         ui.notify("承認OKになってから公開してください", type="warning")
                                                         return
                                                     if not pub_confirm.value:
-                                                        ui.notify("チェックをONにしてください", type="warning")
+                                                        ui.notify("『公開する』チェックをONにしてください", type="warning")
                                                         return
+
+                                                    if not cleanup_confirm.value:
+                                                        await _run_publish(False)
+                                                        return
+
+                                                    # ここから危険モード：段階確認ダイアログ
+                                                    cleanup_state["loading"] = True
+                                                    cleanup_state["ok"] = False
+                                                    cleanup_state["message"] = ""
+                                                    cleanup_state["extra"] = []
                                                     try:
-                                                        ui.notify("公開（アップロード）中...", type="info")
-                                                        ok, msg = await asyncio.to_thread(publish_site_via_sftp, p, u, publish_ui_state.get("password", ""))
-                                                        if ok:
-                                                            wf2 = get_workflow(p)
-                                                            wf2["last_publish_at"] = now_jst_iso()
-                                                            wf2["last_publish_by"] = u.username
-                                                            wf2["last_publish_target"] = f"{publish.get('sftp_host', '')}:{publish.get('sftp_dir', '')}"
-                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
-                                                            set_current_project(p, u)
-                                                            ui.notify(msg, type="positive")
-                                                        else:
-                                                            ui.notify(msg, type="negative")
-                                                        publish_panel.refresh()
+                                                        cleanup_target_label.text = f"対象: {_mask_text_keep_ends(str(publish.get('sftp_host') or ''))}{_mask_remote_dir(str(publish.get('sftp_dir') or ''))}"
+                                                    except Exception:
+                                                        pass
+
+                                                    # 最終確認チェックをリセット
+                                                    try:
+                                                        cleanup_confirm_cb.value = False
+                                                    except Exception:
+                                                        pass
+
+                                                    cleanup_dialog.open()
+                                                    cleanup_body.refresh()
+
+                                                    try:
+                                                        def _calc_preview():
+                                                            files2 = build_static_site_files(p)
+                                                            keep2 = set(str(k or '').lstrip('/') for k in files2.keys() if k)
+                                                            return compute_remote_extra_files_for_cleanup(
+                                                                host=str(publish.get("sftp_host") or ""),
+                                                                port=int(publish.get("sftp_port", 22) or 22),
+                                                                user=str(publish.get("sftp_user") or ""),
+                                                                password=publish_ui_state.get("password", ""),
+                                                                remote_dir=str(publish.get("sftp_dir") or ""),
+                                                                keep_files=keep2,
+                                                            )
+                                                        ok2, msg2, extra2 = await asyncio.to_thread(_calc_preview)
+                                                        cleanup_state["loading"] = False
+                                                        cleanup_state["ok"] = ok2
+                                                        cleanup_state["message"] = msg2
+                                                        cleanup_state["extra"] = extra2
+                                                        cleanup_body.refresh()
                                                     except Exception as e:
-                                                        ui.notify(f"公開に失敗しました: {sanitize_error_text(e)}", type="negative")
+                                                        cleanup_state["loading"] = False
+                                                        cleanup_state["ok"] = False
+                                                        cleanup_state["message"] = f"確認に失敗しました: {sanitize_error_text(e)}"
+                                                        cleanup_state["extra"] = []
+                                                        cleanup_body.refresh()
 
                                                 if can_publish(u):
                                                     ui.button("公開する（SFTPへアップロード）", on_click=_do_publish).props("color=positive unelevated").classes("q-mt-sm")
