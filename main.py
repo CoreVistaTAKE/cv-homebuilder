@@ -2799,7 +2799,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.7.3")
+VERSION = read_text_file("VERSION", "0.7.4")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3133,6 +3133,12 @@ def sftp_write_bytes(sftp: paramiko.SFTPClient, remote_path: str, data: bytes) -
 
 def sftp_read_text(sftp: paramiko.SFTPClient, remote_path: str) -> str:
     with sftp.open(remote_path, "r") as f:
+        return f.read()
+
+
+def sftp_read_bytes(sftp: paramiko.SFTPClient, remote_path: str) -> bytes:
+    """SFTPからバイナリを読み込む（ZIPなど）。"""
+    with sftp.open(remote_path, "rb") as f:
         return f.read()
 
 
@@ -8840,7 +8846,7 @@ def projects_page():
                 try:
                     # load -> remove -> save
                     def _work():
-                        proj = load_project_from_sftp(pid)
+                        proj = load_project_from_sftp(pid, u)
                         cleared = remove_data_url_from_project(proj, target)
                         save_project_to_sftp(proj, u)
                         return cleared
