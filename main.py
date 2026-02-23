@@ -2799,7 +2799,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.7.2")
+VERSION = read_text_file("VERSION", "0.7.3")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -5136,10 +5136,49 @@ a:hover{{text-decoration:underline;}}
     return files
 
 
+def build_site_zip_filename(p: dict, *, dt: Optional[datetime] = None) -> str:
+    """書き出しZIPのファイル名を生成する。
+
+    形式: YYMMDD_案件名_site.zip
+    例: 260223_テスト4_site.zip
+
+    ※ 同日に同名バックアップが既にある場合は、保存側で _2, _3 ... を付けて上書きを避ける。
+    """
+    try:
+        p = normalize_project(p)
+    except Exception:
+        p = p if isinstance(p, dict) else {}
+
+    if dt is None:
+        dt = datetime.now(JST)
+
+    date_prefix = dt.strftime("%y%m%d")
+
+    try:
+        name = str(p.get("project_name") or "").strip()
+    except Exception:
+        name = ""
+
+    if not name or name == "(no name)":
+        try:
+            name = str(p.get("project_id") or "project").strip()
+        except Exception:
+            name = "project"
+
+    safe_name = _safe_filename(name)
+    # 長すぎると扱いにくいので、ほどほどに制限
+    try:
+        safe_name = safe_name[:40]
+    except Exception:
+        pass
+    safe_name = safe_name or "project"
+
+    return f"{date_prefix}_{safe_name}_site.zip"
+
+
 def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
     """静的サイト一式をZIP化して返す。"""
     p = normalize_project(p)
-    pid = str(p.get("project_id") or "project")
     files = build_static_site_files(p)
 
     mem = BytesIO()
@@ -5150,26 +5189,48 @@ def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
             except Exception:
                 # 1ファイルで失敗しても全体を落とさない
                 pass
-    return mem.getvalue(), f"{pid}_site.zip"
+
+    filename = build_site_zip_filename(p)
+    return mem.getvalue(), filename
 
 
 def save_site_zip_backup_to_project(p: dict, actor: User, zip_bytes: bytes, filename: str) -> str:
-    """書き出しZIPを案件内（SFTP To Go）へバックアップ保存する。"""
+    """書き出しZIPを案件内（SFTP To Go）へバックアップ保存する。
+
+    - デフォルト名: YYMMDD_案件名_site.zip
+    - 既に同名がある場合は _2, _3 ... を付けて上書き事故を避ける
+    """
     p = normalize_project(p)
     pid = str(p.get("project_id") or "project")
 
-    # ファイル名を安全にする（日本語OKだが、念のため記号を置換）
-    base = _safe_filename((filename or f"{pid}_site.zip").replace(".zip", ""))
-    ts = datetime.now(JST).strftime("%Y%m%d_%H%M%S")
-    backup_filename = f"{base}_{ts}.zip"
-    remote_path = f"{project_dir(pid)}/backups/{backup_filename}"
+    desired = str(filename or "").strip() or build_site_zip_filename(p)
+
+    # ファイル名を安全にする（日本語OKだが、念のため危険文字だけ置換）
+    base = _safe_filename(Path(desired).stem) or "backup"
+    try:
+        base = base[:80]
+    except Exception:
+        pass
+
+    remote_dir = f"{project_dir(pid)}/backups"
 
     with sftp_client() as sftp:
+        # 同名があるなら _2, _3... を付与（同日に複数保存しても上書きしない）
+        cand = f"{base}.zip"
+        for i in range(2, 100):
+            try:
+                sftp.stat(f"{remote_dir}/{cand}")
+                cand = f"{base}_{i}.zip"
+                continue
+            except Exception:
+                break
+
+        remote_path = f"{remote_dir}/{cand}"
         sftp_write_bytes(sftp, remote_path, zip_bytes or b"")
 
     # ログ（SFTPのURL/パスワード等は出さない）
     try:
-        safe_log_action(actor, "project_export_backup_zip", details=json.dumps({"project_id": pid, "file": backup_filename}, ensure_ascii=False))
+        safe_log_action(actor, "project_export_backup_zip", details=json.dumps({"project_id": pid, "file": cand}, ensure_ascii=False))
     except Exception:
         pass
 
@@ -5271,9 +5332,9 @@ def list_project_backup_zips(project_id: str) -> list[dict]:
                 out.append({"filename": fn, "size_kb": size_kb, "mtime": mtime_iso})
             except Exception:
                 continue
-    # filename末尾に timestamp を付けているので、基本は名前降順でOK
+    # mtime（更新日時）降順で並べる（名前規則が変わっても安定）
     try:
-        out.sort(key=lambda x: str(x.get("filename") or ""), reverse=True)
+        out.sort(key=lambda x: str(x.get("mtime") or ""), reverse=True)
     except Exception:
         pass
     return out
@@ -5324,6 +5385,66 @@ def zip_bytes_to_site_files(zip_bytes: bytes) -> dict[str, bytes]:
     return out
 
 
+def inspect_site_zip_bytes(zip_bytes: bytes) -> dict:
+    """復元前チェック用: ZIPの中身を軽く確認する（メタ情報のみ）。
+
+    - ZIP内ファイル数
+    - 主要ファイルの有無（index.html / assets/site.css / privacy.html / news/index.html）
+
+    ※ バイナリ内容は見ない（ログにも出さない）
+    """
+    res = {
+        "ok": False,
+        "file_count": 0,
+        "required": {},
+        "missing": [],
+        "error": "",
+    }
+    if not zip_bytes:
+        res["error"] = "ZIPが空です"
+        return res
+
+    try:
+        mem = BytesIO(zip_bytes)
+        with zipfile.ZipFile(mem, "r") as z:
+            names: list[str] = []
+            for info in z.infolist():
+                try:
+                    if info.is_dir():
+                        continue
+                    name = str(info.filename or "").replace("\\", "/").lstrip("/")
+                    if not name or name.endswith("/"):
+                        continue
+                    # 事故防止: 絶対パス/親ディレクトリは拒否
+                    parts = [p for p in name.split("/") if p]
+                    if any(p in {".", ".."} for p in parts):
+                        continue
+                    safe_name = "/".join(parts)
+                    if safe_name:
+                        names.append(safe_name)
+                except Exception:
+                    continue
+
+        res["file_count"] = len(names)
+        s = set(names)
+
+        required = ["index.html", "assets/site.css", "privacy.html", "news/index.html"]
+        req_map = {k: (k in s) for k in required}
+        res["required"] = req_map
+        res["missing"] = [k for k, v in req_map.items() if not v]
+
+        # 最低限 index.html があって、空じゃなければOK扱い
+        res["ok"] = bool(res["file_count"] > 0 and req_map.get("index.html"))
+        return res
+
+    except zipfile.BadZipFile:
+        res["error"] = "ZIPが壊れています（読み込めません）"
+        return res
+    except Exception as e:
+        res["error"] = sanitize_error_text(e)
+        return res
+
+
 def publish_site_files_via_sftp(
     *,
     host: str,
@@ -5337,8 +5458,25 @@ def publish_site_files_via_sftp(
     action: str,
     delete_extra: bool = False,
     exclude_patterns: Optional[list[str]] = None,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, dict]:
     """静的サイトのファイル群をSFTPへアップロードする（共通処理）。
+
+    戻り値:
+      (ok, message, detail)
+
+    detail 例:
+      {
+        "total": 42,
+        "success": 42,
+        "failed": 0,
+        "failed_files": [],
+        "delete_extra": False,
+        "deleted": 0,
+        "delete_failed": 0,
+        "cleanup_warn": "",
+        "cleanup_skipped": False,
+        "exclude": 0,
+      }
 
     - files: {rel_path: bytes}
     - delete_extra=True のとき（危険）:
@@ -5354,14 +5492,29 @@ def publish_site_files_via_sftp(
     except Exception:
         port = 22
 
+    excludes = exclude_patterns or []
+
+    detail: dict = {
+        "total": 0,
+        "success": 0,
+        "failed": 0,
+        "failed_files": [],
+        "delete_extra": bool(delete_extra),
+        "deleted": 0,
+        "delete_failed": 0,
+        "cleanup_warn": "",
+        "cleanup_skipped": False,
+        "exclude": len(excludes),
+    }
+
     if not (host and user and remote_dir):
-        return False, "SFTP情報（host/user/dir）が未入力です"
+        return False, "SFTP情報（host/user/dir）が未入力です", detail
     if not password:
-        return False, "SFTPパスワードが未入力です"
+        return False, "SFTPパスワードが未入力です", detail
 
     rd = remote_dir.rstrip("/")
     if rd in ("", "/"):
-        return False, "安全のため、公開ディレクトリが不正です（'/' は不可）"
+        return False, "安全のため、公開ディレクトリが不正です（'/' は不可）", detail
 
     # files 正規化
     out_files: dict[str, bytes] = {}
@@ -5379,16 +5532,15 @@ def publish_site_files_via_sftp(
         out_files = {}
 
     total = len(out_files)
+    detail["total"] = total
     if total <= 0:
-        return False, "アップロード対象ファイルがありません"
+        return False, "アップロード対象ファイルがありません", detail
 
     keep_files = set()
     for k in out_files.keys():
         kk = str(k or "").lstrip("/")
         if kk:
             keep_files.add(kk)
-
-    excludes = exclude_patterns or []
 
     # NOTE: パスワードはログに出さない（host/user/dir もマスク）
     try:
@@ -5415,11 +5567,16 @@ def publish_site_files_via_sftp(
     deleted = 0
     delete_failed = 0
     cleanup_warn = ""
+    cleanup_skipped = False
+
+    success = 0
+    failed_files: list[str] = []
+    fail_logged = 0
     try:
         transport.connect(username=user, password=password)
         sftp = paramiko.SFTPClient.from_transport(transport)
 
-        # 1) upload
+        # 1) upload（失敗しても続行して、部分成功を検知する）
         for rel_path, content in out_files.items():
             rpath = rd.rstrip("/") + "/" + str(rel_path).lstrip("/")
             rdir = "/".join(rpath.split("/")[:-1])
@@ -5427,51 +5584,74 @@ def publish_site_files_via_sftp(
                 sftp_mkdirs(sftp, rdir)
             except Exception:
                 pass
+
             try:
                 with sftp.open(rpath, "wb") as f:
                     f.write(content)
+                success += 1
             except Exception as e:
-                # 失敗ログ（安全な範囲）
-                try:
-                    if actor:
+                failed_files.append(str(rel_path)[:160])
+                # 失敗ログ（安全な範囲）: 多すぎるとDBが辛いので、最初の10件だけ残す
+                if actor and fail_logged < 10:
+                    try:
                         safe_log_action(
                             actor,
                             f"{action}_failed",
                             details=json.dumps(
-                                {"project_id": project_id, "phase": "upload", "file": str(rel_path)[:160], "error": sanitize_error_text(e)},
+                                {
+                                    "project_id": project_id,
+                                    "phase": "upload",
+                                    "file": str(rel_path)[:160],
+                                    "error": sanitize_error_text(e),
+                                },
                                 ensure_ascii=False,
                             ),
                         )
-                except Exception:
-                    pass
-                return False, f"アップロードに失敗しました: {sanitize_error_text(e)}"
+                        fail_logged += 1
+                    except Exception:
+                        pass
+                continue
+
+        failed = len(failed_files)
+        detail["success"] = success
+        detail["failed"] = failed
+        detail["failed_files"] = failed_files[:200]  # UI用に上限
 
         # 2) optional cleanup (danger)
         if delete_extra:
-            try:
-                existing = _remote_list_files_recursive(sftp, rd)
-                if len(existing) >= 8000:
-                    cleanup_warn = "ファイル数が多すぎるため（8000件超）、不要ファイル削除は中止しました"
-                else:
-                    extra_all = [p for p in existing if (p not in keep_files and _remote_is_delete_candidate(p))]
-                    # 除外
-                    extra = [p for p in extra_all if not is_excluded_path(p, excludes)]
+            if failed > 0:
+                cleanup_skipped = True
+                cleanup_warn = "アップロードに失敗があったため、不要ファイル削除は行いませんでした"
+            else:
+                try:
+                    existing = _remote_list_files_recursive(sftp, rd)
+                    if len(existing) >= 8000:
+                        cleanup_warn = "ファイル数が多すぎるため（8000件超）、不要ファイル削除は中止しました"
+                    else:
+                        extra_all = [p for p in existing if (p not in keep_files and _remote_is_delete_candidate(p))]
+                        # 除外
+                        extra = [p for p in extra_all if not is_excluded_path(p, excludes)]
 
-                    for rel in extra:
-                        full = rd.rstrip("/") + "/" + rel.lstrip("/")
-                        try:
-                            sftp.remove(full)
-                            deleted += 1
-                        except Exception:
-                            delete_failed += 1
+                        for rel in extra:
+                            full = rd.rstrip("/") + "/" + rel.lstrip("/")
+                            try:
+                                sftp.remove(full)
+                                deleted += 1
+                            except Exception:
+                                delete_failed += 1
 
-                    if delete_failed > 0:
-                        cleanup_warn = f"不要ファイル削除で失敗がありました（成功{deleted} / 失敗{delete_failed}）"
-                    # 除外が効いている旨（ログ用に軽く残す）
-                    if excludes and len(extra_all) != len(extra) and not cleanup_warn:
-                        cleanup_warn = f"除外リストにより {len(extra_all) - len(extra)}件を削除対象から外しました"
-            except Exception as e:
-                cleanup_warn = f"不要ファイル削除に失敗しました: {sanitize_error_text(e)}"
+                        if delete_failed > 0:
+                            cleanup_warn = f"不要ファイル削除で失敗がありました（成功{deleted} / 失敗{delete_failed}）"
+                        # 除外が効いている旨（ログ用に軽く残す）
+                        if excludes and len(extra_all) != len(extra) and not cleanup_warn:
+                            cleanup_warn = f"除外リストにより {len(extra_all) - len(extra)}件を削除対象から外しました"
+                except Exception as e:
+                    cleanup_warn = f"不要ファイル削除に失敗しました: {sanitize_error_text(e)}"
+
+        detail["deleted"] = deleted
+        detail["delete_failed"] = delete_failed
+        detail["cleanup_warn"] = cleanup_warn
+        detail["cleanup_skipped"] = bool(cleanup_skipped)
 
         # publish log（host等は保存しない）
         try:
@@ -5483,10 +5663,13 @@ def publish_site_files_via_sftp(
                         {
                             "project_id": project_id,
                             "files": total,
+                            "success": success,
+                            "failed": failed,
                             "delete_extra": bool(delete_extra),
                             "deleted": deleted,
                             "delete_failed": delete_failed,
                             "cleanup_warn": cleanup_warn,
+                            "cleanup_skipped": bool(cleanup_skipped),
                             "exclude": len(excludes),
                         },
                         ensure_ascii=False,
@@ -5501,10 +5684,13 @@ def publish_site_files_via_sftp(
                 json.dumps(
                     {
                         "files": total,
+                        "success": success,
+                        "failed": failed,
                         "delete_extra": bool(delete_extra),
                         "deleted": deleted,
                         "delete_failed": delete_failed,
                         "cleanup_warn": cleanup_warn,
+                        "cleanup_skipped": bool(cleanup_skipped),
                         "exclude": len(excludes),
                         "action": action,
                     },
@@ -5515,12 +5701,21 @@ def publish_site_files_via_sftp(
         except Exception:
             pass
 
-        if delete_extra:
-            if cleanup_warn:
-                return True, f"（注意）アップロード完了（{total}ファイル）。不要ファイル削除: {deleted}件。{cleanup_warn}"
-            return True, f"アップロード完了（{total}ファイル）。不要ファイル削除: {deleted}件"
+        # message
+        if failed <= 0:
+            if delete_extra:
+                if cleanup_warn:
+                    return True, f"（注意）アップロード完了（{total}ファイル）。不要ファイル削除: {deleted}件。{cleanup_warn}", detail
+                return True, f"アップロード完了（{total}ファイル）。不要ファイル削除: {deleted}件", detail
+            return True, f"アップロード完了（{total}ファイル）", detail
 
-        return True, f"アップロード完了（{total}ファイル）"
+        # 部分成功 or 全失敗
+        msg = f"（一部失敗）アップロード: 成功{success} / 失敗{failed} / 合計{total}ファイル"
+        if delete_extra and cleanup_warn:
+            msg += f"。{cleanup_warn}"
+        elif delete_extra and cleanup_skipped and cleanup_warn:
+            msg += f"。{cleanup_warn}"
+        return False, msg, detail
 
     except Exception as e:
         try:
@@ -5533,13 +5728,12 @@ def publish_site_files_via_sftp(
                 safe_log_action(actor, f"{action}_failed", details=json.dumps({"project_id": project_id, "phase": "connect", "error": sanitize_error_text(e)}, ensure_ascii=False))
         except Exception:
             pass
-        return False, f"アップロードに失敗しました: {sanitize_error_text(e)}"
+        return False, f"アップロードに失敗しました: {sanitize_error_text(e)}", detail
     finally:
         try:
             transport.close()
         except Exception:
             pass
-
 
 
 def _mask_text_keep_ends(s: str, *, head: int = 2, tail: int = 2) -> str:
@@ -5701,14 +5895,19 @@ def compute_remote_extra_files_for_cleanup(
 
 
 
-def publish_site_via_sftp(p: dict, actor: User, password: str, *, delete_extra: bool = False) -> tuple[bool, str]:
+def publish_site_via_sftp(
+    p: dict,
+    actor: User,
+    password: str,
+    *,
+    delete_extra: bool = False,
+    only_files: Optional[list[str]] = None,
+) -> tuple[bool, str, dict]:
     """案件の静的サイトを、案件に保存されているSFTP情報へアップロードする。
 
-    delete_extra=True のとき（危険）:
-      - 公開ディレクトリ配下の「このビルダーが作りそうな拡張子」のファイルだけを対象に
-        『今回の出力に含まれないもの』を削除する（事故防止の安全フィルタあり）
-      - .htaccess / .well-known / cgi-bin / 隠しファイル は触らない
-      - 除外リスト（publish.cleanup_exclude）に一致するものは削除しない
+    - only_files を指定した場合:
+        そのファイルだけアップロードする（再試行向け）。
+        安全のため delete_extra（不要ファイル削除）は自動でOFFにする。
     """
     p = normalize_project(p)
     data = p.get("data") if isinstance(p, dict) else {}
@@ -5724,6 +5923,17 @@ def publish_site_via_sftp(p: dict, actor: User, password: str, *, delete_extra: 
     exclude_patterns = parse_cleanup_exclude_list(publish.get("cleanup_exclude"))
 
     files = build_static_site_files(p)
+
+    # 再試行などで「一部ファイルだけ」アップロードしたい場合
+    if only_files:
+        try:
+            wanted = set(str(x or "").replace("\\", "/").lstrip("/") for x in only_files)
+            files = {k: v for k, v in files.items() if str(k or "").lstrip("/") in wanted}
+        except Exception:
+            files = files
+        # 一部アップロード時は不要ファイル削除をしない（事故防止）
+        delete_extra = False
+
     pid = str(p.get("project_id") or "project")
     return publish_site_files_via_sftp(
         host=host,
@@ -7679,7 +7889,7 @@ def render_main(u: User) -> None:
 
                                         # --- バックアップZIP一覧 / 復元（公開先へ） ---
                                         backup_state = {"loading": False, "error": "", "items": [], "project_id": "", "project_name": ""}
-                                        restore_state = {"filename": "", "size_kb": 0, "mtime": ""}
+                                        restore_state = {"filename": "", "size_kb": 0, "mtime": "", "inspect_loading": False, "inspect_error": "", "inspect": {}}
 
                                         with ui.dialog() as backup_dialog, ui.card().classes("q-pa-md rounded-borders").props("bordered"):
                                             ui.label("案件内バックアップZIP").classes("text-subtitle1 q-mb-sm")
@@ -7720,7 +7930,7 @@ def render_main(u: User) -> None:
                                                                     ui.notify("内部エラー：project_id が不正です", type="negative")
                                                                     return
                                                                 zip_bytes = await asyncio.to_thread(read_project_backup_zip_bytes, pid, _fn)
-                                                                key = _export_cache_put(zip_bytes, filename=_fn, mime="application/zip")
+                                                                key = _export_cache_put(u.id, _fn, zip_bytes)
                                                                 navigate_to(f"/export_zip/{key}")
                                                             except Exception as e:
                                                                 ui.notify(f"ダウンロードに失敗しました: {sanitize_error_text(e)}", type="negative")
@@ -7739,6 +7949,9 @@ def render_main(u: User) -> None:
                                                             restore_state["filename"] = _fn
                                                             restore_state["size_kb"] = int(_size or 0)
                                                             restore_state["mtime"] = str(_mtime or "")
+                                                            restore_state["inspect_loading"] = True
+                                                            restore_state["inspect_error"] = ""
+                                                            restore_state["inspect"] = {}
                                                             try:
                                                                 restore_confirm_cb.value = False
                                                                 restore_cleanup_cb.value = False
@@ -7749,6 +7962,36 @@ def render_main(u: User) -> None:
                                                             except Exception:
                                                                 pass
                                                             restore_dialog.open()
+
+                                                            # ZIPの中身を軽く確認（復元事故を減らす）
+                                                            async def _calc_inspect():
+                                                                try:
+                                                                    pid2 = str(backup_state.get("project_id") or "").strip()
+                                                                    if not pid2:
+                                                                        restore_state["inspect_error"] = "project_id がありません"
+                                                                        return
+                                                                    zip_bytes2 = await asyncio.to_thread(read_project_backup_zip_bytes, pid2, _fn)
+                                                                    info2 = await asyncio.to_thread(inspect_site_zip_bytes, zip_bytes2)
+                                                                    restore_state["inspect"] = info2
+                                                                    if str(info2.get("error") or "").strip():
+                                                                        restore_state["inspect_error"] = str(info2.get("error") or "")
+                                                                except Exception as e:
+                                                                    restore_state["inspect_error"] = sanitize_error_text(e)
+                                                                finally:
+                                                                    restore_state["inspect_loading"] = False
+                                                                    try:
+                                                                        restore_body.refresh()
+                                                                    except Exception:
+                                                                        pass
+
+                                                            try:
+                                                                asyncio.create_task(_calc_inspect())
+                                                            except Exception:
+                                                                restore_state["inspect_loading"] = False
+                                                                try:
+                                                                    restore_body.refresh()
+                                                                except Exception:
+                                                                    pass
 
                                                         ui.button("復元（公開先へ）", on_click=_open_restore).props("dense outline color=primary no-caps")
 
@@ -7784,6 +8027,25 @@ def render_main(u: User) -> None:
                                                 excl = parse_cleanup_exclude_list(publish.get("cleanup_exclude"))
                                                 if excl:
                                                     ui.label(f"不要ファイル削除の除外: {len(excl)}件").classes("cvhb-muted text-caption")
+                                                # ZIP構成チェック（復元前に軽く見せる）
+                                                if bool(restore_state.get("inspect_loading")):
+                                                    ui.label("ZIPの中身を確認中...").classes("cvhb-muted q-mt-sm")
+                                                else:
+                                                    err = str(restore_state.get("inspect_error") or "").strip()
+                                                    if err:
+                                                        ui.label(f"ZIP確認: {err}").classes("text-negative q-mt-sm")
+                                                    else:
+                                                        info = restore_state.get("inspect") or {}
+                                                        fc = int(info.get("file_count") or 0)
+                                                        ui.label(f"ZIP内ファイル数: {fc}").classes("cvhb-muted q-mt-sm")
+                                                        req = info.get("required") or {}
+                                                        if isinstance(req, dict) and req:
+                                                            ui.label("主要ファイルチェック（OK/NG）").classes("cvhb-muted text-caption q-mt-xs")
+                                                            for k, ok2 in req.items():
+                                                                ui.label(f"{'OK' if ok2 else 'NG'}: {k}").classes("text-caption" if ok2 else "text-negative text-caption")
+                                                        miss = info.get("missing") or []
+                                                        if miss:
+                                                            ui.label(f"不足: {', '.join([str(x) for x in miss[:6]])}").classes("text-negative text-caption")
 
                                             restore_body()
 
@@ -7802,6 +8064,17 @@ def render_main(u: User) -> None:
                                                     return
                                                 if not restore_confirm_cb.value:
                                                     ui.notify("最終確認のチェックをONにしてください", type="warning")
+                                                    return
+
+                                                if bool(restore_state.get("inspect_loading")):
+                                                    ui.notify("ZIPの確認中です。少し待ってから実行してください", type="warning")
+                                                    return
+                                                if str(restore_state.get("inspect_error") or "").strip():
+                                                    ui.notify("ZIPの確認でエラーがあるため中止しました", type="negative")
+                                                    return
+                                                info = restore_state.get("inspect") or {}
+                                                if not bool(info.get("ok")):
+                                                    ui.notify("このZIPはサイトZIPとして不完全です（index.html などが不足）", type="negative")
                                                     return
 
                                                 publish = p.get("data", {}).get("publish", {}) if isinstance(p.get("data"), dict) else {}
@@ -7850,7 +8123,7 @@ def render_main(u: User) -> None:
                                                             exclude_patterns=excludes,
                                                         )
 
-                                                    ok, msg = await asyncio.to_thread(_work)
+                                                    ok, msg, detail = await asyncio.to_thread(_work)
 
                                                     # workflow更新（成功/失敗とも記録）
                                                     wf2 = get_workflow(p)
@@ -7860,6 +8133,16 @@ def render_main(u: User) -> None:
                                                     wf2["last_publish_try_message"] = msg
                                                     wf2["last_publish_try_mode"] = "restore_backup_zip"
                                                     wf2["last_publish_try_file"] = fn
+                                                    try:
+                                                        wf2["last_publish_try_total"] = int(detail.get("total") or 0)
+                                                        wf2["last_publish_try_success"] = int(detail.get("success") or 0)
+                                                        wf2["last_publish_try_failed"] = int(detail.get("failed") or 0)
+                                                        wf2["last_publish_try_failed_files"] = list(detail.get("failed_files") or [])[:80]
+                                                        wf2["last_publish_try_cleanup_warn"] = str(detail.get("cleanup_warn") or "")
+                                                        wf2["last_publish_try_cleanup_skipped"] = bool(detail.get("cleanup_skipped"))
+                                                    except Exception:
+                                                        pass
+
                                                     if ok:
                                                         wf2["last_publish_at"] = now_jst_iso()
                                                         wf2["last_publish_by"] = u.username
@@ -8059,7 +8342,7 @@ def render_main(u: User) -> None:
                                                         ui.notify("公開（アップロード）中...", type="info")
                                                                                                                 # 直近の公開試行を記録（成功/失敗どちらも）
                                                         excludes = parse_cleanup_exclude_list(publish.get("cleanup_exclude"))
-                                                        ok, msg = await asyncio.to_thread(
+                                                        ok, msg, detail = await asyncio.to_thread(
                                                             publish_site_via_sftp,
                                                             p,
                                                             u,
@@ -8074,6 +8357,16 @@ def render_main(u: User) -> None:
                                                         wf2["last_publish_try_message"] = msg
                                                         wf2["last_publish_try_delete_extra"] = bool(delete_extra)
                                                         wf2["last_publish_try_exclude"] = len(excludes)
+
+                                                        try:
+                                                            wf2["last_publish_try_total"] = int(detail.get("total") or 0)
+                                                            wf2["last_publish_try_success"] = int(detail.get("success") or 0)
+                                                            wf2["last_publish_try_failed"] = int(detail.get("failed") or 0)
+                                                            wf2["last_publish_try_failed_files"] = list(detail.get("failed_files") or [])[:80]
+                                                            wf2["last_publish_try_cleanup_warn"] = str(detail.get("cleanup_warn") or "")
+                                                            wf2["last_publish_try_cleanup_skipped"] = bool(detail.get("cleanup_skipped"))
+                                                        except Exception:
+                                                            pass
 
                                                         if ok:
                                                             wf2["last_publish_at"] = now_jst_iso()
@@ -8158,7 +8451,46 @@ def render_main(u: User) -> None:
                                                         cleanup_body.refresh()
 
                                                 if can_publish(u):
-                                                    ui.button("公開する（SFTPへアップロード）", on_click=_do_publish).props("color=positive unelevated").classes("q-mt-sm")
+                                                    async def _do_backup_and_publish():
+                                                        # _do_publish と同じ安全チェック（事故防止）
+                                                        if not can_publish(u):
+                                                            ui.notify("公開は admin のみ実行できます", type="negative")
+                                                            return
+                                                        if status != "approved":
+                                                            ui.notify("承認OKになってから公開してください", type="warning")
+                                                            return
+                                                        if not pub_confirm.value:
+                                                            ui.notify("『公開する』チェックをONにしてください", type="warning")
+                                                            return
+
+                                                        try:
+                                                            ui.notify("① ZIPバックアップを案件内に保存中...", type="info")
+                                                            zip_bytes, filename = await asyncio.to_thread(build_site_zip_bytes, p)
+                                                            remote_path = await asyncio.to_thread(save_site_zip_backup_to_project, p, u, zip_bytes, filename)
+
+                                                            # workflow更新（保存）
+                                                            wf2 = get_workflow(p)
+                                                            wf2["last_backup_zip_at"] = now_jst_iso()
+                                                            wf2["last_backup_zip_by"] = u.username
+                                                            try:
+                                                                wf2["last_backup_zip_file"] = Path(str(remote_path or "")).name
+                                                            except Exception:
+                                                                wf2["last_backup_zip_file"] = ""
+
+                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                            set_current_project(p, u)
+
+                                                            ui.notify("② 公開を開始します...", type="info")
+                                                        except Exception as e:
+                                                            ui.notify(f"バックアップ保存に失敗しました: {sanitize_error_text(e)}", type="negative")
+                                                            return
+
+                                                        # 公開（危険削除モードならダイアログへ）
+                                                        await _do_publish()
+
+                                                    with ui.row().classes("q-gutter-sm q-mt-sm"):
+                                                        ui.button("バックアップして公開（推奨）", on_click=_do_backup_and_publish).props("color=positive unelevated")
+                                                        ui.button("公開だけする", on_click=_do_publish).props("color=positive outline")
                                                     if wf.get("last_publish_at"):
                                                         ui.label(f"最終公開: {fmt_jst(wf.get('last_publish_at'))} / {wf.get('last_publish_by') or ''}").classes("cvhb-muted q-mt-sm")
 
@@ -8167,11 +8499,33 @@ def render_main(u: User) -> None:
                                                         try_msg = str(wf.get("last_publish_try_message") or "")
                                                         if len(try_msg) > 140:
                                                             try_msg = try_msg[:140] + "..."
+
+                                                        # 件数表示（部分成功もわかるように）
+                                                        try_total = int(wf.get("last_publish_try_total") or 0)
+                                                        try_success = int(wf.get("last_publish_try_success") or 0)
+                                                        try_failed = int(wf.get("last_publish_try_failed") or 0)
+
+                                                        if try_ok:
+                                                            status_label = "成功"
+                                                        else:
+                                                            status_label = "一部失敗" if (try_success > 0 and try_failed > 0) else "失敗"
+
                                                         ui.label(
-                                                            f"直近の公開試行: {fmt_jst(wf.get('last_publish_try_at'))} / {'成功' if try_ok else '失敗'} / {try_msg}"
+                                                            f"直近の公開試行: {fmt_jst(wf.get('last_publish_try_at'))} / {status_label}（成功{try_success}/失敗{try_failed}/合計{try_total}） / {try_msg}"
                                                         ).classes("cvhb-muted text-caption q-mt-xs")
+
+                                                        cw = str(wf.get("last_publish_try_cleanup_warn") or "").strip()
+                                                        if cw:
+                                                            ui.label(f"補足: {cw}").classes("cvhb-muted text-caption q-mt-xs")
+
+                                                        if try_failed > 0:
+                                                            failed_list = wf.get("last_publish_try_failed_files") or []
+                                                            with ui.expansion("失敗したファイル一覧（先頭30件）").props("dense").classes("q-mt-xs"):
+                                                                for fp in failed_list[:30]:
+                                                                    ui.label(str(fp)).classes("cvhb-muted text-caption")
+
                                                         if try_ok is False:
-                                                            ui.button("再試行する", on_click=_do_publish).props("dense outline color=primary no-caps").classes("q-mt-sm")
+                                                            ui.button("再試行する（全部）", on_click=_do_publish).props("dense outline color=primary no-caps").classes("q-mt-sm")
                                                 else:
                                                     ui.label("公開は admin のみ実行できます。").classes("cvhb-muted q-mt-sm")
 
