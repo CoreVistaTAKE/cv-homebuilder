@@ -2799,7 +2799,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.7.4")
+VERSION = read_text_file("VERSION", "0.8.0")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -3799,7 +3799,7 @@ def normalize_project(p: dict) -> dict:
     if not isinstance(p, dict):
         p = {}
 
-    p["schema_version"] = "0.7.0"
+    p["schema_version"] = "0.8.0"
     p.setdefault("project_id", new_project_id())
     p.setdefault("project_name", "(no name)")
 
@@ -4053,6 +4053,9 @@ def normalize_project(p: dict) -> dict:
     contact = blocks.setdefault("contact", {})
     contact.setdefault("hours", "平日 9:00〜18:00")
     contact.setdefault("message", "まずはお気軽にご相談ください。")
+    # v0.8: お問い合わせフォーム方式（フォーム/PHP・外部フォームURL・メール対応）
+    contact.setdefault("form_mode", "フォーム方式（おすすめ）")
+    contact.setdefault("external_form_url", "")
 
     # ---- Template-specific starter defaults (safe) ----
     # 業種を切り替えたときに「文章が変わらない」問題を避けるため、
@@ -4750,6 +4753,536 @@ def build_privacy_markdown(p: dict) -> str:
 本ポリシーは、必要に応じて内容を改定することがあります。"""
 
 
+# =========================
+# [BLK-07] Export: Contact form (v0.8)
+# =========================
+
+CONTACT_FORM_MODE_FORM = "フォーム方式（おすすめ）"
+CONTACT_FORM_MODE_EXTERNAL = "外部フォームURL"
+CONTACT_FORM_MODE_MAIL = "メール対応（メール作成フォーム）"
+
+
+def _normalize_contact_form_mode(raw: str) -> str:
+    """project.json の contact.form_mode から内部モード（php/mail/external）へ正規化する。"""
+    try:
+        s = str(raw or "").strip()
+    except Exception:
+        s = ""
+    if not s:
+        return "php"
+
+    # 旧値/将来値にも耐える（安全側）
+    if s in ("php", "form", "フォーム", "フォーム方式", CONTACT_FORM_MODE_FORM):
+        return "php"
+    if s in ("mail", "メール", "メール対応", CONTACT_FORM_MODE_MAIL):
+        return "mail"
+    if s in ("external", "外部", "外部フォーム", CONTACT_FORM_MODE_EXTERNAL):
+        return "external"
+
+    if s.startswith("外部"):
+        return "external"
+    if s.startswith("メール"):
+        return "mail"
+
+    return "php"
+
+
+def _contact_message_hint(step1: dict) -> str:
+    """業種別：フォームの「内容」欄の説明文（最小限の差し替え）。"""
+    try:
+        industry = str((step1 or {}).get("industry") or "").strip()
+    except Exception:
+        industry = ""
+
+    if industry == "福祉事業所":
+        return "（例）見学希望／利用相談／求人について など"
+    if ("飲食" in industry) or ("店舗" in industry) or ("小売" in industry):
+        return "（例）ご予約／営業時間の確認／商品について など"
+    if ("病院" in industry) or ("クリニック" in industry):
+        return "（例）受診のご相談／予約／診療時間の確認 など"
+
+    return "（例）ご相談内容／お見積り／資料請求 など"
+
+
+def _php_escape_single_quoted(s: str) -> str:
+    """PHPのシングルクォート文字列用にエスケープする（安全・最小）。"""
+    try:
+        s = str(s)
+    except Exception:
+        s = ""
+    return s.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def build_contact_config_php(*, company_name: str, to_email: str, phone: str) -> str:
+    """config/config.php（送信先など）を生成する。"""
+    site = _php_escape_single_quoted(company_name.strip() or "サイト")
+    to = _php_escape_single_quoted(to_email.strip())
+    ph = _php_escape_single_quoted(phone.strip())
+
+    return f"""<?php
+// CV-HomeBuilder generated config (v0.8)
+// ※ ここは「送信先」をまとめた設定ファイルです。
+// ※ 値は案件の「基本情報」に合わせて自動生成されています。
+
+return [
+  'site_name' => '{site}',
+  'to_email' => '{to}',
+  'subject_prefix' => 'お問い合わせ',
+  'phone' => '{ph}',
+];
+"""
+
+
+def build_contact_php(*, company_name: str, to_email: str) -> str:
+    """contact.php（フォーム送信の受け口）を生成する。"""
+    # contact.php 自体は config/config.php を参照して動作するが、
+    # 「PHPが使えないサーバー」でも誤って開かれて困らないように、説明コメントも入れる。
+    site = html.escape(company_name.strip() or "サイト")
+    to = html.escape(to_email.strip())
+
+    return f"""<?php
+// CV-HomeBuilder generated contact handler (v0.8)
+// ------------------------------------------------------------
+// このファイルは PHP 対応サーバーでのみ動作します。
+// PHP が使えない場合は、index.html 側で「メール対応」または「外部フォームURL」を使ってください。
+// ------------------------------------------------------------
+
+$config = @include __DIR__ . '/config/config.php';
+if (!is_array($config)) {{
+  $config = [];
+}}
+
+$to = isset($config['to_email']) ? (string)$config['to_email'] : '';
+$site_name = isset($config['site_name']) ? (string)$config['site_name'] : '{site}';
+$subject_prefix = isset($config['subject_prefix']) ? (string)$config['subject_prefix'] : 'お問い合わせ';
+
+function _cvhb_clean_header_value($s) {{
+  $s = trim((string)$s);
+  $s = str_replace(["\r", "\n"], ' ', $s);
+  return $s;
+}}
+
+function _cvhb_redirect($status, $reason = '') {{
+  $q = 'status=' . urlencode($status);
+  if ($reason !== '') {{
+    $q .= '&reason=' . urlencode($reason);
+  }}
+  header('Location: thanks.html?' . $q);
+  exit;
+}}
+
+if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {{
+  _cvhb_redirect('ng', 'bad_method');
+}}
+
+$honeypot = isset($_POST['website']) ? trim((string)$_POST['website']) : '';
+if ($honeypot !== '') {{
+  // 迷惑送信対策：ボットはここを埋めがちなので、成功扱いで静かに終了
+  _cvhb_redirect('ok', 'spam');
+}}
+
+$name = isset($_POST['name']) ? trim((string)$_POST['name']) : '';
+$email = isset($_POST['email']) ? trim((string)$_POST['email']) : '';
+$tel = isset($_POST['tel']) ? trim((string)$_POST['tel']) : '';
+$message = isset($_POST['message']) ? trim((string)$_POST['message']) : '';
+$agree = isset($_POST['agree']) ? (string)$_POST['agree'] : '';
+
+if ($to === '') {{
+  _cvhb_redirect('ng', 'no_to');
+}}
+if ($email === '') {{
+  _cvhb_redirect('ng', 'no_email');
+}}
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {{
+  _cvhb_redirect('ng', 'bad_email');
+}}
+if ($message === '') {{
+  _cvhb_redirect('ng', 'no_message');
+}}
+if ($agree === '') {{
+  _cvhb_redirect('ng', 'no_agree');
+}}
+
+$subject = $subject_prefix . '｜' . $site_name;
+if ($name !== '') {{
+  $subject .= '｜' . _cvhb_clean_header_value($name);
+}}
+
+$body = '';
+$body .= "このメールはお問い合わせフォームから送信されました。\n\n";
+$body .= "【お名前】" . $name . "\n";
+$body .= "【メール】" . $email . "\n";
+if ($tel !== '') {{
+  $body .= "【電話】" . $tel . "\n";
+}}
+$body .= "\n【内容】\n" . $message . "\n";
+
+// headers
+$headers = [];
+$headers[] = 'From: ' . _cvhb_clean_header_value($to);
+$headers[] = 'Reply-To: ' . _cvhb_clean_header_value($email);
+$headers[] = 'Content-Type: text/plain; charset=UTF-8';
+
+$ok = false;
+if (function_exists('mb_send_mail')) {{
+  mb_language('uni');
+  mb_internal_encoding('UTF-8');
+  $ok = @mb_send_mail($to, $subject, $body, implode("\r\n", $headers));
+}} else {{
+  $ok = @mail($to, $subject, $body, implode("\r\n", $headers));
+}}
+
+if ($ok) {{
+  _cvhb_redirect('ok', '');
+}}
+_cvhb_redirect('ng', 'send_fail');
+"""
+
+
+def build_thanks_html(*, company_name: str, phone: str, email: str) -> str:
+    """thanks.html（送信結果ページ）を生成する。"""
+    company = html.escape(company_name.strip() or "会社名")
+    phone_esc = html.escape(phone.strip())
+    email_esc = html.escape(email.strip())
+
+    phone_html = f'<a class="btn-outline" href="tel:{phone_esc}">電話する</a>' if phone_esc else ''
+    mail_html = f'<a class="btn-outline" href="mailto:{email_esc}">メールする</a>' if email_esc else ''
+    fallback_actions = (phone_html + "\n" + mail_html).strip()
+
+    if fallback_actions:
+        fallback_actions = f'<div class="contact_actions">{fallback_actions}</div>'
+
+    return f"""<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>送信結果 | {company}</title>
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="header">
+  <div class="container header_in">
+    <div class="brand"><a href="index.html">{company}</a></div>
+    <div class="nav"><a href="index.html#contact">お問い合わせ</a><a href="privacy.html">プライバシー</a></div>
+  </div>
+</header>
+
+<main class="container section">
+  <h1 class="h2">送信結果</h1>
+
+  <div id="thanks_ok" class="card" style="display:none;">
+    <h2 class="h2" style="margin-top:0;">送信できました ✅</h2>
+    <p class="p-muted">お問い合わせありがとうございます。内容を確認し、順次ご連絡します。</p>
+    <div class="p-muted" style="margin-top:10px;">※ 自動返信メールは送らない設定です。</div>
+    <div style="margin-top:14px;"><a class="btn" href="index.html">トップへ戻る</a></div>
+  </div>
+
+  <div id="thanks_ng" class="card" style="display:none;">
+    <h2 class="h2" style="margin-top:0;">送信できませんでした</h2>
+    <p class="p-muted">原因：<span id="thanks_reason">不明</span></p>
+
+    <div class="card" style="margin-top:12px;">
+      <div style="font-weight:800;">代わりの連絡方法</div>
+      <div class="p-muted" style="margin-top:6px;">お手数ですが、下記の方法でご連絡ください。</div>
+      {fallback_actions}
+    </div>
+
+    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:10px;">
+      <a class="btn" href="index.html#contact">入力画面へ戻る</a>
+      <a class="btn-outline" href="index.html">トップへ</a>
+    </div>
+  </div>
+
+  <div id="thanks_unknown" class="card" style="display:none;">
+    <p class="p-muted">このページは「送信結果」の表示用です。</p>
+    <div style="margin-top:14px;"><a class="btn" href="index.html#contact">お問い合わせへ戻る</a></div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div>© {company}</div>
+    <div style="margin-top:6px;"><a href="privacy.html">プライバシーポリシー</a></div>
+  </div>
+</footer>
+
+<script>
+(function() {{
+  var sp = new URLSearchParams(location.search);
+  var status = (sp.get('status') || '').toLowerCase();
+  var reason = (sp.get('reason') || '').toLowerCase();
+
+  var ok = document.getElementById('thanks_ok');
+  var ng = document.getElementById('thanks_ng');
+  var un = document.getElementById('thanks_unknown');
+  var re = document.getElementById('thanks_reason');
+
+  var map = {{
+    bad_method: '送信方法が正しくありません（戻ってもう一度お試しください）。',
+    no_to: '受信先メールが未設定です（基本情報のメールを入力してください）。',
+    no_email: 'メールが未入力です。',
+    bad_email: 'メールの形式が正しくありません。',
+    no_message: '内容が未入力です。',
+    no_agree: 'プライバシーポリシーへの同意が必要です。',
+    send_fail: 'サーバーで送信に失敗しました（時間をおいて再試行してください）。',
+    spam: '送信完了',
+  }};
+
+  function show(el) {{
+    if (!el) return;
+    el.style.display = 'block';
+  }}
+
+  if (status === 'ok') {{
+    show(ok);
+    return;
+  }}
+  if (status === 'ng') {{
+    if (re) {{
+      re.textContent = map[reason] || '送信に失敗しました。';
+    }}
+    show(ng);
+    return;
+  }}
+  show(un);
+}})();
+</script>
+</body>
+</html>
+"""
+
+
+def build_contact_form_files(*, company_name: str, to_email: str, phone: str) -> dict[str, bytes]:
+    """書き出しZIPに含める contact.php / thanks.html / config/ を生成する。"""
+    cfg = build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone)
+    php = build_contact_php(company_name=company_name, to_email=to_email)
+    thanks = build_thanks_html(company_name=company_name, phone=phone, email=to_email)
+    return {
+        "config/config.php": cfg.encode("utf-8"),
+        "contact.php": php.encode("utf-8"),
+        "thanks.html": thanks.encode("utf-8"),
+    }
+
+
+def build_contact_section_html(
+    *,
+    step1: dict,
+    company_name: str,
+    phone: str,
+    email: str,
+    hours_html: str,
+    message_html: str,
+    contact_mode: str,
+    external_form_url: str,
+    contact_warn_html: str,
+) -> tuple[str, str]:
+    """index.html のお問い合わせ欄（section内）を生成し、必要なscriptタグも返す。"""
+    hint = html.escape(_contact_message_hint(step1))
+    safe_phone = html.escape(phone.strip())
+    safe_email = html.escape(email.strip())
+    safe_ext = html.escape(external_form_url.strip())
+
+    # 共通：連絡手段ボタン（失敗時の保険）
+    fallback_actions = ""
+    if safe_email:
+        fallback_actions += f'<a class="btn-outline" href="mailto:{safe_email}">メール</a>'
+    if safe_phone:
+        fallback_actions += f'<a class="btn-outline" href="tel:{safe_phone}">電話</a>'
+    if fallback_actions:
+        fallback_actions = f'<div class="contact_actions">{fallback_actions}</div>'
+
+    # 共通：エラー表示（JSがここへ出す）
+    err_box = '<div id="contact_error" class="error_box" style="display:none;"></div>'
+
+    # --- mode: external ---
+    if contact_mode == "external":
+        inner = f"""<div class="card">
+      {f'<p class="p-muted">{message_html}</p>' if message_html else ''}
+      <div class="form_note">外部フォームを開きます（別タブ）。</div>
+
+      <div class="form_note" style="margin-top:10px;font-weight:800;">送信前の確認（必須）</div>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;">
+        <input id="external_agree" type="checkbox">
+        <span><a href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する</span>
+      </label>
+
+      <div class="contact_actions">
+        <button id="external_form_btn" class="btn" type="button" data-url="{safe_ext}">フォームを開く</button>
+      </div>
+
+      {err_box}
+      {fallback_actions}
+      {contact_warn_html}
+    </div>"""
+
+    # --- mode: mail ---
+    elif contact_mode == "mail":
+        # メールが未設定なら mailto が作れないので、JS側でも止める
+        inner = f"""<div class="card">
+      {f'<p class="p-muted">{message_html}</p>' if message_html else ''}
+      <div class="form_note">「送信」を押すと、端末のメールアプリが開きます（PHP不要）。</div>
+
+      <form id="mail_contact_form" class="contact_form" data-to="{safe_email}" data-subject="お問い合わせ" novalidate>
+        <label>お名前（任意）</label>
+        <input name="name" type="text" autocomplete="name">
+
+        <label>メール（必須）</label>
+        <input name="email" type="email" required autocomplete="email">
+
+        <label>電話（任意）</label>
+        <input name="tel" type="tel" autocomplete="tel">
+
+        <label>内容（必須） <span class="p-muted" style="font-weight:600;">{hint}</span></label>
+        <textarea name="message" required placeholder="{hint}"></textarea>
+
+        <div class="hp">
+          <label>（迷惑対策）この欄は入力しないでください</label>
+          <input type="text" name="website" tabindex="-1" autocomplete="off">
+        </div>
+
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;">
+          <input type="checkbox" name="agree" value="1" required>
+          <span><a href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する（必須）</span>
+        </label>
+
+        {err_box}
+
+        <div class="contact_actions">
+          <button class="btn" type="submit">メールを作成する</button>
+        </div>
+      </form>
+
+      {fallback_actions}
+      {contact_warn_html}
+    </div>"""
+
+    # --- mode: php (default) ---
+    else:
+        submit_disabled = " disabled" if not safe_email else ""
+        inner = f"""<div class="card">
+      {f'<p class="p-muted">{message_html}</p>' if message_html else ''}
+      <div class="form_note">フォームから送信します（PHP対応サーバー向け）。</div>
+
+      <form id="php_contact_form" class="contact_form" action="contact.php" method="post" data-to="{safe_email}" novalidate>
+        <label>お名前（任意）</label>
+        <input name="name" type="text" autocomplete="name">
+
+        <label>メール（必須）</label>
+        <input name="email" type="email" required autocomplete="email">
+
+        <label>電話（任意）</label>
+        <input name="tel" type="tel" autocomplete="tel">
+
+        <label>内容（必須） <span class="p-muted" style="font-weight:600;">{hint}</span></label>
+        <textarea name="message" required placeholder="{hint}"></textarea>
+
+        <div class="hp">
+          <label>（迷惑対策）この欄は入力しないでください</label>
+          <input type="text" name="website" tabindex="-1" autocomplete="off">
+        </div>
+
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;">
+          <input type="checkbox" name="agree" value="1" required>
+          <span><a href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する（必須）</span>
+        </label>
+
+        {err_box}
+
+        <div class="contact_actions">
+          <button class="btn" type="submit""" + submit_disabled + f""">送信する</button>
+          {fallback_actions}
+        </div>
+      </form>
+
+      {f'<div class="p-muted" style="margin-top:10px;">受付: {hours_html}</div>' if hours_html else ''}
+      {contact_warn_html}
+    </div>"""
+
+    # JS（フォームの必須チェック / 外部フォームの同意チェック / mailto生成）
+    script_tag = """<script>
+(function() {
+  function showError(msg) {
+    var box = document.getElementById('contact_error');
+    if (box) {
+      box.textContent = msg;
+      box.style.display = 'block';
+      try { box.scrollIntoView({block: 'nearest'}); } catch(e) {}
+    } else {
+      alert(msg);
+    }
+    return false;
+  }
+
+  // PHP form: validate before submit
+  var pf = document.getElementById('php_contact_form');
+  if (pf) {
+    pf.addEventListener('submit', function(ev) {
+      var to = (pf.getAttribute('data-to') || '').trim();
+      var email = pf.querySelector('input[name="email"]');
+      var msg = pf.querySelector('textarea[name="message"]');
+      var agree = pf.querySelector('input[name="agree"]');
+      if (!to) { ev.preventDefault(); showError('受信先メールが未設定です（基本情報のメールを入力してください）。'); return; }
+      if (!email || !email.value.trim()) { ev.preventDefault(); showError('メールが未入力です。'); return; }
+      if (!msg || !msg.value.trim()) { ev.preventDefault(); showError('内容が未入力です。'); return; }
+      if (!agree || !agree.checked) { ev.preventDefault(); showError('プライバシーポリシーに同意してください。'); return; }
+    });
+  }
+
+  // Mail form: build mailto
+  var mf = document.getElementById('mail_contact_form');
+  if (mf) {
+    mf.addEventListener('submit', function(ev) {
+      ev.preventDefault();
+      var to = (mf.getAttribute('data-to') || '').trim();
+      var name = (mf.querySelector('input[name="name"]') || {}).value || '';
+      var from = (mf.querySelector('input[name="email"]') || {}).value || '';
+      var tel = (mf.querySelector('input[name="tel"]') || {}).value || '';
+      var msg = (mf.querySelector('textarea[name="message"]') || {}).value || '';
+      var agree = (mf.querySelector('input[name="agree"]') || {}).checked;
+
+      if (!to) { showError('受信先メールが未設定です（基本情報のメールを入力してください）。'); return; }
+      if (!from.trim()) { showError('メールが未入力です。'); return; }
+      if (!msg.trim()) { showError('内容が未入力です。'); return; }
+      if (!agree) { showError('プライバシーポリシーに同意してください。'); return; }
+
+      var subject = (mf.getAttribute('data-subject') || 'お問い合わせ');
+      var body = '';
+      body += '【お名前】' + name + '\n';
+      body += '【メール】' + from + '\n';
+      if (tel.trim()) { body += '【電話】' + tel + '\n'; }
+      body += '\n【内容】\n' + msg;
+
+      // to の危険文字だけ除去（mailto破壊を防ぐ）
+      var safeTo = to.replace(/[^0-9A-Za-z@._+-]/g, '');
+      location.href = 'mailto:' + safeTo + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    });
+  }
+
+  // External form: require agree to enable button
+  var eb = document.getElementById('external_form_btn');
+  var ec = document.getElementById('external_agree');
+  if (eb && ec) {
+    function update() { eb.disabled = !ec.checked; }
+    ec.addEventListener('change', update);
+    update();
+
+    eb.addEventListener('click', function() {
+      var url = (eb.getAttribute('data-url') || '').trim();
+      if (!url) { showError('外部フォームURLが未入力です。'); return; }
+      try {
+        window.open(url, '_blank', 'noopener');
+      } catch (e) {
+        location.href = url;
+      }
+    });
+  }
+})();
+</script>"""
+
+    return inner, script_tag
+
+
 def build_static_site_files(p: dict) -> dict[str, bytes]:
     """案件データから、公開用の静的ファイル一式を生成して返す。"""
     p = normalize_project(p)
@@ -4809,6 +5342,17 @@ a:hover{{text-decoration:underline;}}
 .footer{{border-top:1px solid var(--border);padding:18px 0;color:var(--muted);font-size:14px;}}
 .faq details{{border:1px solid var(--border);border-radius:14px;padding:10px 12px;background:var(--card);box-shadow:var(--shadow);}}
 .faq details+details{{margin-top:10px;}}
+
+.contact_form{margin-top:12px;}
+.contact_form label{display:block;font-weight:800;font-size:14px;margin:12px 0 6px;}
+.contact_form input,.contact_form textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:12px;font-size:16px;font:inherit;background:#fff;}
+.contact_form textarea{min-height:150px;resize:vertical;}
+.contact_actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;}
+.form_note{font-size:13px;color:var(--muted);margin-top:8px;}
+.hp{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden;}
+.error_box{border:1px solid rgba(239,68,68,0.65);background:rgba(239,68,68,0.08);padding:10px 12px;border-radius:12px;margin-top:12px;}
+.btn:disabled,.btn.is-disabled{opacity:0.6;pointer-events:none;}
+
 """
     files["assets/site.css"] = site_css.encode("utf-8")
 
@@ -5012,7 +5556,40 @@ a:hover{{text-decoration:underline;}}
     else:
         hero_media_tag = f'<img class="hero_img" src="{html.escape(hero_main)}" alt="hero">' if hero_main else '<div class="hero_img"></div>'
 
-    contact_warn_html = "" if (email or phone) else '<p class="p-muted" style="margin-top:10px;">連絡先が未入力です（2. 基本情報設定で入力）</p>'
+    # --- contact form mode (v0.8) ---
+        contact_mode_raw = ""
+        try:
+            contact_mode_raw = str(contact.get("form_mode") or "").strip()
+        except Exception:
+            contact_mode_raw = ""
+        contact_mode = _normalize_contact_form_mode(contact_mode_raw)
+
+        external_form_url = ""
+        try:
+            external_form_url = str(contact.get("external_form_url") or "").strip()
+        except Exception:
+            external_form_url = ""
+
+        # 連絡先/設定の未入力チェック（現場で迷わないための警告）
+        contact_warn_html = ""
+        if not (email or phone):
+            contact_warn_html = '<p class="p-muted" style="margin-top:10px;">連絡先が未入力です（2. 基本情報設定で入力）</p>'
+        elif contact_mode in {"php", "mail"} and not email:
+            contact_warn_html = '<p class="p-muted" style="margin-top:10px;">メールアドレスが未入力です（フォーム送信にはメールが必要です）</p>'
+        elif contact_mode == "external" and not external_form_url:
+            contact_warn_html = '<p class="p-muted" style="margin-top:10px;">外部フォームURLが未入力です（お問い合わせブロックで入力）</p>'
+
+        contact_section_html, contact_script_tag = build_contact_section_html(
+            step1=step1,
+            company_name=company_name,
+            phone=phone,
+            email=email,
+            hours_html=hours,
+            message_html=message,
+            contact_mode=contact_mode,
+            external_form_url=external_form_url,
+            contact_warn_html=contact_warn_html,
+        )
 
     # index page
     index_html = f"""<!doctype html>
@@ -5102,14 +5679,7 @@ a:hover{{text-decoration:underline;}}
 
   <section id="contact" class="section">
     <h2 class="h2">{html.escape(button_text)}</h2>
-    <div class="card">
-      {f'<p class="p-muted">{message}</p>' if message else ''}
-      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;">
-        {f'<a class="btn" href="mailto:{html.escape(email)}">メールで問い合わせる</a>' if email else ''}
-        {f'<a class="btn-outline" href="tel:{html.escape(phone)}">電話する</a>' if phone else ''}
-      </div>
-      {contact_warn_html}
-    </div>
+    {contact_section_html}
   </section>
 </main>
 
@@ -5123,11 +5693,13 @@ a:hover{{text-decoration:underline;}}
 </html>
 """
 
-    if hero_slider_script_tag:
-        try:
-            index_html = index_html.replace("</footer>\n</body>", f"</footer>\n{hero_slider_script_tag}\n</body>")
-        except Exception:
-            pass
+    # index: append scripts（hero slider + contact form）
+    try:
+        script_tags = "\n".join([x for x in [hero_slider_script_tag, contact_script_tag] if x])
+        if script_tags:
+            index_html = index_html.replace("</footer>\n</body>", f"</footer>\n{script_tags}\n</body>")
+    except Exception:
+        pass
 
     files["index.html"] = index_html.encode("utf-8")
 
@@ -5138,6 +5710,12 @@ a:hover{{text-decoration:underline;}}
 <main class="container section"><h1 class="h2">プライバシーポリシー</h1><div class="card">{_simple_md_to_html(privacy_md)}</div><div style="margin-top:14px;"><a class="btn-outline" href="index.html">トップへ戻る</a></div></main>
 <footer class="footer"><div class="container">© {html.escape(company_name)}</div></footer></body></html>"""
     files["privacy.html"] = privacy_html.encode("utf-8")
+
+    # contact form files (v0.8)
+    try:
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, phone=phone))
+    except Exception:
+        pass
 
     return files
 
@@ -6406,6 +6984,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     contact_message = _clean(contact.get("message"))
     contact_hours = _clean(contact.get("hours"))
     contact_btn = _clean(contact.get("button_text"), "お問い合わせ")
+    contact_mode = _normalize_contact_form_mode(str(contact.get("form_mode") or ""))
+    contact_external_url = _clean(contact.get("external_form_url"))
 
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
@@ -6680,7 +7260,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                 # CONTACT
                 with ui.element("section").classes("pv-section").props('id="pv-contact"'):
                     with ui.element("div").classes("pv-section-head"):
-                        ui.label("お問い合わせ").classes("pv-section-title")
+                        ui.label(contact_btn or "お問い合わせ").classes("pv-section-title")
                         ui.label("CONTACT").classes("pv-section-en")
 
                     with ui.element("div").classes("pv-panel pv-panel-glass pv-contact-card"):
@@ -6688,6 +7268,38 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             ui.label(contact_message).classes("pv-bodytext")
                         if contact_hours:
                             ui.label(contact_hours).classes("pv-muted q-mt-sm")
+
+                        # v0.8: お問い合わせ方式のプレビュー
+                        if contact_mode == "external":
+                            if contact_external_url:
+                                ui.button("フォームを開く").props(
+                                    f'no-caps unelevated color=primary type=a href="{contact_external_url}" target="_blank" rel="noopener"'
+                                ).classes("pv-btn pv-btn-primary q-mt-sm")
+                                ui.label("※ 外部フォームが別タブで開きます（送信前にプライバシーポリシー同意が必要です）").classes(
+                                    "pv-muted q-mt-sm"
+                                )
+                            else:
+                                ui.label("外部フォームURLが未入力です（左の入力で設定）").classes("pv-muted q-mt-sm")
+
+                        elif contact_mode == "mail":
+                            ui.label("メール対応（メール作成フォーム）").classes("pv-muted q-mt-sm")
+                            ui.label("※ 送信ボタンでメールアプリが開きます（PHP不要）").classes("pv-muted")
+                            if not email:
+                                ui.label("⚠ 基本情報のメールが未入力なので、メール作成できません").classes("pv-muted q-mt-sm")
+                            ui.button("メールを作成（プレビューでは無効）").props(
+                                "no-caps unelevated color=primary disable"
+                            ).classes("pv-btn pv-btn-primary q-mt-sm")
+
+                        else:
+                            ui.label("フォーム方式（おすすめ / PHP対応サーバー向け）").classes("pv-muted q-mt-sm")
+                            ui.label("※ メールと内容は必須。送信前にプライバシーポリシー同意が必要です。").classes("pv-muted")
+                            if not email:
+                                ui.label("⚠ 基本情報のメールが未入力なので、フォーム送信できません").classes("pv-muted q-mt-sm")
+                            ui.button("送信（プレビューでは無効）").props(
+                                "no-caps unelevated color=primary disable"
+                            ).classes("pv-btn pv-btn-primary q-mt-sm")
+
+                        # 連絡先ボタン（電話/メール）
                         with ui.row().classes("pv-contact-actions"):
                             if phone:
                                 ui.button("電話する").props(
@@ -6697,9 +7309,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 ui.button("メール").props(
                                     f'no-caps outline color=primary type=a href="mailto:{email}"'
                                 ).classes("pv-btn pv-btn-secondary")
-                            ui.button(contact_btn, on_click=lambda: None).props("no-caps unelevated color=primary").classes(
-                                "pv-btn pv-btn-primary"
-                            )
 
             # LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
             privacy_contact = ""
@@ -7643,9 +8252,44 @@ def render_main(u: User) -> None:
                                                         bind_block_input("access", "補足（任意）", "notes", textarea=True)
 
                                                     with ui.tab_panel("contact"):
-                                                        ui.label("お問い合わせ").classes("text-subtitle1 q-mb-sm")
-                                                        bind_block_input("contact", "受付時間（任意）", "hours")
-                                                        bind_block_input("contact", "メッセージ（任意）", "message", textarea=True)
+                                                                                                                ui.label("お問い合わせ").classes("text-subtitle1 q-mb-sm")
+
+                                                                                                                # v0.8: フォーム方式（おすすめ）/外部フォームURL/メール対応
+                                                                                                                _c = blocks.get("contact", {}) if isinstance(blocks.get("contact"), dict) else {}
+                                                                                                                _mode = str(_c.get("form_mode") or CONTACT_FORM_MODE_FORM).strip() or CONTACT_FORM_MODE_FORM
+
+                                                                                                                def _on_form_mode(e):
+                                                                                                                    update_block("contact", "form_mode", e.value or CONTACT_FORM_MODE_FORM)
+                                                                                                                    # 方式によって表示項目が変わるので、編集パネルも即リフレッシュ
+                                                                                                                    try:
+                                                                                                                        editor_ref["refresh"]()
+                                                                                                                    except Exception:
+                                                                                                                        pass
+
+                                                                                                                ui.label("フォーム方式（お問い合わせ）").classes("text-body2")
+                                                                                                                ui.radio(
+                                                                                                                    [CONTACT_FORM_MODE_FORM, CONTACT_FORM_MODE_EXTERNAL, CONTACT_FORM_MODE_MAIL],
+                                                                                                                    value=_mode,
+                                                                                                                    on_change=_on_form_mode,
+                                                                                                                ).props("inline")
+
+                                                                                                                ui.label("※ PHPが使えないサーバーなら「メール対応」または「外部フォームURL」を選びます。").classes(
+                                                                                                                    "text-caption text-grey q-mb-sm"
+                                                                                                                )
+
+                                                                                                                if _normalize_contact_form_mode(_mode) == "external":
+                                                                                                                    _ext = str(_c.get("external_form_url") or "").strip()
+
+                                                                                                                    def _on_ext(e):
+                                                                                                                        update_block("contact", "external_form_url", e.value or "")
+
+                                                                                                                    ui.input("外部フォームURL（必須）", value=_ext, on_change=_on_ext).props("outlined").classes(
+                                                                                                                        "w-full q-mb-sm"
+                                                                                                                    )
+                                                                                                                    ui.label("例：Googleフォーム等のURL").classes("text-caption text-grey q-mb-sm")
+
+                                                                                                                bind_block_input("contact", "受付時間（任意）", "hours")
+                                                                                                                bind_block_input("contact", "メッセージ（任意）", "message", textarea=True)
 
                                         editor_ref["refresh"] = block_editor_panel.refresh
                                         try:
