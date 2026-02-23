@@ -681,6 +681,63 @@ if not _pv_route_added:
 _EXPORT_ZIP_CACHE: dict[str, dict] = {}
 _EXPORT_ZIP_CACHE_MAX = 10
 
+def _build_content_disposition_attachment(filename: str) -> str:
+    """Content-Disposition を安全に作る（日本語ファイル名で500にならないようにする）.
+    - header は基本 ASCII が安全。非ASCIIは filename* (RFC5987) で渡す。
+    - filename はフォールバック（英数字化）を入れる。
+    """
+    name = str(filename or "export.zip")
+    # header injection / encoding trouble guard
+    try:
+        name = name.replace("\r", "").replace("\n", "")
+    except Exception:
+        pass
+    try:
+        name = name.replace('"', "")
+    except Exception:
+        pass
+
+    # length guard (very long names can cause trouble)
+    try:
+        root, ext = os.path.splitext(name)
+        if len(name) > 180:
+            keep = max(1, 180 - len(ext))
+            name = root[:keep] + ext
+    except Exception:
+        pass
+
+    # ASCII fallback (safe for HTTP headers)
+    try:
+        fallback = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+    except Exception:
+        fallback = "export"
+    if not fallback:
+        fallback = "export"
+    # keep extension if original has it
+    try:
+        if name.lower().endswith(".zip") and not fallback.lower().endswith(".zip"):
+            fallback = fallback + ".zip"
+    except Exception:
+        pass
+    if not fallback.lower().endswith(".zip"):
+        # safety: exported zip should end with .zip
+        fallback = fallback + ".zip"
+
+    # RFC5987 (UTF-8 percent-encoding)
+    try:
+        from urllib.parse import quote
+        encoded = quote(name, safe="")
+    except Exception:
+        try:
+            encoded = quote_plus(name)
+        except Exception:
+            encoded = ""
+
+    if encoded:
+        return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
+    return f'attachment; filename="{fallback}"'
+
+
 def _export_cache_put(user_id: int, filename: str, data: bytes) -> str:
     """生成したZIPを一時キャッシュし、ダウンロード用キーを返す。"""
     key = secrets.token_urlsafe(16)
@@ -720,19 +777,44 @@ if not _export_route_added:
 
         filename = str(item.get("filename") or "export.zip")
         data = item.get("data") or b""
-        # One-time download: delete after serving (safety)
+        # Response は bytes/str 前提なので、念のため bytes に寄せる
+        try:
+            if isinstance(data, memoryview):
+                data = data.tobytes()
+            elif isinstance(data, bytearray):
+                data = bytes(data)
+            elif isinstance(data, str):
+                data = data.encode("utf-8", errors="ignore")
+            elif not isinstance(data, (bytes,)):
+                data = b""
+        except Exception:
+            data = b""
+
+
+        # Content-Disposition はASCIIのみが安全（日本語ファイル名で500になる事故を防ぐ）
+        headers = {
+            "Content-Disposition": _build_content_disposition_attachment(filename),
+            "Cache-Control": "no-store",
+        }
+
+        try:
+            resp = Response(content=data, media_type="application/zip", headers=headers)
+        except Exception as ex:
+            # ここで落ちると「Internal Server Error」になるため、ログだけ残して 500 を返す
+            try:
+                print(f"[EXPORT] response build failed: {type(ex).__name__}: {ex}")
+            except Exception:
+                pass
+            # 失敗した場合はキャッシュを残す（リトライできるように）
+            return Response(status_code=500)
+
+        # One-time download: delete after building response (safety)
         try:
             _EXPORT_ZIP_CACHE.pop(key, None)
         except Exception:
             pass
-        return Response(
-            content=data,
-            media_type="application/zip",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Cache-Control": "no-store",
-            },
-        )
+        return resp
+
 
     try:
         app._cvhb_export_route_added = True
