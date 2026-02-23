@@ -2799,7 +2799,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.1")
+VERSION = read_text_file("VERSION", "0.8.2")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -7846,6 +7846,33 @@ def render_main(u: User) -> None:
                                                         hero = blocks.setdefault("hero", {})
                                                         ui.label("ヒーロー（ページ最上部）").classes("text-subtitle1 q-mb-sm")
 
+                                                        # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
+                                                        bind_step2_input(
+                                                            "キャッチコピー",
+                                                            "catch_copy",
+                                                            hint="ヒーローの一番大きい文章です。スマホは画像の下、PCは画像に重ねて表示されます。",
+                                                        )
+
+                                                        # 文字サイズ（大/中/小）
+                                                        def _on_catch_size(e):
+                                                            step2["catch_size"] = e.value or "中"
+                                                            update_and_refresh()
+                                                        ui.label("キャッチ文字サイズ").classes("cvhb-muted")
+                                                        ui.radio(["大", "中", "小"], value=step2.get("catch_size", "中"), on_change=_on_catch_size).props(
+                                                            "inline dense"
+                                                        ).classes("q-mb-sm")
+
+                                                        bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
+
+                                                        def _on_sub_catch_size(e):
+                                                            step2["sub_catch_size"] = e.value or "中"
+                                                            update_and_refresh()
+                                                        ui.label("サブキャッチ文字サイズ").classes("cvhb-muted")
+                                                        ui.radio(["大", "中", "小"], value=step2.get("sub_catch_size", "中"), on_change=_on_sub_catch_size).props(
+                                                            "inline dense"
+                                                        ).classes("q-mb-sm")
+                                                        ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
+
                                                         # ヒーロー画像（4枚固定：プリセット or オリジナルアップロード）
                                                         DEFAULT_CHOICES = ["A: オフィス", "B: チーム", "C: 街並み", "D: ひかり"]
                                                         hero.setdefault("hero_slide_choices", DEFAULT_CHOICES.copy())
@@ -7964,33 +7991,6 @@ def render_main(u: User) -> None:
                                                         with ui.row().classes("items-center q-gutter-sm q-mt-sm"):
                                                             ui.button("画像を反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated no-caps")
                                                             ui.label("※アップロード後は、このボタンで保存すると安心です。").classes("cvhb-muted")
-
-                                                        # キャッチは Step2 に保存しているが、ここ（ヒーロー）でも編集できるようにする
-                                                        bind_step2_input(
-                                                            "キャッチコピー",
-                                                            "catch_copy",
-                                                            hint="ヒーローの一番大きい文章です。スマホは画像の下、PCは画像に重ねて表示されます。",
-                                                        )
-
-                                                        # 文字サイズ（大/中/小）
-                                                        def _on_catch_size(e):
-                                                            step2["catch_size"] = e.value or "中"
-                                                            update_and_refresh()
-                                                        ui.label("キャッチ文字サイズ").classes("cvhb-muted")
-                                                        ui.radio(["大", "中", "小"], value=step2.get("catch_size", "中"), on_change=_on_catch_size).props(
-                                                            "inline dense"
-                                                        ).classes("q-mb-sm")
-
-                                                        bind_block_input("hero", "サブキャッチ（任意）", "sub_catch")
-
-                                                        def _on_sub_catch_size(e):
-                                                            step2["sub_catch_size"] = e.value or "中"
-                                                            update_and_refresh()
-                                                        ui.label("サブキャッチ文字サイズ").classes("cvhb-muted")
-                                                        ui.radio(["大", "中", "小"], value=step2.get("sub_catch_size", "中"), on_change=_on_sub_catch_size).props(
-                                                            "inline dense"
-                                                        ).classes("q-mb-sm")
-                                                        ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
 
                                                     with ui.tab_panel("philosophy"):
                                                         # 理念/概要（必須）
