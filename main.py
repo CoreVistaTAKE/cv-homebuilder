@@ -2799,7 +2799,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.0")
+VERSION = read_text_file("VERSION", "0.8.1")
 APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
 
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
@@ -4393,6 +4393,17 @@ def compute_final_checks(p: dict) -> dict:
     email = str(step2.get("email") or "").strip()
     address = str(step2.get("address") or "").strip()
     catch_copy = str(step2.get("catch_copy") or "").strip()
+    # v0.8: お問い合わせ方式（フォーム/メール/外部フォームURL）
+    contact_block = blocks.get("contact") if isinstance(blocks.get("contact"), dict) else {}
+    contact_mode_raw = str(contact_block.get("form_mode") or "").strip().lower()
+    if contact_mode_raw in {"external", "url"}:
+        contact_mode = "external"
+    elif contact_mode_raw in {"mail", "email"}:
+        contact_mode = "mail"
+    else:
+        contact_mode = "php"
+    external_form_url = str(contact_block.get("external_form_url") or "").strip()
+
 
     philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
     service_block = blocks.get("service") if isinstance(blocks.get("service"), dict) else {}
@@ -4425,7 +4436,7 @@ def compute_final_checks(p: dict) -> dict:
 
     required = [
         {"key": "company_name", "label": "会社名（基本情報）", "ok": bool(company_name), "hint": "2. 基本情報設定で入力します"},
-        {"key": "contact", "label": "連絡先（電話かメールどちらか）", "ok": bool(phone or email), "hint": "2. 基本情報設定で入力します"},
+        {"key": "contact", "label": "お問い合わせ（メール / 外部フォームURL）", "ok": (bool(external_form_url) if contact_mode == "external" else bool(email)), "hint": "2. 基本情報設定（メール）または 3. お問い合わせブロック（外部フォームURL）で入力します"},
         {"key": "address", "label": "住所（アクセス用）", "ok": bool(address), "hint": "2. 基本情報設定で入力します"},
     ]
 
@@ -4712,8 +4723,7 @@ def build_privacy_markdown(p: dict) -> str:
     try:
         if address:
             contact += f"\n- 住所: {address}"
-        if phone:
-            contact += f"\n- 電話: {phone}"
+
         if email:
             contact += f"\n- メール: {email}"
     except Exception:
@@ -4945,9 +4955,9 @@ def build_thanks_html(*, company_name: str, phone: str, email: str) -> str:
     phone_esc = html.escape(phone.strip())
     email_esc = html.escape(email.strip())
 
-    phone_html = f'<a class="btn-outline" href="tel:{phone_esc}">電話する</a>' if phone_esc else ''
+    # 電話は表示しない（フォーム/メール導線に寄せる）
     mail_html = f'<a class="btn-outline" href="mailto:{email_esc}">メールする</a>' if email_esc else ''
-    fallback_actions = (phone_html + "\n" + mail_html).strip()
+    fallback_actions = mail_html.strip()
 
     if fallback_actions:
         fallback_actions = f'<div class="contact_actions">{fallback_actions}</div>'
@@ -5083,14 +5093,8 @@ def build_contact_section_html(
     safe_email = html.escape(email.strip())
     safe_ext = html.escape(external_form_url.strip())
 
-    # 共通：連絡手段ボタン（失敗時の保険）
+    # 共通：追加の連絡手段ボタンは出さない（電話も出さない）
     fallback_actions = ""
-    if safe_email:
-        fallback_actions += f'<a class="btn-outline" href="mailto:{safe_email}">メール</a>'
-    if safe_phone:
-        fallback_actions += f'<a class="btn-outline" href="tel:{safe_phone}">電話</a>'
-    if fallback_actions:
-        fallback_actions = f'<div class="contact_actions">{fallback_actions}</div>'
 
     # 共通：エラー表示（JSがここへ出す）
     err_box = '<div id="contact_error" class="error_box" style="display:none;"></div>'
@@ -5343,15 +5347,15 @@ a:hover{{text-decoration:underline;}}
 .faq details{{border:1px solid var(--border);border-radius:14px;padding:10px 12px;background:var(--card);box-shadow:var(--shadow);}}
 .faq details+details{{margin-top:10px;}}
 
-.contact_form{margin-top:12px;}
-.contact_form label{display:block;font-weight:800;font-size:14px;margin:12px 0 6px;}
-.contact_form input,.contact_form textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:12px;font-size:16px;font:inherit;background:#fff;}
-.contact_form textarea{min-height:150px;resize:vertical;}
-.contact_actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;}
-.form_note{font-size:13px;color:var(--muted);margin-top:8px;}
-.hp{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden;}
-.error_box{border:1px solid rgba(239,68,68,0.65);background:rgba(239,68,68,0.08);padding:10px 12px;border-radius:12px;margin-top:12px;}
-.btn:disabled,.btn.is-disabled{opacity:0.6;pointer-events:none;}
+.contact_form{{margin-top:12px;}}
+.contact_form label{{display:block;font-weight:800;font-size:14px;margin:12px 0 6px;}}
+.contact_form input,.contact_form textarea{{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:12px;font-size:16px;font:inherit;background:#fff;}}
+.contact_form textarea{{min-height:150px;resize:vertical;}}
+.contact_actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;}}
+.form_note{{font-size:13px;color:var(--muted);margin-top:8px;}}
+.hp{{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden;}}
+.error_box{{border:1px solid rgba(239,68,68,0.65);background:rgba(239,68,68,0.08);padding:10px 12px;border-radius:12px;margin-top:12px;}}
+.btn:disabled,.btn.is-disabled{{opacity:0.6;pointer-events:none;}}
 
 """
     files["assets/site.css"] = site_css.encode("utf-8")
@@ -5557,41 +5561,40 @@ a:hover{{text-decoration:underline;}}
         hero_media_tag = f'<img class="hero_img" src="{html.escape(hero_main)}" alt="hero">' if hero_main else '<div class="hero_img"></div>'
 
     # --- contact form mode (v0.8) ---
+    contact_mode_raw = ""
+    try:
+        contact_mode_raw = str(contact.get("form_mode") or "").strip()
+    except Exception:
         contact_mode_raw = ""
-        try:
-            contact_mode_raw = str(contact.get("form_mode") or "").strip()
-        except Exception:
-            contact_mode_raw = ""
-        contact_mode = _normalize_contact_form_mode(contact_mode_raw)
+    contact_mode = _normalize_contact_form_mode(contact_mode_raw)
 
+    external_form_url = ""
+    try:
+        external_form_url = str(contact.get("external_form_url") or "").strip()
+    except Exception:
         external_form_url = ""
-        try:
-            external_form_url = str(contact.get("external_form_url") or "").strip()
-        except Exception:
-            external_form_url = ""
 
-        # 連絡先/設定の未入力チェック（現場で迷わないための警告）
-        contact_warn_html = ""
-        if not (email or phone):
-            contact_warn_html = '<p class="p-muted" style="margin-top:10px;">連絡先が未入力です（2. 基本情報設定で入力）</p>'
-        elif contact_mode in {"php", "mail"} and not email:
-            contact_warn_html = '<p class="p-muted" style="margin-top:10px;">メールアドレスが未入力です（フォーム送信にはメールが必要です）</p>'
-        elif contact_mode == "external" and not external_form_url:
-            contact_warn_html = '<p class="p-muted" style="margin-top:10px;">外部フォームURLが未入力です（お問い合わせブロックで入力）</p>'
+    # 連絡先/設定の未入力チェック（現場で迷わないための警告）
+    contact_warn_html = ""
+    if contact_mode in {"php", "mail"} and not email:
+        contact_warn_html = '<p class="p-muted" style="margin-top:10px;">メールアドレスが未入力です（フォーム送信にはメールが必要です）</p>'
+    elif contact_mode == "external" and not external_form_url:
+        contact_warn_html = '<p class="p-muted" style="margin-top:10px;">外部フォームURLが未入力です（お問い合わせブロックで入力）</p>'
 
-        contact_section_html, contact_script_tag = build_contact_section_html(
-            step1=step1,
-            company_name=company_name,
-            phone=phone,
-            email=email,
-            hours_html=hours,
-            message_html=message,
-            contact_mode=contact_mode,
-            external_form_url=external_form_url,
-            contact_warn_html=contact_warn_html,
-        )
+    contact_section_html, contact_script_tag = build_contact_section_html(
+        step1=step1,
+        company_name=company_name,
+        phone=phone,
+        email=email,
+        hours_html=hours,
+        message_html=message,
+        contact_mode=contact_mode,
+        external_form_url=external_form_url,
+        contact_warn_html=contact_warn_html,
+    )
 
     # index page
+
     index_html = f"""<!doctype html>
 <html lang="ja">
 <head>
@@ -5671,7 +5674,7 @@ a:hover{{text-decoration:underline;}}
       </div>
       <div class="card">
         <div style="font-weight:800;">連絡先</div>
-        <div class="p-muted" style="margin-top:6px;">{html.escape(phone) if phone else ''} {html.escape(email) if email else ''}</div>
+        <div class="p-muted" style="margin-top:6px;">{html.escape(email) if email else '（未入力）'}</div>
         {f'<div class="p-muted" style="margin-top:10px;">受付: {hours}</div>' if hours else ''}
       </div>
     </div>
@@ -5937,6 +5940,38 @@ def read_project_backup_zip_bytes(project_id: str, filename: str) -> bytes:
     remote_path = f"{project_dir(pid)}/backups/{fn}"
     with sftp_client() as sftp:
         return sftp_read_bytes(sftp, remote_path)
+
+
+def delete_project_backup_zip(project_id: str, filename: str, actor: Optional[User] = None) -> bool:
+    """案件内バックアップZIPを削除する（安全チェックあり）。"""
+    pid = (project_id or "").strip()
+    fn = str(filename or "").strip()
+    if not pid:
+        raise ValueError("project_id is empty")
+    if not fn or "/" in fn or "\\" in fn or ".." in fn:
+        raise ValueError("invalid filename")
+    if not fn.lower().endswith(".zip"):
+        raise ValueError("filename must be .zip")
+
+    remote_path = f"{project_dir(pid)}/backups/{fn}"
+    deleted = False
+    with sftp_client() as sftp:
+        try:
+            sftp.remove(remote_path)
+            deleted = True
+        except FileNotFoundError:
+            deleted = False
+
+    try:
+        safe_log_action(
+            actor,
+            "project_backup_zip_delete",
+            json.dumps({"project_id": pid, "filename": fn, "deleted": bool(deleted)}, ensure_ascii=False),
+        )
+    except Exception:
+        pass
+
+    return bool(deleted)
 
 
 def zip_bytes_to_site_files(zip_bytes: bytes) -> dict[str, bytes]:
@@ -7206,16 +7241,11 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         else:
                             ui.label("住所を入力すると、ここに表示されます。").classes("pv-muted")
 
-                        if phone or email:
+                        if email:
                             with ui.row().classes("pv-access-meta items-center q-gutter-md q-mt-sm"):
-                                if phone:
-                                    with ui.row().classes("items-center q-gutter-xs"):
-                                        ui.icon("call").classes("pv-access-icon")
-                                        ui.label(phone).classes("pv-muted")
-                                if email:
-                                    with ui.row().classes("items-center q-gutter-xs"):
-                                        ui.icon("mail").classes("pv-access-icon")
-                                        ui.label(email).classes("pv-muted")
+                                with ui.row().classes("items-center q-gutter-xs"):
+                                    ui.icon("mail").classes("pv-access-icon")
+                                    ui.label(email).classes("pv-muted")
 
                         if access_notes:
                             ui.label(access_notes).classes("pv-muted q-mt-sm")
@@ -7299,24 +7329,13 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 "no-caps unelevated color=primary disable"
                             ).classes("pv-btn pv-btn-primary q-mt-sm")
 
-                        # 連絡先ボタン（電話/メール）
-                        with ui.row().classes("pv-contact-actions"):
-                            if phone:
-                                ui.button("電話する").props(
-                                    f'no-caps outline color=primary type=a href="tel:{phone}"'
-                                ).classes("pv-btn pv-btn-secondary")
-                            if email:
-                                ui.button("メール").props(
-                                    f'no-caps outline color=primary type=a href="mailto:{email}"'
-                                ).classes("pv-btn pv-btn-secondary")
+                        # 電話ボタンは出さない（フォーム/メール導線に統一）
 
             # LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
             privacy_contact = ""
             try:
                 if address:
                     privacy_contact += f"\n- 住所: {address}"
-                if phone:
-                    privacy_contact += f"\n- 電話: {phone}"
                 if email:
                     privacy_contact += f"\n- メール: {email}"
             except Exception:
@@ -8540,6 +8559,58 @@ def render_main(u: User) -> None:
                                         # --- バックアップZIP一覧 / 復元（公開先へ） ---
                                         backup_state = {"loading": False, "error": "", "items": [], "project_id": "", "project_name": ""}
                                         restore_state = {"filename": "", "size_kb": 0, "mtime": "", "inspect_loading": False, "inspect_error": "", "inspect": {}}
+                                        backup_delete_state = {"filename": ""}
+
+                                        with ui.dialog() as backup_delete_dialog, ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+                                            ui.label("バックアップZIPを削除").classes("text-subtitle1 q-mb-sm")
+                                            backup_delete_fn_label = ui.label("").classes("cvhb-muted")
+                                            backup_delete_confirm_cb = ui.checkbox("削除する（最終確認）").classes("q-mt-md")
+                                            ui.label("※ この操作は元に戻せません。").classes("text-negative text-caption q-mt-xs")
+
+                                            async def _do_backup_delete():
+                                                if not is_admin(u):
+                                                    ui.notify("削除は管理者のみです", type="negative")
+                                                    return
+                                                if not backup_delete_confirm_cb.value:
+                                                    ui.notify("最終確認のチェックをONにしてください", type="warning")
+                                                    return
+                                                pid = str(backup_state.get("project_id") or "").strip()
+                                                fn = str(backup_delete_state.get("filename") or "").strip()
+                                                if not pid or not fn:
+                                                    ui.notify("内部エラー：対象ZIPが不正です", type="negative")
+                                                    return
+                                                try:
+                                                    await asyncio.to_thread(delete_project_backup_zip, pid, fn, u)
+                                                    ui.notify("削除しました", type="positive")
+                                                except Exception as e:
+                                                    ui.notify(f"削除に失敗しました: {sanitize_error_text(e)}", type="negative")
+                                                finally:
+                                                    try:
+                                                        backup_delete_dialog.close()
+                                                    except Exception:
+                                                        pass
+                                                    # 一覧を更新
+                                                    try:
+                                                        backup_state["loading"] = True
+                                                        backup_state["error"] = ""
+                                                        backup_body.refresh()
+                                                    except Exception:
+                                                        pass
+                                                    try:
+                                                        items = await asyncio.to_thread(list_project_backup_zips, pid)
+                                                        backup_state["items"] = items
+                                                    except Exception as e:
+                                                        backup_state["error"] = sanitize_error_text(e)
+                                                    finally:
+                                                        backup_state["loading"] = False
+                                                        try:
+                                                            backup_body.refresh()
+                                                        except Exception:
+                                                            pass
+
+                                            with ui.row().classes("q-gutter-sm q-mt-md"):
+                                                ui.button("やめる", on_click=backup_delete_dialog.close).props("flat")
+                                                ui.button("削除する", on_click=_do_backup_delete).props("color=negative unelevated")
 
                                         with ui.dialog() as backup_dialog, ui.card().classes("q-pa-md rounded-borders").props("bordered"):
                                             ui.label("案件内バックアップZIP").classes("text-subtitle1 q-mb-sm")
@@ -8586,6 +8657,20 @@ def render_main(u: User) -> None:
                                                                 ui.notify(f"ダウンロードに失敗しました: {sanitize_error_text(e)}", type="negative")
 
                                                         ui.button("ダウンロード", on_click=_download_file).props("dense outline no-caps")
+
+                                                        def _open_delete(_fn=fn):
+                                                            if not is_admin(u):
+                                                                ui.notify("削除は管理者のみです", type="negative")
+                                                                return
+                                                            backup_delete_state["filename"] = _fn
+                                                            backup_delete_fn_label.text = _fn
+                                                            try:
+                                                                backup_delete_confirm_cb.value = False
+                                                            except Exception:
+                                                                pass
+                                                            backup_delete_dialog.open()
+
+                                                        ui.button("削除", on_click=_open_delete).props("dense outline color=negative no-caps")
 
                                                         def _open_restore(_fn=fn, _size=size_kb, _mtime=mtime):
                                                             if not can_publish(u):
