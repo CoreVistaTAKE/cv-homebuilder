@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import base64
 import hashlib
@@ -21,10 +22,36 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, unquote, quote_plus
 
-import paramiko
+# =========================
+# [HELP_MODE] オフラインでヘルプ作成するための安全スイッチ
+#   - ローカルで CVHB_HELP_MODE=1 のとき有効
+#   - Heroku(DYNO) では強制OFF（事故防止）
+# =========================
+
+def _env_flag(name: str) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return False
+    s = str(v).strip().lower()
+    return s in {"1", "true", "yes", "on"}
+
+HELP_MODE = _env_flag("CVHB_HELP_MODE")
+if os.getenv("DYNO") and HELP_MODE:
+    # 事故防止: Herokuにこの変数を入れてしまっても本番挙動が変わらないように無効化する
+    print("[cvhb] HELP_MODE ignored on Heroku (DYNO detected)", flush=True)
+    HELP_MODE = False
+
+# heavy deps: 通常モードのみ必要（HELP_MODEでは未インストールでも動くようにする）
+if not HELP_MODE:
+    import paramiko
+    import psycopg
+    from psycopg.rows import dict_row
+else:
+    paramiko = None  # type: ignore
+    psycopg = None  # type: ignore
+    dict_row = None  # type: ignore
+
 from fastapi import Response
-import psycopg
-from psycopg.rows import dict_row
 
 
 # =========================
@@ -2881,24 +2908,30 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.2")
-APP_ENV = (os.getenv("APP_ENV") or "prod").lower().strip()
+VERSION = read_text_file("VERSION", "0.8.4")
+APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
+# NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
+# - 通常モード: 必須（Heroku Config Vars）
+# - HELP_MODE  : ローカル用途なので未設定でも動く（ダミーを使用）
 STORAGE_SECRET = os.getenv("STORAGE_SECRET")
-if not STORAGE_SECRET:
+if HELP_MODE and not STORAGE_SECRET:
+    STORAGE_SECRET = "cvhb_help_mode_dummy_secret"
+if (not HELP_MODE) and (not STORAGE_SECRET):
     raise RuntimeError("STORAGE_SECRET が未設定です。HerokuのConfig Varsに追加してください。")
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL が未設定です。Heroku Postgres を追加してください。")
-
+# DB（Heroku Postgres）
+DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
 # 一部の環境で postgres:// が来る場合があるので正規化
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+if (not HELP_MODE) and (not DATABASE_URL):
+    raise RuntimeError("DATABASE_URL が未設定です。Heroku Postgres を追加してください。")
 
+# SFTP To Go（案件の project.json / ZIP を保存）
 SFTP_BASE_DIR = (os.getenv("SFTP_BASE_DIR") or "/cvhb").rstrip("/")
-SFTPTOGO_URL = os.getenv("SFTPTOGO_URL")
-if not SFTPTOGO_URL:
+SFTPTOGO_URL = (os.getenv("SFTPTOGO_URL") or "").strip()
+if (not HELP_MODE) and (not SFTPTOGO_URL):
     raise RuntimeError("SFTPTOGO_URL が未設定です。HerokuのConfig Varsに追加してください。")
 
 SFTP_PROJECTS_DIR = f"{SFTP_BASE_DIR}/projects"
@@ -2920,6 +2953,10 @@ def google_maps_url(address: str) -> str:
 # =========================
 
 def db_connect() -> psycopg.Connection:
+    if psycopg is None:
+        raise RuntimeError("DBが利用できません（psycopg未インストール or HELP_MODE）")
+    if not DATABASE_URL:
+        raise RuntimeError("DBが利用できません（DATABASE_URL が空です）")
     conn = psycopg.connect(DATABASE_URL, sslmode="require")
     conn.autocommit = True
     return conn
@@ -3065,6 +3102,16 @@ def safe_log_action(user: Optional[User], action: str, details: str = "{}") -> N
 
 
 def current_user() -> Optional[User]:
+    # HELP_MODE: ログインなしで admin 扱い（ヘルプ作成用）
+    if HELP_MODE:
+        try:
+            app.storage.user["user_id"] = 0
+            app.storage.user["username"] = "help_admin"
+            app.storage.user["role"] = "admin"
+        except Exception:
+            pass
+        return User(id=0, username="help_admin", role="admin")
+
     try:
         uid = app.storage.user.get("user_id")
         username = app.storage.user.get("username")
@@ -3114,6 +3161,9 @@ def navigate_to(path: str) -> None:
 # =========================
 
 PROJECT_CACHE: dict[int, dict] = {}
+
+# HELP_MODE用: ローカルだけで案件を保持（SFTP/DB無し）
+HELP_PROJECT_STORE: dict[str, dict] = {}
 
 
 def clear_current_project(user: Optional[User]) -> None:
@@ -3168,6 +3218,13 @@ def parse_sftp_url(url: str) -> tuple[str, int, str, str]:
 
 @contextmanager
 def sftp_client():
+    # HELP_MODE: ローカルでのヘルプ作成は「完全オフライン」を想定するためSFTPは使わない
+    if HELP_MODE:
+        raise RuntimeError("HELP_MODEではSFTP To Goを使いません（オフライン専用）")
+    if paramiko is None:
+        raise RuntimeError("paramiko が未インストールです（SFTPが使えません）")
+    if not SFTPTOGO_URL:
+        raise RuntimeError("SFTPTOGO_URL が未設定です")
     host, port, user, pwd = parse_sftp_url(SFTPTOGO_URL)
     transport = paramiko.Transport((host, port))
     try:
@@ -4262,11 +4319,57 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
     return p
 
 
+def _help_ensure_sample_project(user: Optional[User]) -> dict:
+    """HELP_MODE用のサンプル案件を1つ用意して返す（無ければ作る）。
+
+    - 完全オフラインでヘルプ作成をしたいときに使う
+    - SFTP/DB には一切触らない
+    """
+    if HELP_PROJECT_STORE:
+        try:
+            return normalize_project(next(iter(HELP_PROJECT_STORE.values())))
+        except Exception:
+            pass
+
+    u = user or User(id=0, username="help_admin", role="admin")
+    p = create_project("ヘルプ用サンプル案件", u)
+
+    # 見た目が分かりやすいよう、最低限のサンプルだけ入れる（やりすぎない）
+    try:
+        data = p.get("data") if isinstance(p, dict) else {}
+        if isinstance(data, dict):
+            step2 = data.get("step2")
+            if not isinstance(step2, dict):
+                step2 = {}
+                data["step2"] = step2
+            step2.setdefault("company_name", "サンプル株式会社")
+            step2.setdefault("catch_copy", "やさしいホームページを、みんなで。")
+
+            blocks = data.get("blocks")
+            if not isinstance(blocks, dict):
+                blocks = {}
+                data["blocks"] = blocks
+            c = blocks.setdefault("contact", {})
+            if isinstance(c, dict):
+                c.setdefault("message", "お気軽にご相談ください。")
+    except Exception:
+        pass
+
+    p = normalize_project(p)
+    HELP_PROJECT_STORE[p["project_id"]] = p
+    return p
+
+
 def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
     p = normalize_project(p)
     p["updated_at"] = now_jst_iso()
     if user:
         p["updated_by"] = user.username
+
+    # HELP_MODE: SFTPには保存せず、メモリ上の案件ストアに保存する
+    if HELP_MODE:
+        HELP_PROJECT_STORE[p["project_id"]] = p
+        return
 
     remote = project_json_path(p["project_id"])
     body = json.dumps(p, ensure_ascii=False, indent=2)
@@ -4278,6 +4381,15 @@ def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
 
 
 def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
+    # HELP_MODE: SFTPは使わず、メモリ上の案件ストアから読む
+    if HELP_MODE:
+        if not HELP_PROJECT_STORE:
+            _help_ensure_sample_project(user)
+        p = HELP_PROJECT_STORE.get(project_id)
+        if not isinstance(p, dict):
+            p = _help_ensure_sample_project(user)
+        return normalize_project(p)
+
     remote = project_json_path(project_id)
     with sftp_client() as sftp:
         body = sftp_read_text(sftp, remote)
@@ -4294,6 +4406,24 @@ def list_projects_from_sftp() -> list[dict]:
     - /projects の表示を高速化（SFTP転送量・JSONデコード量を最小化）
     - WebSocket切断（Connection lost）を起こしにくくする
     """
+    # HELP_MODE: SFTPは使わず、メモリ上の案件ストアから一覧を作る
+    if HELP_MODE:
+        if not HELP_PROJECT_STORE:
+            _help_ensure_sample_project(None)
+        projects: list[dict] = []
+        for _p in HELP_PROJECT_STORE.values():
+            if not isinstance(_p, dict):
+                continue
+            projects.append({
+                "project_id": _p.get("project_id", ""),
+                "project_name": _p.get("project_name", ""),
+                "updated_at": _p.get("updated_at", ""),
+                "created_at": _p.get("created_at", ""),
+                "updated_by": _p.get("updated_by", ""),
+            })
+        projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        return projects
+
     HEAD_BYTES = 24 * 1024
 
     def _json_head_get_str(head: str, key: str) -> str:
@@ -4363,7 +4493,7 @@ def can_export(u: Optional[User]) -> bool:
 
 
 def can_publish(u: Optional[User]) -> bool:
-    return bool(u and u.role in PUBLISH_ROLES)
+    return bool(u and (u.role in PUBLISH_ROLES) and (not HELP_MODE))
 
 
 def get_workflow(p: dict) -> dict:
@@ -6661,7 +6791,10 @@ def render_header(u: Optional[User]) -> None:
 
             with ui.row().classes("items-center q-gutter-sm").style("flex-wrap: wrap; justify-content: flex-end;"):
                 ui.badge(APP_ENV.upper()).props("outline")
-                ui.badge(f"SFTP_BASE_DIR: {SFTP_BASE_DIR}").props("outline")
+                if HELP_MODE:
+                    ui.badge("HELP_MODE（オフライン）").props("outline")
+                else:
+                    ui.badge(f"SFTP_BASE_DIR: {SFTP_BASE_DIR}").props("outline")
 
                 pname = app.storage.user.get("current_project_name")
                 if pname:
@@ -6670,7 +6803,7 @@ def render_header(u: Optional[User]) -> None:
                 if u:
                     ui.badge(f"{u.username} ({u.role})").props("outline")
                     ui.button("案件", on_click=lambda: navigate_to("/projects")).props("flat")
-                    if u.role in {"admin", "subadmin"}:
+                    if (not HELP_MODE) and (u.role in {"admin", "subadmin"}):
                         ui.button("操作ログ", on_click=lambda: navigate_to("/audit")).props("flat")
                     ui.button("ログアウト", on_click=logout).props("color=negative flat")
 
@@ -7598,7 +7731,8 @@ def render_main(u: User) -> None:
                                 ui.tab("s2", label="2. 基本情報設定")
                                 ui.tab("s3", label="3. ページ内容詳細設定（ブロックごと）")
                                 ui.tab("s4", label="4. 承認・最終チェック")
-                                ui.tab("s5", label="5. 公開（管理者権限のみ）")
+                                if not HELP_MODE:
+                                    ui.tab("s5", label="5. 公開（管理者権限のみ）")
 
                         # Card 3: step contents
                         with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
@@ -9833,6 +9967,16 @@ def audit_page():
     if not u:
         navigate_to("/")
         return
+
+    if HELP_MODE:
+        render_header(u)
+        with ui.element("div").classes("cvhb-container"):
+            with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+                ui.label("HELP_MODEでは操作ログは表示しません").classes("text-subtitle1")
+                ui.label("オフラインでヘルプ作成をするため、DB（操作ログ）を使わないモードです。").classes("cvhb-muted q-mt-sm")
+                ui.button("トップへ戻る", on_click=lambda: navigate_to("/")).props("flat").classes("q-mt-md")
+        return
+
     if u.role not in {"admin", "subadmin"}:
         ui.notify("権限がありません", type="negative")
         navigate_to("/")
@@ -9882,6 +10026,17 @@ def index():
             try:
                 cleanup_user_storage()
                 u = current_user()
+
+                # HELP_MODE: ログイン不要 / DB不要 / SFTP不要（オフラインでヘルプ作成）
+                if HELP_MODE:
+                    try:
+                        if not app.storage.user.get("current_project_id"):
+                            p_demo = _help_ensure_sample_project(u)
+                            set_current_project(p_demo, u)
+                    except Exception:
+                        pass
+                    render_main(u if u else User(id=0, username="help_admin", role="admin"))
+                    return
 
                 # 本番：初回のみ admin を作らせる
                 if APP_ENV != "stg" and count_users() == 0:
@@ -9977,9 +10132,11 @@ try {{
 # Boot
 # =========================
 
-init_db_schema()
-
 if __name__ in {"__main__", "__mp_main__"}:
+    # 通常モードのみDBを初期化（HELP_MODEはオフライン専用のためDBに触れない）
+    if not HELP_MODE:
+        init_db_schema()
+
     ui.run(
         title=f"CV-HomeBuilder v{VERSION}",
         storage_secret=STORAGE_SECRET,
