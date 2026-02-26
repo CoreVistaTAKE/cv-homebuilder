@@ -51,7 +51,22 @@ else:
     psycopg = None  # type: ignore
     dict_row = None  # type: ignore
 
-from fastapi import Response
+# Response: 画像/ZIPのダウンロード等で使う
+# - HELP_MODE では fastapi 未インストールでも動くように、まず starlette を試す
+# - どちらも無い場合は NiceGUI 自体が動かない可能性が高いが、エラーを分かりやすくする
+try:
+    from starlette.responses import Response  # type: ignore
+except Exception:
+    try:
+        from fastapi import Response  # type: ignore
+    except Exception:
+        Response = None  # type: ignore
+
+if Response is None:  # pragma: no cover
+    class Response:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("Response クラスが見つかりません。まずは `pip install nicegui` を実行してください。")
+
 
 
 # =========================
@@ -2908,7 +2923,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.4")
+VERSION = read_text_file("VERSION", "0.8.5")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -3094,11 +3109,111 @@ def log_action(user: Optional[User], action: str, details: str = "{}") -> None:
 
 
 def safe_log_action(user: Optional[User], action: str, details: str = "{}") -> None:
+    # HELP_MODE: DBに触れない（完全オフラインでヘルプ作成するため）
+    if HELP_MODE:
+        return
     try:
         log_action(user, action, details)
     except Exception as e:
         # ここでURL等が出る可能性があるので、画面には出さない
         print(f"[audit_log] failed: {sanitize_error_text(e)}")
+
+
+def stg_auto_admin_enabled() -> bool:
+    """stgだけで使える「ログインなし admin」スイッチ（ヘルプ作成/スクショ用途）。
+
+    ✅ 有効条件:
+      - APP_ENV == "stg"
+      - Heroku(DYNO) 上
+      - 環境変数 CVHB_STG_AUTO_ADMIN が true
+    """
+    if HELP_MODE:
+        return False
+    # 事故防止: stg 以外は絶対に有効化しない
+    if APP_ENV != "stg":
+        return False
+    # ローカルは HELP_MODE を使う想定。stg(=Heroku) だけで使えるように制限。
+    if not os.getenv("DYNO"):
+        return False
+    return _env_flag("CVHB_STG_AUTO_ADMIN")
+
+
+def stg_auto_admin_user_row() -> Optional[dict]:
+    """自動ログインに使う admin ユーザー行を返す（無ければ作成/seedする）。"""
+    if not stg_auto_admin_enabled():
+        return None
+
+    # 変更したい場合は env で上書き可能（例: admin_test）
+    target = (os.getenv("CVHB_STG_AUTO_ADMIN_USER") or "").strip() or "admin_test"
+
+    # 1) まずは target を探す
+    try:
+        row = get_user_by_username(target)
+        if row and str(row.get("role")) == "admin":
+            return row
+    except Exception:
+        pass
+
+    # 2) stg のテストユーザーを作る（admin_test が作られる）
+    try:
+        ensure_stg_test_users()
+    except Exception:
+        pass
+
+    # 3) 再チェック（target → admin_test）
+    try:
+        row = get_user_by_username(target)
+        if row and str(row.get("role")) == "admin":
+            return row
+    except Exception:
+        pass
+    try:
+        row = get_user_by_username("admin_test")
+        if row and str(row.get("role")) == "admin":
+            return row
+    except Exception:
+        pass
+
+    # 4) 最終手段: stg_auto_admin を作る（パスワードはランダムでOK）
+    try:
+        create_user("stg_auto_admin", secrets.token_urlsafe(24), "admin")
+        row = get_user_by_username("stg_auto_admin")
+        if row:
+            return row
+    except Exception:
+        pass
+
+    return None
+
+
+def stg_auto_login_admin() -> Optional[User]:
+    """stgで、ログイン無しで admin をセットする（必要なときだけ）。"""
+    if not stg_auto_admin_enabled():
+        return None
+
+    # すでにログイン状態ならそのまま返す
+    try:
+        uid = app.storage.user.get("user_id")
+        username = app.storage.user.get("username")
+        role = app.storage.user.get("role")
+        if uid and username and role:
+            return User(id=int(uid), username=str(username), role=str(role))
+    except Exception:
+        pass
+
+    try:
+        row = stg_auto_admin_user_row()
+        if not row:
+            return None
+        set_logged_in(row)
+        app.storage.user["stg_auto_admin"] = True
+        cleanup_user_storage()
+
+        u = User(id=int(row["id"]), username=str(row["username"]), role=str(row["role"]))
+        safe_log_action(u, "stg_auto_admin_login", details=json.dumps({"mode": "stg_auto_admin"}))
+        return u
+    except Exception:
+        return None
 
 
 def current_user() -> Optional[User]:
@@ -3112,15 +3227,32 @@ def current_user() -> Optional[User]:
             pass
         return User(id=0, username="help_admin", role="admin")
 
+    # STG_AUTO_ADMIN をOFFに戻したら、セッションを即クリアしてログイン画面に戻す（戻しやすさ最優先）
+    try:
+        if app.storage.user.get("stg_auto_admin") and not stg_auto_admin_enabled():
+            app.storage.user.clear()
+            return None
+    except Exception:
+        pass
+
     try:
         uid = app.storage.user.get("user_id")
         username = app.storage.user.get("username")
         role = app.storage.user.get("role")
         if uid and username and role:
             return User(id=int(uid), username=str(username), role=str(role))
-        return None
     except Exception:
-        return None
+        pass
+
+    # stgのみ: ログインなしで admin 扱い（環境変数で明示ONしたときだけ）
+    try:
+        u = stg_auto_login_admin()
+        if u:
+            return u
+    except Exception:
+        pass
+
+    return None
 
 
 def set_logged_in(user_row: dict) -> None:
@@ -4319,45 +4451,150 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
     return p
 
 
+def _help_seed_sample_projects(user: Optional[User]) -> None:
+    """HELP_MODE用: サンプル案件を複数プリセットしておく（企業/福祉/飲食）。
+
+    目的:
+    - ローカル完全オフラインで「ヘルプ作成（スクショ撮影）」ができる
+    - 1つだけだと説明が偏るので、代表3パターンを用意する
+    - DB/SFTPには一切触らない（メモリ上の HELP_PROJECT_STORE のみ）
+    """
+    if HELP_PROJECT_STORE:
+        return
+
+    u = user or User(id=0, username="help_admin", role="admin")
+
+    def _set(p: dict, *, industry: str, color: str, company: str, catch_copy: str, contact_msg: str, proposal_note: str, welfare_domain: str = "", welfare_mode: str = "") -> dict:
+        try:
+            data = p.get("data") if isinstance(p, dict) else {}
+            if not isinstance(data, dict):
+                data = {}
+                p["data"] = data
+
+            # step1
+            step1 = data.get("step1")
+            if not isinstance(step1, dict):
+                step1 = {}
+                data["step1"] = step1
+            step1["industry"] = industry
+            step1["primary_color"] = color
+            if industry == "福祉事業所":
+                step1["welfare_domain"] = welfare_domain or step1.get("welfare_domain") or ""
+                step1["welfare_mode"] = welfare_mode or step1.get("welfare_mode") or ""
+
+            # normalize -> template反映
+            p2 = normalize_project(p)
+
+            # step2
+            data2 = p2.get("data") if isinstance(p2, dict) else {}
+            if isinstance(data2, dict):
+                step2 = data2.get("step2")
+                if not isinstance(step2, dict):
+                    step2 = {}
+                    data2["step2"] = step2
+                step2.setdefault("company_name", company)
+                step2.setdefault("catch_copy", catch_copy)
+
+                # blocks.contact
+                blocks = data2.get("blocks")
+                if not isinstance(blocks, dict):
+                    blocks = {}
+                    data2["blocks"] = blocks
+                contact = blocks.setdefault("contact", {})
+                if isinstance(contact, dict):
+                    contact.setdefault("message", contact_msg)
+
+                # workflow.approval.request_note（提案のサンプルとして使う）
+                wf = data2.get("workflow")
+                if not isinstance(wf, dict):
+                    wf = {}
+                    data2["workflow"] = wf
+                approval = wf.get("approval")
+                if not isinstance(approval, dict):
+                    approval = {}
+                    wf["approval"] = approval
+                # 既存が空のときだけ入れる（やりすぎない）
+                if not str(approval.get("request_note") or "").strip():
+                    approval["request_note"] = proposal_note
+
+            return normalize_project(p2)
+        except Exception:
+            return normalize_project(p)
+
+    samples: list[dict] = []
+
+    # 企業サイト
+    p1 = create_project("サンプル：企業サイト", u)
+    p1 = _set(
+        p1,
+        industry="会社サイト（企業）",
+        color="blue",
+        company="サンプル株式会社",
+        catch_copy="やさしいホームページを、みんなで。",
+        contact_msg="お気軽にご相談ください。",
+        proposal_note="【提案メモの例】\n1) 目的：初めての人が3秒で何の会社か分かる\n2) 変更：キャッチコピーを短く / 実績をFAQへ\n3) 理由：スマホで読みやすくなる\n4) 確認：掲載して良い内容（写真・住所など）",
+    )
+    samples.append(p1)
+
+    # 福祉事業所（障がい福祉・通所の例）
+    p2 = create_project("サンプル：福祉事業所", u)
+    p2 = _set(
+        p2,
+        industry="福祉事業所",
+        color="green",
+        company="サンプル福祉事業所",
+        catch_copy="地域で支える、毎日のくらし。",
+        contact_msg="見学・体験、お気軽にどうぞ。",
+        proposal_note="【提案メモの例】\n- 見学の流れ（予約→見学→体験）をFAQに入れる\n- 送迎の有無（地域）を一行で入れる\n- 支援内容は“3つだけ”に整理すると伝わりやすい",
+        welfare_domain="障がい福祉サービス",
+        welfare_mode="通所系",
+    )
+    samples.append(p2)
+
+    # 飲食店（個人事業の例）
+    p3 = create_project("サンプル：飲食店", u)
+    p3 = _set(
+        p3,
+        industry="個人事業",
+        color="red",
+        company="サンプル食堂",
+        catch_copy="今日のごはん、ここで。",
+        contact_msg="お問い合わせはこちらからお願いします。",
+        proposal_note="【提案メモの例】\n- 営業時間と定休日を一番上に\n- メニュー写真は“3枚だけ”でもOK\n- アクセスに“最寄り駅/駐車場”を入れると迷いにくい",
+    )
+    samples.append(p3)
+
+    for p in samples:
+        try:
+            p = normalize_project(p)
+            HELP_PROJECT_STORE[p["project_id"]] = p
+        except Exception:
+            pass
+
+
 def _help_ensure_sample_project(user: Optional[User]) -> dict:
-    """HELP_MODE用のサンプル案件を1つ用意して返す（無ければ作る）。
+    """HELP_MODE用のサンプル案件を返す（無ければ作る）。
 
     - 完全オフラインでヘルプ作成をしたいときに使う
     - SFTP/DB には一切触らない
     """
-    if HELP_PROJECT_STORE:
-        try:
-            return normalize_project(next(iter(HELP_PROJECT_STORE.values())))
-        except Exception:
-            pass
+    if not HELP_PROJECT_STORE:
+        _help_seed_sample_projects(user)
 
-    u = user or User(id=0, username="help_admin", role="admin")
-    p = create_project("ヘルプ用サンプル案件", u)
+    # できれば「企業サンプル」を既定にする（説明が汎用的で使いやすい）
+    for _p in HELP_PROJECT_STORE.values():
+        if isinstance(_p, dict) and _p.get("project_name") == "サンプル：企業サイト":
+            return normalize_project(_p)
 
-    # 見た目が分かりやすいよう、最低限のサンプルだけ入れる（やりすぎない）
+    # fallback
     try:
-        data = p.get("data") if isinstance(p, dict) else {}
-        if isinstance(data, dict):
-            step2 = data.get("step2")
-            if not isinstance(step2, dict):
-                step2 = {}
-                data["step2"] = step2
-            step2.setdefault("company_name", "サンプル株式会社")
-            step2.setdefault("catch_copy", "やさしいホームページを、みんなで。")
-
-            blocks = data.get("blocks")
-            if not isinstance(blocks, dict):
-                blocks = {}
-                data["blocks"] = blocks
-            c = blocks.setdefault("contact", {})
-            if isinstance(c, dict):
-                c.setdefault("message", "お気軽にご相談ください。")
+        return normalize_project(next(iter(HELP_PROJECT_STORE.values())))
     except Exception:
-        pass
-
-    p = normalize_project(p)
-    HELP_PROJECT_STORE[p["project_id"]] = p
-    return p
+        u = user or User(id=0, username="help_admin", role="admin")
+        p = create_project("サンプル：企業サイト", u)
+        p = normalize_project(p)
+        HELP_PROJECT_STORE[p["project_id"]] = p
+        return p
 
 
 def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
@@ -6791,6 +7028,8 @@ def render_header(u: Optional[User]) -> None:
 
             with ui.row().classes("items-center q-gutter-sm").style("flex-wrap: wrap; justify-content: flex-end;"):
                 ui.badge(APP_ENV.upper()).props("outline")
+                if stg_auto_admin_enabled():
+                    ui.badge("STG自動admin（ログインなし）").props("outline")
                 if HELP_MODE:
                     ui.badge("HELP_MODE（オフライン）").props("outline")
                 else:
@@ -6803,6 +7042,8 @@ def render_header(u: Optional[User]) -> None:
                 if u:
                     ui.badge(f"{u.username} ({u.role})").props("outline")
                     ui.button("案件", on_click=lambda: navigate_to("/projects")).props("flat")
+                    if HELP_MODE:
+                        ui.button("ヘルプ", on_click=lambda: navigate_to("/help")).props("flat")
                     if (not HELP_MODE) and (u.role in {"admin", "subadmin"}):
                         ui.button("操作ログ", on_click=lambda: navigate_to("/audit")).props("flat")
                     ui.button("ログアウト", on_click=logout).props("color=negative flat")
@@ -9591,6 +9832,89 @@ def render_main(u: User) -> None:
 # =========================
 # [BLK-12] Pages
 # =========================
+
+@ui.page("/help")
+def help_page():
+    """HELP_MODE専用: ローカルでヘルプ（手順書）を作るためのページ。"""
+    inject_global_styles()
+    cleanup_user_storage()
+    ui.page_title("HELP MODE | CV-HomeBuilder")
+
+    if not HELP_MODE:
+        navigate_to("/")
+        return
+
+    u = current_user() or User(id=0, username="help_admin", role="admin")
+    render_header(u)
+
+    # サンプル案件を確実に用意
+    try:
+        _help_seed_sample_projects(u)
+    except Exception:
+        pass
+
+    with ui.element("div").classes("cvhb-container"):
+        with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
+            ui.label("HELP MODE（ローカル専用）").classes("text-h5")
+            ui.label("DB/SFTPに触らず、画面のスクショを撮ってヘルプを作るためのモードです。").classes("cvhb-muted q-mt-sm")
+
+            ui.separator().classes("q-my-md")
+
+            ui.label("まずやること（超ざっくり）").classes("text-subtitle1")
+            ui.markdown(
+                """- **案件** → サンプル案件を開く（企業/福祉/飲食）  
+- 左で編集 → 右でプレビュー確認  
+- 必要な画面をスクショして、手順書に貼る  
+"""
+            )
+
+            ui.separator().classes("q-my-md")
+
+            ui.label("サンプル案件を開く").classes("text-subtitle1")
+            items = []
+            try:
+                items = list_projects_from_sftp()
+            except Exception:
+                items = []
+
+            async def _open(pid: str) -> None:
+                try:
+                    p = await asyncio.to_thread(load_project_from_sftp, pid, u)
+                    set_current_project(p, u)
+                    ui.notify("サンプル案件を開きました", type="positive")
+                    navigate_to("/")
+                except Exception as e:
+                    ui.notify(f"開けませんでした: {sanitize_error_text(e)}", type="negative")
+
+            if not items:
+                ui.label("サンプル案件が見つかりません").classes("text-negative")
+            else:
+                for it in items:
+                    pid = str(it.get("project_id") or "")
+                    name = str(it.get("project_name") or "")
+                    async def _open_one(project_id=pid):
+                        await _open(project_id)
+
+                    with ui.row().classes("items-center justify-between w-full q-mb-xs"):
+                        ui.label(name).classes("text-body1")
+                        ui.button("開く", on_click=_open_one).props("color=primary unelevated")
+
+            ui.separator().classes("q-my-md")
+
+            ui.label("提案メモの型（コピペ用）").classes("text-subtitle1")
+            ui.markdown(
+                """**迷ったらこの順番で書く**（短くてOK）  
+1) 目的：誰に、何が伝わればOK？  
+2) 変更：どこを、どう変える？  
+3) 理由：なぜ良くなる？（1行でOK）  
+4) 確認：お客様に確認が必要なこと（写真・住所・掲載OKなど）  
+"""
+            )
+
+            with ui.row().classes("q-gutter-sm q-mt-md"):
+                ui.button("案件一覧へ", on_click=lambda: navigate_to("/projects")).props("flat")
+                ui.button("ビルダーへ", on_click=lambda: navigate_to("/")).props("color=primary flat")
+
 
 @ui.page("/projects")
 def projects_page():
