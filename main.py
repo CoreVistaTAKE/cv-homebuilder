@@ -3489,19 +3489,19 @@ INDUSTRY_PRESETS = [
         "features": "特徴：6ブロック（ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ）",
     },
     {
-        "value": "福祉事業所",
+"value": "福祉事業所",
         "label": "福祉事業所",
-        "features": "特徴：準備中（次のバージョンで拡張予定）",
+        "features": "特徴：福祉向けの分岐（介護/障がい/児童 × 入所/通所）を選べます",
     },
     {
         "value": "個人事業",
         "label": "個人事業",
-        "features": "特徴：準備中（次のバージョンで拡張予定）",
+        "features": "特徴：店舗・個人向け。文章が少なめでも作れます（あとで自由に変更OK）",
     },
     {
         "value": "その他",
         "label": "その他",
-        "features": "特徴：準備中（次のバージョンで拡張予定）",
+        "features": "特徴：会社サイトと同じ構成で作れます（まず形を作って、文章は後で調整）",
     },
 ]
 INDUSTRY_OPTIONS = [x["value"] for x in INDUSTRY_PRESETS]
@@ -4262,12 +4262,14 @@ def normalize_project(p: dict) -> dict:
     if not isinstance(items, list):
         items = []
     # item 正規化（最大6 / 表示は基本3）
+    # NOTE: UI の入力フォームが items 内の dict を参照しているため、ここで dict を作り直さず「同じ dict を整形して使う」
     norm_items = []
     for it in items:
-        if isinstance(it, dict):
-            t = str(it.get("title") or "").strip()
-            b = str(it.get("body") or "").strip()
-            norm_items.append({"title": t, "body": b})
+        if not isinstance(it, dict):
+            continue
+        it["title"] = str(it.get("title") or "").strip()
+        it["body"] = str(it.get("body") or "").strip()
+        norm_items.append(it)
     if not norm_items:
         norm_items = [
             {"title": "サービス1", "body": "内容をここに記載します。"},
@@ -5957,7 +5959,7 @@ a:hover{{text-decoration:underline;}}
             continue
         svc_items_html += f"""<div class="card"><div style="font-weight:800;">{t or "項目"}</div><div class="p-muted" style="margin-top:6px;">{b}</div></div>"""
     if not svc_items_html:
-        svc_items_html = '<p class="p-muted">業務内容は準備中です</p>'
+        svc_items_html = '<p class="p-muted">業務内容はまだありません</p>'
 
     # faq html
     faq_html = ""
@@ -6083,7 +6085,7 @@ a:hover{{text-decoration:underline;}}
   <section id="about" class="section">
     <h2 class="h2">{html.escape(ph_title)}</h2>
     <div class="grid2">
-      <div class="card">{ph_body or '<p class="p-muted">内容は準備中です</p>'}</div>
+      <div class="card">{ph_body or '<p class="p-muted">内容はまだありません</p>'}</div>
       <div class="card">
         {f'<img src="{html.escape(ph_img_rel)}" alt="about" style="width:100%;height:260px;object-fit:cover;border-radius:12px;">' if ph_img_rel else '<p class="p-muted">画像は未設定です</p>'}
       </div>
@@ -8067,7 +8069,7 @@ def render_main(u: User) -> None:
                                         # Industry
                                         with ui.card().classes("q-pa-sm rounded-borders q-mb-sm w-full").props("flat bordered"):
                                             ui.label("業種を選んでください").classes("text-subtitle1")
-                                            ui.label("※v1.0 は「会社・企業サイト」をまず商用ラインまで仕上げます。").classes("cvhb-muted q-mb-sm")
+                                            ui.label("※迷ったら「会社・企業サイト」がおすすめです（文章は後で自由に変えられます）。").classes("cvhb-muted q-mb-sm")
                                             ui.label("※作成途中の業種変更は、3.ページ内容詳細設定（ブロックごと）がリセットされます。").classes("text-negative text-caption q-mb-sm")
 
                                             @ui.refreshable
@@ -8328,7 +8330,7 @@ def render_main(u: User) -> None:
                                                         ui.radio(["大", "中", "小"], value=step2.get("sub_catch_size", "中"), on_change=_on_sub_catch_size).props(
                                                             "inline dense"
                                                         ).classes("q-mb-sm")
-                                                        ui.label("※ ヒーロー内のボタン表示は v0.6.98 で廃止しました（後で必要になったら復活できます）。").classes("cvhb-muted q-mt-sm")
+                                                        ui.label("※ ヒーロー内のボタン表示は現在は使いません（必要なら後で追加できます）。").classes("cvhb-muted q-mt-sm")
 
                                                         # ヒーロー画像（4枚固定：プリセット or オリジナルアップロード）
                                                         DEFAULT_CHOICES = ["A: オフィス", "B: チーム", "C: 街並み", "D: ひかり"]
