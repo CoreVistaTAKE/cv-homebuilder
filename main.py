@@ -5645,7 +5645,7 @@ def build_contact_section_html(
         {err_box}
 
         <div class="contact_actions">
-          <button class="btn" type="submit""" + submit_disabled + f""">送信する</button>
+          <button class="btn" type="submit"{submit_disabled}>送信する</button>
           {fallback_actions}
         </div>
       </form>
@@ -5703,10 +5703,10 @@ def build_contact_section_html(
 
       var subject = (mf.getAttribute('data-subject') || 'お問い合わせ');
       var body = '';
-      body += '【お名前】' + name + '\n';
-      body += '【メール】' + from + '\n';
-      if (tel.trim()) { body += '【電話】' + tel + '\n'; }
-      body += '\n【内容】\n' + msg;
+      body += '【お名前】' + name + '\\n';
+      body += '【メール】' + from + '\\n';
+      if (tel.trim()) { body += '【電話】' + tel + '\\n'; }
+      body += '\\n【内容】\\n' + msg;
 
       // to の危険文字だけ除去（mailto破壊を防ぐ）
       var safeTo = to.replace(/[^0-9A-Za-z@._+-]/g, '');
@@ -5759,55 +5759,226 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     # --- assets (CSS / images) ---
     files: dict[str, bytes] = {}
 
-    site_css = f""":root{{--primary:{primary_hex};--text:#111;--muted:#6b7280;--bg:#ffffff;--card:#ffffff;--border:rgba(0,0,0,0.10);--shadow:0 10px 30px rgba(0,0,0,0.06);}}
+    site_css = f""":root{{{_preview_glass_style(step1)}--site-input-bg:{'rgba(13,16,22,0.55)' if primary_key=='black' else 'rgba(255,255,255,0.72)'};--site-input-border:{'rgba(255,255,255,0.16)' if primary_key=='black' else 'rgba(15,23,42,0.12)'};--site-input-bg2:{'rgba(13,16,22,0.40)' if primary_key=='black' else 'rgba(255,255,255,0.62)'};}}
 *{{box-sizing:border-box;}}
-body{{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','Noto Sans JP','Meiryo',sans-serif;color:var(--text);background:var(--bg);line-height:1.7;}}
-a{{color:var(--primary);text-decoration:none;}}
+html{{scroll-behavior:smooth;}}
+body{{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+  color: var(--pv-text);
+  background-image: var(--pv-bg-img);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  line-height: 1.7;
+}}
+a{{color: var(--pv-primary); text-decoration:none;}}
 a:hover{{text-decoration:underline;}}
-.container{{max-width:980px;margin:0 auto;padding:0 16px;}}
-.header{{position:sticky;top:0;background:rgba(255,255,255,0.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);z-index:10;}}
-.header_in{{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 0;flex-wrap:wrap;}}
-.brand{{font-weight:800;letter-spacing:.2px;}}
-.nav{{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;}}
-.main{{padding:18px 0 40px;}}
-.hero_card{{border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--card);box-shadow:var(--shadow);}}
-.hero_img{{width:100%;height:320px;object-fit:cover;display:block;background:#f3f4f6;}}
+
+.container{{max-width: 1040px; margin: 0 auto; padding: 0 16px;}}
+
+.header{{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 12px 0;
+  backdrop-filter: blur(16px);
+  background: var(--pv-card);
+  border-bottom: 1px solid var(--pv-border);
+}}
+/* old/new class names both supported */
+.header_in,
+.header .inner{{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}}
+.brand{{font-weight: 900; letter-spacing: .02em;}}
+.brand a{{color: var(--pv-text); text-decoration:none;}}
+.brand a:hover{{text-decoration:none;}}
+
+.nav{{display:flex; gap: 8px; flex-wrap: wrap; font-size: 13px;}}
+.nav a{{
+  display:inline-flex;
+  align-items:center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--pv-chip-bg);
+  border: 1px solid var(--pv-chip-border);
+  color: var(--pv-text);
+  font-weight: 800;
+  letter-spacing: .01em;
+  text-decoration:none;
+}}
+.nav a:hover{{text-decoration:none; filter: brightness(1.02);}}
+.nav a:active{{transform: translateY(1px);}}
+
+main.container{{padding: 18px 0 40px;}}
+
+.hero{{margin-top: 10px;}}
+.hero_card{{
+  position: relative;
+  border: 1px solid var(--pv-border);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--pv-card);
+  box-shadow: var(--pv-shadow);
+  backdrop-filter: blur(12px);
+}}
 
 .hero_slider{{position:relative;}}
-.hero_slides{{position:relative;width:100%;height:320px;background:#f3f4f6;}}
+.hero_slides{{position:relative;width:100%;height:320px;background:rgba(255,255,255,0.30);}}
 .hero_slide{{position:absolute;inset:0;opacity:0;transition:opacity .35s ease;}}
 .hero_slide.is-active{{opacity:1;}}
-.hero_slide .hero_img{{width:100%;height:320px;object-fit:cover;display:block;}}
+.hero_img{{width:100%;height:320px;object-fit:cover;display:block;background:rgba(255,255,255,0.22);}}
+
 .hero_dots{{position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center;gap:8px;}}
 .hero_dot{{width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,0.85);background:rgba(0,0,0,0.25);cursor:pointer;padding:0;}}
 .hero_dot.is-active{{background:rgba(255,255,255,0.95);}}
 
-.hero_body{{padding:16px;}}
-.hero_title{{font-size:24px;margin:0 0 6px;}}
-.hero_sub{{color:var(--muted);margin:0;}}
-.section{{margin-top:18px;}}
-.section_title{{font-size:18px;font-weight:800;margin:0 0 8px;}}
-.card{{border:1px solid var(--border);border-radius:16px;background:var(--card);padding:14px;box-shadow:var(--shadow);}}
+.hero_text,
+.hero_body{{
+  /* Mobile default: below image (like preview mobile) */
+  position: static;
+  width: min(92%, 680px);
+  margin: 14px auto 0;
+  padding: 16px 18px;
+  border-radius: 18px;
+  text-align: center;
+  backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(255,255,255,0.42);
+  box-shadow: 0 22px 54px rgba(0,0,0,0.12);
+}}
+.hero_title{{font-size: 24px; margin: 0 0 6px; font-weight: 900; letter-spacing:.01em;}}
+.hero_sub{{color: var(--pv-muted); margin: 0; font-weight: 700;}}
+
+.section{{margin-top: 22px;}}
+.h2,
+.section_title{{font-size: 18px; font-weight: 900; margin: 0 0 10px; letter-spacing:.01em;}}
+.p-muted{{color: var(--pv-muted);}}
+.card{{
+  border: 1px solid var(--pv-border);
+  border-radius: 18px;
+  background: var(--pv-card);
+  padding: 14px;
+  box-shadow: var(--pv-shadow);
+  backdrop-filter: blur(12px);
+}}
+
 .grid2{{display:grid;grid-template-columns:1fr;gap:12px;}}
-@media(min-width:860px){{.grid2{{grid-template-columns:1fr 1fr;}} .hero_title{{font-size:28px;}} .hero_img{{height:420px;}} .hero_slides{{height:420px;}} .hero_slide .hero_img{{height:420px;}}}}
-.p-muted{{color:var(--muted);}}
-.btn{{display:inline-block;background:var(--primary);color:white;padding:10px 14px;border-radius:12px;font-weight:700;}}
-.btn-outline{{display:inline-block;border:1px solid var(--primary);color:var(--primary);padding:10px 14px;border-radius:12px;font-weight:700;}}
-.news_item{{border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--card);box-shadow:var(--shadow);}}
-.footer{{border-top:1px solid var(--border);padding:18px 0;color:var(--muted);font-size:14px;}}
-.faq details{{border:1px solid var(--border);border-radius:14px;padding:10px 12px;background:var(--card);box-shadow:var(--shadow);}}
+@media(min-width:860px){{
+  .grid2{{grid-template-columns:1fr 1fr;}}
+  .hero_slides{{height: 420px;}}
+  .hero_img{{height: 420px;}}
+  .hero_title{{font-size: 30px;}}
+  /* Desktop: overlay caption (like preview pc) */
+  .hero_text,
+  .hero_body{{
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%);
+    width: fit-content;
+    max-width: min(92%, 980px);
+    margin: 0;
+    padding: 18px 22px;
+    border-radius: 18px;
+  }}
+}}
+
+.badge{{
+  display:inline-flex;
+  align-items:center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--pv-chip-bg);
+  border: 1px solid var(--pv-chip-border);
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--pv-text);
+}}
+
+.news_list{{display:grid;gap:12px;}}
+.news_item{{
+  border: 1px solid var(--pv-border);
+  border-radius: 16px;
+  padding: 12px;
+  background: var(--pv-card);
+  box-shadow: var(--pv-shadow);
+  backdrop-filter: blur(12px);
+}}
+
+.btn,
+.btn-outline{{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-weight: 900;
+  letter-spacing:.01em;
+  text-decoration:none;
+  cursor:pointer;
+  user-select:none;
+}}
+.btn{{
+  background: var(--pv-primary);
+  color: white;
+  border: none;
+}}
+.btn:hover{{filter: brightness(1.03); text-decoration:none;}}
+.btn-outline{{
+  background: transparent;
+  color: var(--pv-primary);
+  border: 1px solid rgba(255,255,255,0.44);
+}}
+.btn-outline:hover{{text-decoration:none; filter: brightness(1.03);}}
+.btn:disabled,
+.btn.is-disabled{{opacity:0.6;pointer-events:none;}}
+
+.footer{{border-top:1px solid var(--pv-border); padding: 18px 0; color: var(--pv-muted); font-size: 14px; background: rgba(255,255,255,0.22); backdrop-filter: blur(10px);}}
+
+.faq details{{
+  border: 1px solid var(--pv-border);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: var(--pv-card);
+  box-shadow: var(--pv-shadow);
+  backdrop-filter: blur(12px);
+}}
 .faq details+details{{margin-top:10px;}}
+.faq summary{{cursor:pointer;}}
 
 .contact_form{{margin-top:12px;}}
-.contact_form label{{display:block;font-weight:800;font-size:14px;margin:12px 0 6px;}}
-.contact_form input,.contact_form textarea{{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:12px;font-size:16px;font:inherit;background:#fff;}}
+.contact_form label{{display:block;font-weight:900;font-size:14px;margin:12px 0 6px;}}
+.contact_form input,
+.contact_form textarea{{
+  width:100%;
+  padding:10px 12px;
+  border:1px solid var(--site-input-border);
+  border-radius:14px;
+  font-size:16px;
+  font:inherit;
+  color: var(--pv-text);
+  background: var(--site-input-bg);
+}}
+.contact_form input:focus,
+.contact_form textarea:focus{{
+  outline: none;
+  box-shadow: 0 0 0 4px var(--pv-primary-weak);
+  border-color: rgba(255,255,255,0.40);
+  background: var(--site-input-bg2);
+}}
 .contact_form textarea{{min-height:150px;resize:vertical;}}
 .contact_actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;}}
-.form_note{{font-size:13px;color:var(--muted);margin-top:8px;}}
+.form_note{{font-size:13px;color:var(--pv-muted);margin-top:8px;}}
 .hp{{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden;}}
-.error_box{{border:1px solid rgba(239,68,68,0.65);background:rgba(239,68,68,0.08);padding:10px 12px;border-radius:12px;margin-top:12px;}}
-.btn:disabled,.btn.is-disabled{{opacity:0.6;pointer-events:none;}}
-
+.error_box{{border:1px solid rgba(239,68,68,0.65);background:rgba(239,68,68,0.10);padding:10px 12px;border-radius:14px;margin-top:12px;}}
 """
     files["assets/site.css"] = site_css.encode("utf-8")
 
