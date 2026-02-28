@@ -2923,7 +2923,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.5")
+VERSION = read_text_file("VERSION", "0.8.8")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -7875,6 +7875,61 @@ def render_main(u: User) -> None:
 
     p = get_current_project(u)
 
+    # ---------------------------
+    # [UI-STATE] 画面の「今どこを編集中か」を覚える
+    # - たまに接続が切れてUIが再生成されると、ステップが初期値に戻ることがある
+    # - 入力内容は残っているのに「作成ステップ1」に戻る、という現象の対策
+    # ---------------------------
+    UI_STEP_KEY = "cvhb_ui_step"
+    UI_BLOCK_KEY = "cvhb_ui_block"
+    UI_PV_MODE_KEY = "cvhb_ui_preview_mode"
+
+    def _ui_get(key: str, default: str, allowed: list[str]) -> str:
+        try:
+            v = app.storage.user.get(key)
+            if isinstance(v, str) and v in allowed:
+                return v
+        except Exception:
+            pass
+        try:
+            app.storage.user[key] = default
+        except Exception:
+            pass
+        return default
+
+    def _ui_set(key: str, value: str, allowed: list[str]) -> None:
+        try:
+            if isinstance(value, str) and value in allowed:
+                app.storage.user[key] = value
+        except Exception:
+            pass
+
+    def _event_value(e) -> str:
+        """NiceGUIのイベントから value を安全に取り出す（型ゆれ吸収）"""
+        try:
+            v = getattr(e, "value", None)
+            if isinstance(v, str):
+                return v
+        except Exception:
+            pass
+        try:
+            args = getattr(e, "args", None)
+            if isinstance(args, dict):
+                # Quasar系の update:model-value は args.value / args.modelValue になることがある
+                v = args.get("value") or args.get("modelValue") or args.get("model_value")
+                if isinstance(v, str):
+                    return v
+        except Exception:
+            pass
+        try:
+            if isinstance(e, dict):
+                v = e.get("value") or e.get("modelValue") or e.get("model_value")
+                if isinstance(v, str):
+                    return v
+        except Exception:
+            pass
+        return ""
+
     preview_ref = {"refresh": (lambda: None)}
 
     editor_ref = {"refresh": (lambda: None)}
@@ -7969,13 +8024,27 @@ def render_main(u: User) -> None:
                             ui.label("作成ステップ").classes("cvhb-card-title")
                             ui.label("ステップを選ぶと、下の入力画面が切り替わります。").classes("cvhb-muted q-mb-sm")
 
-                            with ui.tabs().props("vertical dense").classes("w-full cvhb-step-tabs") as step_tabs:
+                            # UIの「今のステップ」を覚える（接続が切れても戻らないように）
+                            allowed_steps = ["s1", "s2", "s3", "s4"] + ([] if HELP_MODE else ["s5"])
+                            step_initial = _ui_get(UI_STEP_KEY, "s1", allowed_steps)
+
+                            with ui.tabs(value=step_initial).props("vertical dense").classes("w-full cvhb-step-tabs") as step_tabs:
                                 ui.tab("s1", label="1. 業種設定・ページカラー設定")
                                 ui.tab("s2", label="2. 基本情報設定")
                                 ui.tab("s3", label="3. ページ内容詳細設定（ブロックごと）")
                                 ui.tab("s4", label="4. 承認・最終チェック")
                                 if not HELP_MODE:
                                     ui.tab("s5", label="5. 公開（管理者権限のみ）")
+
+                            def _on_step_tab_change(e):
+                                v = _event_value(e)
+                                if v:
+                                    _ui_set(UI_STEP_KEY, v, allowed_steps)
+
+                            try:
+                                step_tabs.on("update:model-value", _on_step_tab_change)
+                            except Exception:
+                                pass
 
                         # Card 3: step contents
                         with ui.card().classes("q-pa-md rounded-borders").props("bordered"):
@@ -8057,7 +8126,7 @@ def render_main(u: User) -> None:
                                         inp.props(f"hint={hint}")
 
 
-                                with ui.tab_panels(step_tabs, value="s1").classes("w-full"):
+                                with ui.tab_panels(step_tabs, value=step_initial).classes("w-full"):
 
                                     # -----------------
                                     # Step 1
@@ -8291,7 +8360,11 @@ def render_main(u: User) -> None:
                                                 ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
                                                 ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
 
-                                                with ui.tabs().props("dense").classes("w-full cvhb-block-tabs") as block_tabs:
+                                                # UIの「今のブロック」を覚える（接続が切れても戻らないように）
+                                                allowed_blocks = ["hero", "philosophy", "news", "faq", "access", "contact"]
+                                                block_initial = _ui_get(UI_BLOCK_KEY, "hero", allowed_blocks)
+
+                                                with ui.tabs(value=block_initial).props("dense").classes("w-full cvhb-block-tabs") as block_tabs:
                                                     ui.tab("hero", label="ヒーロー")
                                                     ui.tab("philosophy", label="理念/概要")
                                                     ui.tab("news", label="お知らせ")
@@ -8299,7 +8372,17 @@ def render_main(u: User) -> None:
                                                     ui.tab("access", label="アクセス")
                                                     ui.tab("contact", label="お問い合わせ")
 
-                                                with ui.tab_panels(block_tabs, value="hero").classes("w-full q-mt-md"):
+                                                def _on_block_tab_change(e):
+                                                    v = _event_value(e)
+                                                    if v:
+                                                        _ui_set(UI_BLOCK_KEY, v, allowed_blocks)
+
+                                                try:
+                                                    block_tabs.on("update:model-value", _on_block_tab_change)
+                                                except Exception:
+                                                    pass
+
+                                                with ui.tab_panels(block_tabs, value=block_initial).classes("w-full q-mt-md"):
 
                                                     with ui.tab_panel("hero"):
                                                         hero = blocks.setdefault("hero", {})
@@ -9736,7 +9819,7 @@ def render_main(u: User) -> None:
                             ui.label("スマホ / PC 切替").classes("cvhb-muted")
 
                                                 # プレビュー表示モード（mobile / pc）
-                        preview_mode = {"value": "mobile"}
+                        preview_mode = {"value": _ui_get(UI_PV_MODE_KEY, "mobile", ["mobile", "pc"])}
 
                         @ui.refreshable
                         def pv_mode_selector():
@@ -9748,6 +9831,8 @@ def render_main(u: User) -> None:
                                 if m not in ("mobile", "pc"):
                                     m = "mobile"
                                 preview_mode["value"] = m
+
+                                _ui_set(UI_PV_MODE_KEY, m, ["mobile", "pc"])
                                 try:
                                     pv_mode_selector.refresh()
                                 except Exception:
