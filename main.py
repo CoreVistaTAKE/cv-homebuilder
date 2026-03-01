@@ -2923,17 +2923,20 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.8")
+VERSION = read_text_file("VERSION", "0.8.10")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
 # - 通常モード: 必須（Heroku Config Vars）
-# - HELP_MODE  : ローカル用途なので未設定でも動く（ダミーを使用）
-STORAGE_SECRET = os.getenv("STORAGE_SECRET")
-if HELP_MODE and not STORAGE_SECRET:
-    STORAGE_SECRET = "cvhb_help_mode_dummy_secret"
-if (not HELP_MODE) and (not STORAGE_SECRET):
-    raise RuntimeError("STORAGE_SECRET が未設定です。HerokuのConfig Varsに追加してください。")
+# - HELP_MODE  : ローカル用途なので未設定でも動く（ローカル起動用に毎回ランダム生成）
+#
+# ※ 固定文字列をソースに残さない（「秘密情報の値」をコードへ置かない方針）
+STORAGE_SECRET = (os.getenv("STORAGE_SECRET") or "").strip()
+if not STORAGE_SECRET:
+    if HELP_MODE:
+        STORAGE_SECRET = secrets.token_hex(16)
+    else:
+        raise RuntimeError("STORAGE_SECRET が未設定です。HerokuのConfig Varsに追加してください。")
 
 # DB（Heroku Postgres）
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
@@ -5982,10 +5985,25 @@ main.container{{padding: 18px 0 40px;}}
 """
     files["assets/site.css"] = site_css.encode("utf-8")
 
-    def _asset_from_data_url(data_url: str, base_name: str) -> str:
+    def _asset_from_data_url(data_url: str, key: str) -> str:
+        """dataURL を assets/img/ 配下のファイルとして書き出し、相対パスを返す。
+
+        重要:
+        - ここで「アップロード時の表示用ファイル名（省略された名前）」を使うと、
+          ZIP内のファイル名やHTML参照が壊れて見た目が崩れる原因になる。
+        - そのため、key（用途/位置） + 内容ハッシュで、常に安全で再現性のある名前にする。
+        """
         mime, b = _data_url_meta(data_url)
         ext = _mime_to_ext(mime)
-        fname = _safe_filename(base_name) + ext
+        h = hashlib.sha1(b).hexdigest()[:10] if b else secrets.token_hex(4)
+
+        base = _safe_filename(Path(str(key or "file")).stem)
+        try:
+            base = base[:40]
+        except Exception:
+            pass
+
+        fname = f"{base}_{h}{ext}"
         rel = f"assets/img/{fname}"
         files[rel] = b
         return rel
@@ -6004,7 +6022,8 @@ main.container{{padding: 18px 0 40px;}}
     # hero images
     hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
     hero_urls = hero.get("hero_image_urls")
-    hero_names = hero.get("hero_upload_names")
+    # NOTE: hero_upload_names は「表示用に省略された名前」が入り得るため、
+    #       書き出しファイル名の材料には使わない（ZIP/HTMLが壊れる原因）。
     hero_imgs: list[str] = []
     if isinstance(hero_urls, list):
         for i, url in enumerate(hero_urls):
@@ -6012,11 +6031,9 @@ main.container{{padding: 18px 0 40px;}}
             if not u:
                 continue
             if _is_data_url(u):
-                base = f"hero_{i+1}_{project_id}"
-                if isinstance(hero_names, list) and i < len(hero_names) and hero_names[i]:
-                    base = f"hero_{i+1}_{hero_names[i]}"
+                key = f"hero_{i+1}_{project_id or 'p'}"
                 try:
-                    hero_imgs.append(_asset_from_data_url(u, base))
+                    hero_imgs.append(_asset_from_data_url(u, key))
                 except Exception:
                     pass
             else:
@@ -6345,6 +6362,114 @@ main.container{{padding: 18px 0 40px;}}
     return files
 
 
+def validate_static_site_files(files: dict[str, bytes]) -> tuple[bool, list[str]]:
+    """静的サイト生成結果の簡易バリデーション。
+
+    目的:
+    - ZIPを書き出せても「中身が壊れていて見た目が崩れる」事故を防ぐ
+    - 15歳でも原因が追えるよう、失敗時は『どこがダメか』を短い文章で返す
+
+    ※ 厳密なHTML検証ではなく、よくある致命傷だけを確実に弾く。
+    """
+    errors: list[str] = []
+
+    try:
+        if not isinstance(files, dict) or not files:
+            return False, ["生成ファイルが空です（内部エラー）"]
+    except Exception:
+        return False, ["生成ファイルの形式が不正です（内部エラー）"]
+
+    # 必須ファイル
+    for req in ("index.html", "privacy.html", "assets/site.css"):
+        if req not in files:
+            errors.append(f"必須ファイルがありません: {req}")
+
+    # パスの安全性（zip slip 対策 + 文字化け/事故対策）
+    for path, content in list(files.items()):
+        try:
+            p = str(path or "")
+            if not p:
+                errors.append("空のパスが含まれています")
+                continue
+            if p.startswith("/") or p.startswith("\\") or ":" in p:
+                errors.append(f"不正なパス: {p}")
+                continue
+            if "\\" in p:
+                errors.append(f"バックスラッシュを含むパス: {p}")
+                continue
+            parts = [x for x in p.split("/") if x]
+            if any(x == ".." for x in parts):
+                errors.append(f"危険な相対パス: {p}")
+                continue
+            if not isinstance(content, (bytes, bytearray)):
+                errors.append(f"内容がbytesではありません: {p}")
+        except Exception:
+            errors.append("ファイル一覧の検証中に例外が発生しました")
+
+    # HTMLの致命傷チェック（index中心）
+    try:
+        idx = files.get("index.html", b"")
+        idx_s = idx.decode("utf-8", errors="replace")
+
+        # CSS参照
+        if 'href="assets/site.css"' not in idx_s:
+            errors.append("index.html が assets/site.css を参照していません")
+
+        # ありがちな壊れ方: button type の引用符抜け（HTMLが全崩れ）
+        if 'type="submit>' in idx_s or 'type="submit disabled>' in idx_s:
+            errors.append("index.html の送信ボタン(type=submit)の引用符が欠けています")
+
+        # ありがちな壊れ方: JSの \n が \n ではなく改行になっている（JS構文エラー）
+        if re.search(r"body\s*\+=\s*'【お名前】'\s*\+\s*name\s*\+\s*\n\s*';", idx_s):
+            errors.append("index.html のJS内で\\nが改行になっており、スクリプトが壊れています")
+
+        # assets/ 参照の実在チェック（../ を剥がして照合）
+        for m in re.findall(r"(?:src|href)=['\"]([^'\"]+)['\"]", idx_s):
+            ref = (m or "").strip()
+            if not ref:
+                continue
+            if ref.startswith("http://") or ref.startswith("https://") or ref.startswith("mailto:") or ref.startswith("#"):
+                continue
+            # normalize ./ ../
+            r = ref
+            while r.startswith("./"):
+                r = r[2:]
+            while r.startswith("../"):
+                r = r[3:]
+            if r.startswith("assets/") and r not in files:
+                errors.append(f"index.html が存在しないファイルを参照しています: {ref}")
+    except Exception:
+        errors.append("index.html の検証中に例外が発生しました")
+
+    # 追加: 全HTMLで assets/ 参照が存在するか（news/ 配下は ../assets/... になるため ../ を剥がす）
+    try:
+        for fpath, bb in files.items():
+            fp = str(fpath or "")
+            if not fp.endswith(".html"):
+                continue
+            s = (bb or b"").decode("utf-8", errors="replace")
+            for m in re.findall(r"(?:src|href)=['\"]([^'\"]+)['\"]", s):
+                ref = (m or "").strip()
+                if not ref:
+                    continue
+                if ref.startswith("http://") or ref.startswith("https://") or ref.startswith("mailto:") or ref.startswith("#"):
+                    continue
+
+                r = ref
+                while r.startswith("./"):
+                    r = r[2:]
+                while r.startswith("../"):
+                    r = r[3:]
+
+                if r.startswith("assets/") and r not in files:
+                    errors.append(f"{fp} が存在しないファイルを参照しています: {ref}")
+    except Exception:
+        errors.append("HTML参照（assets/）の検証中に例外が発生しました")
+
+    ok = len(errors) == 0
+    return ok, errors
+
+
 def build_site_zip_filename(p: dict, *, dt: Optional[datetime] = None) -> str:
     """書き出しZIPのファイル名を生成する。
 
@@ -6390,14 +6515,29 @@ def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
     p = normalize_project(p)
     files = build_static_site_files(p)
 
+    # 生成物の簡易検証（壊れたZIPを配らない）
+    ok, errs = validate_static_site_files(files)
+    if not ok:
+        msg = " / ".join(errs[:5])
+        if len(errs) > 5:
+            msg += f" …ほか{len(errs)-5}件"
+        raise RuntimeError(f"ZIP書き出しに失敗しました（生成ファイルが壊れています）: {msg}")
+
     mem = BytesIO()
+    write_errors: list[str] = []
     with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for path, content in files.items():
             try:
                 z.writestr(path, content)
-            except Exception:
-                # 1ファイルで失敗しても全体を落とさない
-                pass
+            except Exception as e:
+                # ここで握りつぶすと『見た目が崩れたZIP』になるので、集計して最後に止める
+                write_errors.append(f"{path} ({type(e).__name__})")
+
+    if write_errors:
+        msg = ", ".join(write_errors[:5])
+        if len(write_errors) > 5:
+            msg += f" …ほか{len(write_errors)-5}件"
+        raise RuntimeError(f"ZIP作成中にファイル書き込みで失敗しました: {msg}")
 
     filename = build_site_zip_filename(p)
     return mem.getvalue(), filename
