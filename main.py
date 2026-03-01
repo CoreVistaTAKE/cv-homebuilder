@@ -863,183 +863,6 @@ if not _export_route_added:
     except Exception:
         pass
 
-# =========================
-# Preview Static-Site serving (export template)  (v0.8.11)
-# 目的: プレビューとZIP書き出しの HTML/CSS を「同じ生成物」に揃えて、ズレを根絶する
-# =========================
-
-_PV_SITE_CACHE: dict[str, dict] = {}
-_PV_SITE_CACHE_MAX = 8  # safety cap (per dyno)
-
-def _pv_site_cache_upsert(user_id: int, key: str, files: dict[str, bytes]) -> str:
-    # Preview用: 生成した静的ファイル一式をメモリに置く（keyはユーザーごとに安定させる）
-    try:
-        # cap: drop oldest if too many
-        if len(_PV_SITE_CACHE) >= _PV_SITE_CACHE_MAX and key not in _PV_SITE_CACHE:
-            try:
-                oldest = sorted(_PV_SITE_CACHE.items(), key=lambda kv: kv[1].get("updated_at", ""))[0][0]
-                _PV_SITE_CACHE.pop(oldest, None)
-            except Exception:
-                _PV_SITE_CACHE.clear()
-        _PV_SITE_CACHE[key] = {
-            "user_id": int(user_id),
-            "files": files,
-            "updated_at": now_jst_iso(),
-        }
-    except Exception:
-        traceback.print_exc()
-    return key
-
-def _pv_site_guess_media_type(path: str) -> str:
-    # 拡張子から Content-Type を推定（プレビュー用）
-    try:
-        mt, _ = mimetypes.guess_type(path)
-        if mt:
-            return mt
-    except Exception:
-        pass
-    p = (path or "").lower()
-    if p.endswith(".html"):
-        return "text/html"
-    if p.endswith(".css"):
-        return "text/css"
-    if p.endswith(".js"):
-        return "application/javascript"
-    if p.endswith(".png"):
-        return "image/png"
-    if p.endswith(".jpg") or p.endswith(".jpeg"):
-        return "image/jpeg"
-    if p.endswith(".svg"):
-        return "image/svg+xml"
-    if p.endswith(".webp"):
-        return "image/webp"
-    return "application/octet-stream"
-
-try:
-    _pv_site_route_added = getattr(app, "_cvhb_pv_site_route_added", False)
-except Exception:
-    _pv_site_route_added = False
-
-if not _pv_site_route_added:
-
-    @app.get("/pv_site/{key}/{full_path:path}")
-    def _pv_site_get_endpoint(key: str, full_path: str):
-        """Preview用の静的ファイル配信エンドポイント。
-
-        ⚠ 重要（今回の不具合の根本原因）:
-        /pv_site は iframe から通常の HTTP リクエストとして呼ばれます。
-        そのため NiceGUI の UI セッション（app.storage.user）に依存する current_user() が
-        取得できないケースがあり、404（中身なし）になってプレビューが「真っ白」に見えることがあります。
-
-        ここでは「key が一致している＝そのプレビューを生成したブラウザ」とみなして返します。
-        （key は十分に長いランダム値で、推測は現実的ではありません）
-        """
-
-        item = _PV_SITE_CACHE.get(key)
-        if not item:
-            # 404 でも「真っ白」にならないように、簡易HTMLを返す（デバッグ容易化）
-            body = (
-                "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
-                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                "<title>Preview not found</title>"
-                "<style>"
-                "body{font-family:system-ui,-apple-system,'Segoe UI','Noto Sans JP',sans-serif;padding:24px;line-height:1.7;}"
-                ".box{max-width:780px;margin:0 auto;padding:16px 18px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;}"
-                "h1{margin:0 0 8px;font-size:18px;}"
-                "p{margin:0;color:#374151;}"
-                "</style></head><body><div class='box'>"
-                "<h1>プレビューが見つかりません</h1>"
-                "<p>プレビュー用の一時データが見つかりません。画面を更新して、もう一度開き直してください。</p>"
-                "</div></body></html>"
-            ).encode("utf-8")
-            return Response(
-                content=body,
-                status_code=404,
-                media_type="text/html",
-                headers={"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"},
-            )
-
-        path = (full_path or "").lstrip("/") or "index.html"
-        files = item.get("files") or {}
-        content = files.get(path)
-        if content is None:
-            body = (
-                "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
-                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                "<title>File not found</title>"
-                "<style>"
-                "body{font-family:system-ui,-apple-system,'Segoe UI','Noto Sans JP',sans-serif;padding:24px;line-height:1.7;}"
-                ".box{max-width:780px;margin:0 auto;padding:16px 18px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;}"
-                "h1{margin:0 0 8px;font-size:18px;}"
-                "p{margin:0;color:#374151;}"
-                "code{background:#f3f4f6;padding:2px 6px;border-radius:6px;}"
-                "</style></head><body><div class='box'>"
-                "<h1>ファイルが見つかりません</h1>"
-                "<p>要求されたファイル: <code>" + html.escape(path) + "</code></p>"
-                "</div></body></html>"
-            ).encode("utf-8")
-            return Response(
-                content=body,
-                status_code=404,
-                media_type="text/html",
-                headers={"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"},
-            )
-
-        # media type
-        mt = _pv_site_guess_media_type(path)
-
-        # cache policy:
-        # - html/css: no-store (編集が即反映されることを優先)
-        # - hashed images: immutable (転送を軽くする)
-        headers = {"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"}
-        try:
-            if path.startswith("assets/img/") and re.search(r"_[0-9a-f]{10}\\.", path):
-                headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        except Exception:
-            pass
-
-        # Response は bytes/str 前提
-        try:
-            if isinstance(content, memoryview):
-                content = content.tobytes()
-            elif isinstance(content, bytearray):
-                content = bytes(content)
-        except Exception:
-            pass
-
-        return Response(content=content, media_type=mt, headers=headers)
-
-    # プレビュー内で contact.php を POST した場合だけ、thanks.html を返して「送信導線」を確認できるようにする
-    # ※メール送信などは行わない（あくまでプレビュー上の見た目確認用）
-    @app.post("/pv_site/{key}/contact.php")
-    def _pv_site_contact_post_endpoint(key: str):
-        item = _PV_SITE_CACHE.get(key)
-        if not item:
-            return Response(status_code=404)
-
-        # 302 redirect -> thanks.html (status=ok)
-        try:
-            return Response(
-                status_code=302,
-                headers={
-                    "Location": f"/pv_site/{key}/thanks.html?status=ok",
-                    "Cache-Control": "no-store",
-                },
-            )
-        except Exception:
-            # fallback: thanks.html をそのまま返す
-            files = item.get("files") or {}
-            content = files.get("thanks.html") or b""
-            return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"})
-
-
-
-    try:
-        app._cvhb_pv_site_route_added = True
-    except Exception:
-        pass
-
-
 def _preview_preflight_error() -> Optional[str]:
     """プレビュー描画前に、必要な定義が揃っているかチェックして事故を減らす。"""
     try:
@@ -3100,24 +2923,17 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.13")
+VERSION = read_text_file("VERSION", "0.8.9")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
-
-# Preview: ZIP書き出しと同じHTML/CSSで描画する（ズレ防止）
-# - 1: 有効（デフォルト） / 0: 従来プレビュー（デバッグ用）
-PREVIEW_USE_EXPORT_TEMPLATE = str(os.getenv("CVHB_PREVIEW_UNIFY") or "1").strip().lower() not in {"0", "false", "no", "off"}
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
 # - 通常モード: 必須（Heroku Config Vars）
-# - HELP_MODE  : ローカル用途なので未設定でも動く（ローカル起動用に毎回ランダム生成）
-#
-# ※ 固定文字列をソースに残さない（「秘密情報の値」をコードへ置かない方針）
-STORAGE_SECRET = (os.getenv("STORAGE_SECRET") or "").strip()
-if not STORAGE_SECRET:
-    if HELP_MODE:
-        STORAGE_SECRET = secrets.token_hex(16)
-    else:
-        raise RuntimeError("STORAGE_SECRET が未設定です。HerokuのConfig Varsに追加してください。")
+# - HELP_MODE  : ローカル用途なので未設定でも動く（ダミーを使用）
+STORAGE_SECRET = os.getenv("STORAGE_SECRET")
+if HELP_MODE and not STORAGE_SECRET:
+    STORAGE_SECRET = "cvhb_help_mode_dummy_secret"
+if (not HELP_MODE) and (not STORAGE_SECRET):
+    raise RuntimeError("STORAGE_SECRET が未設定です。HerokuのConfig Varsに追加してください。")
 
 # DB（Heroku Postgres）
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
@@ -5584,1073 +5400,3052 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, phone: str, email: str) -> str:
-    """thanks.html（送信結果ページ）を生成する。"""
-    company = html.escape(company_name.strip() or "会社名")
-    phone_esc = html.escape(phone.strip())
-    email_esc = html.escape(email.strip())
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
+    """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
-    # 電話は表示しない（フォーム/メール導線に寄せる）
-    mail_html = f'<a class="btn-outline" href="mailto:{email_esc}">メールする</a>' if email_esc else ''
-    fallback_actions = mail_html.strip()
+    - クエリ: ?status=ok または ?status=ng&reason=...
+    - デザインはプレビュー（pv-layout-260218）と同一トーンに寄せる
+    """
+    step1 = step1 or {}
+    company_name = (company_name or "").strip() or "お問い合わせ"
+    to_email = (to_email or "").strip()
 
-    if fallback_actions:
-        fallback_actions = f'<div class="contact_actions">{fallback_actions}</div>'
+    primary_key = str(step1.get("primary_color") or "blue").strip()
+    primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
+    is_dark = primary_key in ("black", "navy")
+
+    def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
+        h = (hex_str or "").strip().lstrip("#")
+        if len(h) == 3:
+            h = "".join([c * 2 for c in h])
+        try:
+            return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        except Exception:
+            return 30, 94, 255
+
+    r, g, b = _hex_to_rgb(primary_hex)
+    theme_style = _preview_glass_style(step1, dark=is_dark).strip().rstrip(";")
+    theme_style = f"{theme_style}; --pv-accent-rgb: {r},{g},{b};"
+
+    esc_company = html.escape(company_name)
+    esc_email = html.escape(to_email)
+
+    # ナビリンク（thanks はトップページ外なので、index.html へ戻す導線に揃える）
+    sec = lambda sid: f"index.html#{sid}"
+    nav_links = [
+        (sec("pv-news"), "お知らせ"),
+        (sec("pv-about"), "私たちについて"),
+        (sec("pv-services"), "業務内容"),
+        (sec("pv-faq"), "よくある質問"),
+        (sec("pv-access"), "アクセス"),
+        (sec("pv-contact"), "お問い合わせ"),
+    ]
+
+    desktop_nav_html = "".join(
+        [f'<a class="pv-desktop-nav-btn" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
+    )
+
+    mobile_nav_items_html = "".join(
+        [f'<a class="pv-nav-item" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
+        + [f'<a class="pv-nav-item" href="privacy.html">プライバシーポリシー</a>']
+    )
+
+    email_block = ""
+    if esc_email:
+        email_block = f"""
+          <div class="pv-thanks-mail">
+            <div class="pv-thanks-mail-title">メールで連絡する</div>
+            <a class="pv-link-btn pv-btn-outline" href="mailto:{esc_email}">{esc_email}</a>
+          </div>
+        """
 
     return f"""<!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>送信結果 | {company}</title>
-<link rel="stylesheet" href="assets/site.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{esc_company}｜送信結果</title>
+  <link rel="stylesheet" href="assets/site.css">
+
 </head>
 <body>
-<header class="header">
-  <div class="container header_in">
-    <div class="brand"><a href="index.html">{company}</a></div>
-    <div class="nav"><a href="index.html#contact">お問い合わせ</a><a href="privacy.html">プライバシー</a></div>
-  </div>
-</header>
+  <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
+    <header class="pv-topbar pv-topbar-260218">
+      <div class="row pv-topbar-inner items-center justify-between">
+        <a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">
+          <span class="pv-brand-name">{esc_company}</span>
+        </a>
 
-<main class="container section">
-  <h1 class="h2">送信結果</h1>
+        <nav class="row pv-desktop-nav items-center no-wrap" aria-label="グローバルナビ">
+          {desktop_nav_html}
+        </nav>
 
-  <div id="thanks_ok" class="card" style="display:none;">
-    <h2 class="h2" style="margin-top:0;">送信できました ✅</h2>
-    <p class="p-muted">お問い合わせありがとうございます。内容を確認し、順次ご連絡します。</p>
-    <div class="p-muted" style="margin-top:10px;">※ 自動返信メールは送らない設定です。</div>
-    <div style="margin-top:14px;"><a class="btn" href="index.html">トップへ戻る</a></div>
-  </div>
+        <button class="pv-menu-btn" id="pvMenuOpen" type="button" aria-label="メニューを開く">☰</button>
+      </div>
+    </header>
 
-  <div id="thanks_ng" class="card" style="display:none;">
-    <h2 class="h2" style="margin-top:0;">送信できませんでした</h2>
-    <p class="p-muted">原因：<span id="thanks_reason">不明</span></p>
-
-    <div class="card" style="margin-top:12px;">
-      <div style="font-weight:800;">代わりの連絡方法</div>
-      <div class="p-muted" style="margin-top:6px;">お手数ですが、下記の方法でご連絡ください。</div>
-      {fallback_actions}
+    <div class="pv-nav-overlay" id="pvNavOverlay" hidden>
+      <div class="pv-nav-card" role="dialog" aria-modal="true" aria-label="メニュー">
+        <div class="pv-nav-title">メニュー</div>
+        {mobile_nav_items_html}
+        <button class="pv-nav-close" id="pvMenuClose" type="button">閉じる</button>
+      </div>
     </div>
 
-    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:10px;">
-      <a class="btn" href="index.html#contact">入力画面へ戻る</a>
-      <a class="btn-outline" href="index.html">トップへ</a>
+    <div class="pv-scroll">
+      <main class="pv-main">
+        <section class="pv-section pv-section-260218" id="pv-thanks">
+          <div class="pv-section-head">
+            <div class="pv-section-title">送信結果</div>
+            <div class="pv-section-subtitle">CONTACT RESULT</div>
+          </div>
+
+          <div class="pv-panel pv-panel-glass pv-thanks-card">
+            <div class="pv-thanks-title" id="result_title">送信完了</div>
+            <div class="pv-thanks-message" id="result_message">送信を受け付けました。ありがとうございました。</div>
+
+            <div class="pv-thanks-actions">
+              <a class="pv-link-btn pv-btn-primary" href="index.html#pv-top">トップへ戻る</a>
+              <a class="pv-link-btn" href="index.html#pv-contact">お問い合わせへ戻る</a>
+            </div>
+
+            {email_block}
+          </div>
+        </section>
+      </main>
+
+      <footer class="pv-footer">
+        <div class="pv-footer-inner">
+          <div class="pv-footer-brand">{esc_company}</div>
+          <div class="pv-footer-links">
+            <a class="pv-footer-link" href="index.html#pv-top">トップ</a>
+            <a class="pv-footer-link" href="news/index.html">お知らせ一覧</a>
+            <a class="pv-footer-link" href="privacy.html">プライバシーポリシー</a>
+          </div>
+          <div class="pv-footer-copy">© <span id="pvYear"></span> {esc_company}</div>
+        </div>
+      </footer>
     </div>
   </div>
 
-  <div id="thanks_unknown" class="card" style="display:none;">
-    <p class="p-muted">このページは「送信結果」の表示用です。</p>
-    <div style="margin-top:14px;"><a class="btn" href="index.html#contact">お問い合わせへ戻る</a></div>
-  </div>
-</main>
+  <script src="assets/site.js"></script>
+  <script>
+  // 送信結果表示（contact.php から status / reason をクエリで受け取る想定）
+  (function(){{
+    var y = document.getElementById('pvYear');
+    if(y) y.textContent = String(new Date().getFullYear());
 
-<footer class="footer">
-  <div class="container">
-    <div>© {company}</div>
-    <div style="margin-top:6px;"><a href="privacy.html">プライバシーポリシー</a></div>
-  </div>
-</footer>
+    var params = new URLSearchParams(location.search);
+    var status = (params.get('status') || 'ok').toLowerCase();
+    var reason = params.get('reason') || '';
+    var titleEl = document.getElementById('result_title');
+    var msgEl = document.getElementById('result_message');
+    if(!titleEl || !msgEl) return;
 
-<script>
-(function() {{
-  var sp = new URLSearchParams(location.search);
-  var status = (sp.get('status') || '').toLowerCase();
-  var reason = (sp.get('reason') || '').toLowerCase();
-
-  var ok = document.getElementById('thanks_ok');
-  var ng = document.getElementById('thanks_ng');
-  var un = document.getElementById('thanks_unknown');
-  var re = document.getElementById('thanks_reason');
-
-  var map = {{
-    bad_method: '送信方法が正しくありません（戻ってもう一度お試しください）。',
-    no_to: '受信先メールが未設定です（基本情報のメールを入力してください）。',
-    no_email: 'メールが未入力です。',
-    bad_email: 'メールの形式が正しくありません。',
-    no_message: '内容が未入力です。',
-    no_agree: 'プライバシーポリシーへの同意が必要です。',
-    send_fail: 'サーバーで送信に失敗しました（時間をおいて再試行してください）。',
-    spam: '送信完了',
-  }};
-
-  function show(el) {{
-    if (!el) return;
-    el.style.display = 'block';
-  }}
-
-  if (status === 'ok') {{
-    show(ok);
-    return;
-  }}
-  if (status === 'ng') {{
-    if (re) {{
-      re.textContent = map[reason] || '送信に失敗しました。';
+    if(status === 'ok') {{
+      titleEl.textContent = '送信完了';
+      msgEl.textContent = '送信を受け付けました。ありがとうございました。';
+      return;
     }}
-    show(ng);
-    return;
+
+    titleEl.textContent = '送信できませんでした';
+    msgEl.textContent = reason ? ('原因: ' + reason) : '入力内容を確認して、もう一度お試しください。';
+  }})();
+  </script>
+</body>
+</html>
+"""
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict) -> dict[str, bytes]:
+    """PHPフォーム方式で必要なファイルをまとめて生成する。
+
+    - contact.php（送信処理）
+    - config/config.php（送信先）
+    - thanks.html（送信結果表示）
+    """
+    return {
+        "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
+        "config/config.php": build_contact_config_php(to_email=to_email).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1).encode("utf-8"),
+    }
+def build_contact_section_html(
+    *,
+    company_name: str,
+    to_email: str,
+    hours_html: str,
+    message_html: str,
+    button_text: str,
+    contact_mode: str,
+    external_form_url: str,
+    contact_warn_html: str,
+) -> str:
+    """公開用 index.html の「お問い合わせ」セクションを生成する（プレビュー同一テーマ寄せ）。
+
+    - contact_mode:
+        - external: 外部フォームURLへ誘導
+        - mail: mailto で送信（PHPなし想定）
+        - php: contact.php にPOST（PHPあり想定）
+    """
+    company_name = (company_name or "").strip() or "お問い合わせ"
+    to_email = (to_email or "").strip()
+    button_text = (button_text or "").strip() or "お問い合わせ"
+    contact_mode = (contact_mode or "php").strip().lower()
+    external_form_url = (external_form_url or "").strip()
+    hours_html = hours_html or ""
+    message_html = message_html or ""
+    contact_warn_html = contact_warn_html or ""
+
+    esc_company = html.escape(company_name)
+    esc_email = html.escape(to_email)
+    esc_btn = html.escape(button_text)
+
+    # 共通の注意文
+    hint_html = f"""
+      <div class="pv-contact-hint">※ 送信前に <a class="pv-inline-link" href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a> をご確認ください。</div>
+    """.strip()
+
+    # アクション領域
+    action_html = ""
+    action_script = ""
+
+    if contact_mode == "external":
+        if not external_form_url:
+            action_html = '<div class="pv-contact-error">外部フォームURLが未設定です。</div>'
+        else:
+            esc_url = html.escape(external_form_url, quote=True)
+            action_html = f"""
+      <div class="pv-contact-actions">
+        <label class="pv-agree">
+          <input type="checkbox" id="pvAgree" name="agree" value="yes">
+          <span>プライバシーポリシーに同意します</span>
+        </label>
+
+        <button class="pv-link-btn pv-btn-primary" type="button" id="pvExternalBtn" data-url="{esc_url}">{esc_btn}</button>
+      </div>
+      {hint_html}
+      """.strip()
+
+            action_script = """
+<script>
+(function(){
+  function showError(msg){
+    var box = document.getElementById('pvContactError');
+    if(!box) return;
+    box.textContent = msg || '';
+    box.style.display = msg ? 'block' : 'none';
+  }
+
+  var btn = document.getElementById('pvExternalBtn');
+  if(!btn) return;
+
+  btn.addEventListener('click', function(){
+    var agree = document.getElementById('pvAgree');
+    if(agree && !agree.checked){
+      showError('プライバシーポリシーに同意してください。');
+      return;
+    }
+    showError('');
+    var url = btn.getAttribute('data-url') || '';
+    if(!url){
+      showError('フォームURLが未設定です。');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  });
+})();
+</script>
+""".strip()
+
+    elif contact_mode == "mail":
+        action_html = f"""
+      <form class="pv-form" id="pvMailForm">
+        <div class="pv-form-row">
+          <label>お名前（任意）
+            <input type="text" name="name" autocomplete="name" placeholder="例）山田 太郎">
+          </label>
+        </div>
+
+        <div class="pv-form-row">
+          <label>メールアドレス（必須）
+            <input type="email" name="email" autocomplete="email" placeholder="example@domain.com" required>
+          </label>
+        </div>
+
+        <div class="pv-form-row">
+          <label>お問い合わせ内容（必須）
+            <textarea name="message" rows="6" placeholder="お問い合わせ内容をご記入ください" required></textarea>
+          </label>
+        </div>
+
+        <label class="pv-agree">
+          <input type="checkbox" id="pvAgree" name="agree" value="yes">
+          <span>プライバシーポリシーに同意します</span>
+        </label>
+
+        <input type="text" name="company" autocomplete="off" style="display:none" tabindex="-1" value="">
+
+        <div class="pv-form-actions">
+          <button class="pv-link-btn pv-btn-primary" type="submit">メールを作成して送信</button>
+        </div>
+      </form>
+      {hint_html}
+      """.strip()
+
+        action_script = f"""
+<script>
+(function(){{
+  var toEmail = "{esc_email}";
+  function showError(msg){{
+    var box = document.getElementById('pvContactError');
+    if(!box) return;
+    box.textContent = msg || '';
+    box.style.display = msg ? 'block' : 'none';
   }}
-  show(un);
+
+  var form = document.getElementById('pvMailForm');
+  if(!form) return;
+
+  form.addEventListener('submit', function(e){{
+    e.preventDefault();
+    var email = (form.email && form.email.value || '').trim();
+    var message = (form.message && form.message.value || '').trim();
+    var name = (form.name && form.name.value || '').trim();
+    var agree = document.getElementById('pvAgree');
+
+    if(form.company && form.company.value){{
+      showError('送信に失敗しました。');
+      return;
+    }}
+
+    if(!email){{ showError('メールアドレスを入力してください。'); return; }}
+    if(!message){{ showError('お問い合わせ内容を入力してください。'); return; }}
+    if(agree && !agree.checked){{ showError('プライバシーポリシーに同意してください。'); return; }}
+
+    showError('');
+
+    var subject = encodeURIComponent('【{esc_company}】お問い合わせ');
+    var bodyLines = [];
+    if(name) bodyLines.push('お名前: ' + name);
+    bodyLines.push('メール: ' + email);
+    bodyLines.push('');
+    bodyLines.push(message);
+
+    var body = encodeURIComponent(bodyLines.join('\n'));
+    var href = 'mailto:' + encodeURIComponent(toEmail) + '?subject=' + subject + '&body=' + body;
+    location.href = href;
+  }});
 }})();
 </script>
+""".strip()
+
+    else:
+        # php
+        action_html = f"""
+      <form class="pv-form" id="pvPhpForm" action="contact.php" method="POST" novalidate>
+        <div class="pv-form-row">
+          <label>お名前（任意）
+            <input type="text" name="name" autocomplete="name" placeholder="例）山田 太郎">
+          </label>
+        </div>
+
+        <div class="pv-form-row">
+          <label>メールアドレス（必須）
+            <input type="email" name="email" autocomplete="email" placeholder="example@domain.com" required>
+          </label>
+        </div>
+
+        <div class="pv-form-row">
+          <label>お問い合わせ内容（必須）
+            <textarea name="message" rows="6" placeholder="お問い合わせ内容をご記入ください" required></textarea>
+          </label>
+        </div>
+
+        <label class="pv-agree">
+          <input type="checkbox" id="pvAgree" name="agree" value="yes">
+          <span>プライバシーポリシーに同意します</span>
+        </label>
+
+        <input type="text" name="company" autocomplete="off" style="display:none" tabindex="-1" value="">
+
+        <div class="pv-form-actions">
+          <button class="pv-link-btn pv-btn-primary" type="submit">送信する</button>
+          {f'<a class="pv-link-btn pv-btn-outline" href="mailto:{esc_email}">メールで連絡する</a>' if esc_email else ''}
+        </div>
+      </form>
+      {hint_html}
+      """.strip()
+
+        action_script = """
+<script>
+(function(){
+  function showError(msg){
+    var box = document.getElementById('pvContactError');
+    if(!box) return;
+    box.textContent = msg || '';
+    box.style.display = msg ? 'block' : 'none';
+  }
+
+  var form = document.getElementById('pvPhpForm');
+  if(!form) return;
+
+  form.addEventListener('submit', function(e){
+    var email = (form.email && form.email.value || '').trim();
+    var message = (form.message && form.message.value || '').trim();
+    var agree = document.getElementById('pvAgree');
+
+    if(form.company && form.company.value){
+      e.preventDefault();
+      showError('送信に失敗しました。');
+      return;
+    }
+
+    if(!email){
+      e.preventDefault();
+      showError('メールアドレスを入力してください。');
+      return;
+    }
+    if(!message){
+      e.preventDefault();
+      showError('お問い合わせ内容を入力してください。');
+      return;
+    }
+    if(agree && !agree.checked){
+      e.preventDefault();
+      showError('プライバシーポリシーに同意してください。');
+      return;
+    }
+
+    showError('');
+  });
+})();
+</script>
+""".strip()
+
+    # 最終組み立て（カード）
+    card_html = f"""
+<div class="pv-panel pv-panel-glass pv-contact-card">
+  <div class="pv-contact-message">{message_html}</div>
+  {hours_html}
+  <div class="pv-error-box" id="pvContactError" style="display:none"></div>
+  {action_html}
+  {contact_warn_html}
+</div>
+{action_script}
+""".strip()
+
+    return card_html
+
+def build_static_site_files(p: dict) -> dict[str, bytes]:
+    """案件データから、公開用の静的ファイル一式を生成して返す。
+
+    重要:
+    - 公開用HTML/CSSのベースを「ビルダーのプレビューUI（pv-layout-260218）」に統一する
+    - スマホ/PC表示の違いは pv-mode-mobile / pv-mode-pc をJSで付け替えて再現する
+    """
+    p = normalize_project(p)
+
+    data = p.get("data") or {}
+    step1 = data.get("step1") or {}
+    step2 = data.get("step2") or {}
+    blocks = data.get("blocks") or {}
+
+    company_name = str(step2.get("company_name") or "").strip() or "会社名"
+    catch_copy = str(step2.get("catch_copy") or "").strip()
+    catch_size = str(step2.get("catch_size") or "md").strip() or "md"
+    email = str(step2.get("email") or "").strip()
+    address = str(step2.get("address") or "").strip()
+
+    favicon_url = str(step2.get("favicon_url") or "").strip()
+    favicon_filename = str(step2.get("favicon_filename") or "").strip()
+
+    primary_key = str(step1.get("primary_color") or "blue").strip()
+    primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
+    is_dark = primary_key in ("black", "navy")
+
+    def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
+        h = (hex_str or "").strip().lstrip("#")
+        if len(h) == 3:
+            h = "".join([c * 2 for c in h])
+        try:
+            return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        except Exception:
+            return 30, 94, 255
+
+    r, g, b = _hex_to_rgb(primary_hex)
+    theme_style = _preview_glass_style(step1, dark=is_dark).strip().rstrip(";")
+    theme_style = f"{theme_style}; --pv-accent-rgb: {r},{g},{b};"
+
+    # --------------------
+    # CSS / JS (公開用)
+    # --------------------
+    PV_THEME_CSS = r"""
+
+  /* ====== Page base ====== */
+  .cvhb-page {
+    background: #f5f5f5;
+    min-height: calc(100vh - 64px);
+  }
+  .cvhb-container {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 16px;
+  }
+
+  /* ====== Split layout (PC builder) ====== */
+  .cvhb-split {
+    display: grid;
+    grid-template-columns: 520px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .cvhb-left-col,
+  .cvhb-right-col {
+    width: 100%;
+  }
+
+  /* 左側フォームはカード幅いっぱいを使う（左寄せで細く見えるのを防ぐ） */
+  .cvhb-left-col .q-field,
+  .cvhb-left-col .q-input,
+  .cvhb-left-col .q-textarea {
+    width: 100%;
+  }
+
+  /* v0.6.992: 左入力欄の見た目（横幅・余白）を微調整 */
+  .cvhb-left-col .q-card { width: 100%; }
+  .cvhb-left-col .q-card.q-pa-md { padding: 14px !important; }
+  .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
+  .cvhb-left-col .q-field__bottom { padding-left: 0; }
+
+
+
+  /* 右プレビューはデスクトップ時に追従 */
+  @media (min-width: 761px) {
+    .cvhb-right-col {
+      position: sticky;
+      top: 88px;
+      align-self: start;
+    }
+  }
+
+  /* スマホ：縦並び */
+  @media (max-width: 760px) {
+    .cvhb-container { padding: 8px; }
+    .cvhb-split { grid-template-columns: 1fr; }
+    .cvhb-right-col { position: static; }
+  }
+
+  /* ====== Common ====== */
+  .cvhb-card-title {
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
+  .cvhb-muted {
+    color: rgba(0,0,0,.60);
+    font-size: 12px;
+  }
+
+  /* 左カラム：カード同士の間隔 */
+  .cvhb-left-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* ====== Step menu (left) ====== */
+  .cvhb-step-tabs { width: 100%; }
+  .cvhb-step-tabs .q-tabs__content { align-items: stretch; }
+  .cvhb-step-tabs .q-tab {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+    border-radius: 12px;
+    margin: 0 0 8px 0;
+    padding: 10px 12px;
+    background: rgba(0,0,0,.03);
+    border: 1px solid rgba(0,0,0,.10);
+  }
+  .cvhb-step-tabs .q-tab__content { justify-content: flex-start; }
+  .cvhb-step-tabs .q-tab__label {
+    white-space: normal;
+    line-height: 1.3;
+  }
+  .cvhb-step-tabs .q-tab--active {
+    background: rgba(25,118,210,0.08);
+    border-color: rgba(25,118,210,0.35);
+    font-weight: 700;
+  }
+
+  /* ====== Step3 block tabs ====== */
+  .cvhb-block-tabs .q-tabs__content { flex-wrap: wrap; }
+  .cvhb-block-tabs .q-tab {
+    min-height: 34px;
+    padding: 0 12px;
+  }
+  .cvhb-block-tabs .q-tab__label {
+    white-space: normal;
+    line-height: 1.2;
+  }
+
+  /* ====== Choice cards (industry/color) ====== */
+  .cvhb-choice {
+    border-radius: 12px;
+    transition: transform .08s ease, box-shadow .08s ease, border-color .08s ease;
+    cursor: pointer;
+  }
+  .cvhb-choice:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+  }
+  .cvhb-choice.is-selected {
+    border: 2px solid var(--q-primary);
+    background: rgba(25,118,210,0.06);
+  }
+  .cvhb-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(0,0,0,.20);
+    display: inline-block;
+  }
+
+  /* ====== Projects page ====== */
+  .cvhb-projects-actions {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .cvhb-project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .cvhb-project-card { height: 100%; }
+  .cvhb-project-meta {
+    font-size: 12px;
+    color: rgba(0,0,0,.60);
+    line-height: 1.4;
+  }
+
+  /* ====== Preview inside builder ====== */
+  .cvhb-preview .q-card { width: 100%; }
+/* ====== Preview PC（実サイト寄り） ====== */
+.cvhb-preview-pc { background: #f5f5f5; }
+.cvhb-pc-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid rgba(0,0,0,.10);
+}
+.cvhb-pc-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 24px;
+}
+.cvhb-pc-logo {
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.cvhb-pc-hero {
+  height: 380px;
+  background-size: cover;
+  background-position: center;
+}
+.cvhb-pc-hero-overlay {
+  height: 100%;
+  background: rgba(0,0,0,.52);
+}
+.cvhb-pc-hero-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-bottom: 40px;
+}
+.cvhb-pc-section { padding: 28px 0; }
+.cvhb-pc-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.cvhb-pc-grid-2-uneven {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.cvhb-pc-card { width: 100%; border-radius: 14px; }
+
+@media (max-width: 900px) {
+  .cvhb-pc-container { padding: 16px; }
+  .cvhb-pc-hero { height: 320px; }
+  .cvhb-pc-grid-2,
+  .cvhb-pc-grid-2-uneven { grid-template-columns: 1fr; }
+}
+
+
+  
+        /* ====== Preview (Glassmorphism) ====== */
+        .cvhb-preview-glass {
+          height: 100%;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          color: var(--pv-text);
+          background-image: var(--pv-bg-img);
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          border: 1px solid var(--pv-border);
+          border-radius: 18px;
+          overflow: hidden;
+        }
+
+        .pv-topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          background: var(--pv-card);
+          backdrop-filter: blur(12px);
+          border-bottom: 1px solid var(--pv-line);
+        }
+
+        .pv-brand {
+          font-weight: 900;
+          letter-spacing: .02em;
+          font-size: 15px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 48%;
+        }
+
+        .pv-nav {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          overflow-x: auto;
+          white-space: nowrap;
+          scrollbar-width: none;
+          max-width: 100%;
+        }
+        .pv-nav::-webkit-scrollbar { height: 0; }
+
+        .pv-navbtn {
+          font-weight: 900;
+          color: var(--pv-accent);
+        }
+        .pv-navbtn.q-btn--flat { padding: 4px 8px; border-radius: 999px; }
+        .pv-navbtn.q-btn--flat:hover { background: rgba(255,255,255,.22); }
+
+        .pv-topcta {
+          font-weight: 900;
+          border-radius: 999px;
+          background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+          color: white;
+          padding: 6px 12px;
+          box-shadow: 0 12px 28px rgba(0,0,0,.18);
+        }
+
+        .pv-scroll {
+          flex: 1;
+          overflow: auto;
+          padding: 14px 0 16px;
+        }
+
+        .pv-container {
+          width: min(1040px, calc(100% - 24px));
+          margin: 0 auto;
+        }
+
+        .pv-band { padding: 18px 0; }
+        .pv-band + .pv-band { border-top: 1px solid var(--pv-line); }
+
+        .pv-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+          align-items: start;
+        }
+        @media (max-width: 920px) { .pv-grid-2 { grid-template-columns: 1fr; } }
+
+        .pv-panel {
+          background: var(--pv-card);
+          border: 1px solid var(--pv-border);
+          border-radius: 22px;
+          box-shadow: var(--pv-shadow);
+          backdrop-filter: blur(14px);
+          padding: 16px;
+          animation: pvIn .45s ease both;
+        }
+        @keyframes pvIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @media (prefers-reduced-motion: reduce) { .pv-panel { animation: none; } }
+
+        .pv-kicker {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 900;
+          letter-spacing: .02em;
+          color: var(--pv-muted);
+          margin-bottom: 10px;
+        }
+        .pv-kicker .q-icon { color: var(--pv-accent); }
+
+        .pv-title {
+          font-weight: 900;
+          letter-spacing: .01em;
+          font-size: 26px;
+          line-height: 1.2;
+          margin: 0 0 6px;
+        }
+        .pv-h2 {
+          font-weight: 900;
+          letter-spacing: .01em;
+          font-size: 18px;
+          margin: 0 0 6px;
+        }
+        .pv-sub {
+          color: var(--pv-muted);
+          font-size: 14px;
+          line-height: 1.55;
+          margin: 0 0 12px;
+        }
+
+        .pv-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border-radius: 999px;
+          padding: 5px 10px;
+          background: var(--pv-chip-bg);
+          border: 1px solid var(--pv-chip-border);
+          font-size: 12px;
+          font-weight: 900;
+          color: var(--pv-muted);
+          margin: 4px 6px 0 0;
+        }
+        .pv-chip .q-icon { color: var(--pv-accent); }
+
+        /* Hero split layout */
+        .pv-hero-grid {
+          display: grid;
+          grid-template-columns: 1.05fr .95fr;
+          gap: 14px;
+          align-items: stretch;
+        }
+        @media (max-width: 920px) { .pv-hero-grid { grid-template-columns: 1fr; } }
+
+        .pv-hero-media { position: relative; }
+        .pv-hero-image {
+          position: relative;
+          height: 360px;
+          border-radius: 26px;
+          overflow: hidden;
+          border: 1px solid rgba(255,255,255,.45);
+          box-shadow: 0 22px 60px rgba(15,23,42,.18);
+          background-size: cover;
+          background-position: center;
+        }
+        .pv-hero-image::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(135deg, rgba(0,0,0,.55), rgba(0,0,0,.10));
+        }
+        .pv-hero-image-inner {
+          position: relative;
+          z-index: 1;
+          height: 100%;
+          display: flex;
+          align-items: flex-end;
+          padding: 14px;
+        }
+
+        .pv-hero-cta-row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-top: 6px;
+        }
+        .pv-cta {
+          border-radius: 999px;
+          font-weight: 900;
+        }
+        .pv-cta-primary {
+          background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+          color: white;
+          padding: 10px 14px;
+          box-shadow: 0 14px 32px rgba(0,0,0,.22);
+        }
+        .pv-cta-secondary {
+          background: rgba(255,255,255,.18);
+          color: white;
+          border: 1px solid rgba(255,255,255,.35);
+          padding: 10px 14px;
+        }
+
+        .pv-hero-float {
+          position: absolute;
+          top: 14px;
+          right: 14px;
+          width: min(340px, 78%);
+          z-index: 2;
+        }
+        @media (max-width: 520px) {
+          .pv-hero-image { height: 250px; }
+          .pv-hero-float { position: static; width: 100%; margin-top: 12px; }
+          .pv-brand { max-width: 42%; }
+        }
+
+        /* News / FAQ lists */
+        .pv-news-item, .pv-faq-item {
+          padding: 12px 6px;
+          border-bottom: 1px solid var(--pv-line);
+        }
+        .pv-news-item:last-child, .pv-faq-item:last-child { border-bottom: none; }
+
+        .pv-news-meta {
+          font-size: 12px;
+          color: var(--pv-muted);
+          display: flex;
+          gap: 10px;
+          align-items: center;
+        }
+        .pv-badge {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 2px 8px;
+          background: var(--pv-chip-bg);
+          border: 1px solid var(--pv-chip-border);
+          color: var(--pv-accent);
+          font-weight: 900;
+          font-size: 11px;
+        }
+        .pv-q { font-weight: 900; }
+        .pv-a { color: var(--pv-muted); }
+
+        /* Actions */
+        .pv-action {
+          border-radius: 12px;
+          font-weight: 900;
+          padding: 10px 12px;
+          background: var(--pv-chip-bg);
+          border: 1px solid var(--pv-chip-border);
+        }
+        .pv-action-primary {
+          background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+          color: white;
+          border: none;
+          box-shadow: 0 14px 32px rgba(0,0,0,.22);
+        }
+
+        .pv-prefooter {
+          padding: 12px 12px;
+          color: var(--pv-muted);
+          font-size: 12px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+        }
+        .pv-prefooter a { color: var(--pv-muted); text-decoration: none; }
+        .pv-prefooter a:hover { text-decoration: underline; }
+/* ====== 260218 Layout (Preview) ====== */
+.pv-shell.pv-layout-260218{
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  background: var(--pv-bg-img);
+  color: var(--pv-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+}
+
+/* ===== Builder内プレビューの基準幅（重要） =====
+   - スマホ: 720px
+   - PC: 1920px（プレビューは縮小表示／最低1280px）
+   ※ 実際の幅は JS の fit 関数が style.width で制御します。
+      ここで max-width:100% を付けると「PCもスマホも同じ」に見える原因になるので付けません。
+*/
+.pv-shell.pv-layout-260218.pv-mode-mobile{
+  width: 720px;      /* JS未適用時のフォールバック */
+  max-width: none;
+  height: 100%;
+  margin: 0;
+}
+
+.pv-shell.pv-layout-260218.pv-mode-pc{
+  width: 1920px;     /* JS未適用時のフォールバック */
+  max-width: none;
+  height: 100%;
+  margin: 0;
+}
+
+.pv-layout-260218 .pv-scroll{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  background: var(--pv-bg-img);
+}
+
+.pv-layout-260218 .pv-topbar-260218{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 12px 14px;
+  backdrop-filter: blur(16px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.64), rgba(255,255,255,0.50));
+  border-bottom: 1px solid rgba(255,255,255,0.28);
+}
+
+.pv-layout-260218.pv-dark .pv-topbar-260218{
+  background: linear-gradient(180deg, rgba(13,16,22,0.74), rgba(13,16,22,0.56));
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-topbar-inner{
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+/* ヘッダー内：会社名は左、メニューは右に固定 */
+
+.pv-layout-260218 .pv-brand{
+  cursor: pointer;
+  gap: 10px;
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.pv-layout-260218 .pv-favicon{
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.9);
+}
+
+.pv-layout-260218.pv-dark .pv-favicon{
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.20);
+}
+
+.pv-layout-260218 .pv-brand-name{
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-layout-260218 .pv-menu-btn{
+  opacity: 0.92;
+}
+
+/* 画像のように「三本線＋MENU（下）」にする */
+.pv-layout-260218 .pv-menu-btn.q-btn{
+  color: var(--pv-text);
+  padding: 6px 8px;
+  min-width: 48px;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-btn__content{
+  flex-direction: column;
+  line-height: 1;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-icon{
+  font-size: 24px;
+  margin: 0;
+}
+
+.pv-layout-260218 .pv-menu-btn .q-btn__content .block{
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+
+.pv-layout-260218 .pv-nav-card{
+  width: min(92vw, 360px);
+  border-radius: 18px;
+}
+
+.pv-layout-260218 .pv-nav-item{
+  justify-content: flex-start;
+}
+
+.pv-layout-260218 .pv-nav-item.q-btn{
+  color: var(--pv-text) !important;
+  font-weight: 800;
+}
+
+.pv-layout-260218 .pv-nav-item.q-btn:hover{
+  background: rgba(255,255,255,0.22);
+}
+
+.pv-layout-260218.pv-dark .pv-nav-item.q-btn:hover{
+  background: rgba(255,255,255,0.08);
+}
+
+.pv-layout-260218 .pv-menu-btn.q-btn{
+  color: var(--pv-text) !important;
+}
+
+/* PCヘッダー：デスクトップナビ（PCモードだけ表示） */
+.pv-layout-260218 .pv-desktop-nav{
+  display: none;
+  gap: 6px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.pv-layout-260218.pv-mode-pc .pv-desktop-nav{
+  display: flex;
+}
+.pv-layout-260218 .pv-desktop-nav .q-btn{
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--pv-text) !important;
+}
+.pv-layout-260218 .pv-desktop-nav .q-btn:hover{
+  background: rgba(255,255,255,0.22);
+}
+.pv-layout-260218.pv-dark .pv-desktop-nav .q-btn:hover{
+  background: rgba(255,255,255,0.08);
+}
+
+.pv-layout-260218 .pv-main{
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 18px 0;
+  font-size: 18px; /* v0.6.992: 本文を大きく（ヘッダー/フッターは除外） */
+}
+
+.pv-layout-260218 .pv-section{
+  margin: 22px 0 34px;
+}
+
+.pv-layout-260218 .pv-section-head{
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-section-title{
+  font-weight: 900;
+  font-size: 1.24rem; /* v0.6.992 */
+}
+
+.pv-layout-260218 .pv-section-en{
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  opacity: 0.55;
+}
+
+.pv-layout-260218 .pv-panel{
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid var(--pv-border);
+  box-shadow: var(--pv-shadow);
+}
+
+.pv-layout-260218 .pv-panel::before{
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(520px 420px at 18% 18%, var(--pv-blob4), transparent 62%),
+    radial-gradient(420px 340px at 92% 0%, rgba(255,255,255,0.22), transparent 60%);
+  opacity: 0.55;
+}
+
+.pv-layout-260218.pv-dark .pv-panel::before{
+  background:
+    radial-gradient(520px 420px at 18% 18%, var(--pv-blob4), transparent 62%),
+    radial-gradient(420px 340px at 92% 0%, rgba(255,255,255,0.10), transparent 60%);
+  opacity: 0.45;
+}
+
+.pv-layout-260218 .pv-panel > *{
+  position: relative;
+}
+
+.pv-layout-260218 .pv-panel-glass{
+  background: var(--pv-card);
+}
+
+.pv-layout-260218 .pv-panel-flat{
+  background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.30));
+  border: 1px solid rgba(255,255,255,0.26);
+  border-radius: 18px;
+  backdrop-filter: blur(14px);
+  padding: 16px;
+}
+
+.pv-layout-260218.pv-dark .pv-panel-flat{
+  background: linear-gradient(180deg, rgba(15,18,25,0.62), rgba(15,18,25,0.40));
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-muted{
+  color: var(--pv-muted);
+}
+
+.pv-layout-260218 .pv-h2{
+  font-weight: 900;
+  font-size: 1.15rem; /* v0.6.992 */
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-bodytext{
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-bullets{
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--pv-text);
+  opacity: 0.84;
+  line-height: 1.7;
+}
+
+
+/* ====== About: 要点カード（v0.6.992） ====== */
+.pv-layout-260218 .pv-points{
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pv-layout-260218 .pv-point-card{
+  flex: 1 1 180px;
+  min-width: 160px;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.18);
+  background: linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.28));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
+  backdrop-filter: blur(14px);
+  border-left: 6px solid var(--pv-primary);
+}
+.pv-layout-260218.pv-dark .pv-point-card{
+  background: linear-gradient(180deg, rgba(15,18,25,0.58), rgba(15,18,25,0.38));
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.42);
+}
+.pv-layout-260218 .pv-point-text{
+  font-weight: 900;
+  line-height: 1.55;
+}
+
+.pv-layout-260218 .pv-hero-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-grid{
+  grid-template-columns: 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.pv-layout-260218 .pv-hero-title{
+  font-weight: 1000;
+  font-size: clamp(1.45rem, 3.8vw, 2.55rem);
+  line-height: 1.18;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-hero-sub{
+  color: var(--pv-muted);
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-cta-row{
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pv-layout-260218 .pv-btn.q-btn{
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.pv-layout-260218 .pv-hero-slider{
+  border-radius: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.40);
+  box-shadow: var(--pv-shadow);
+  background: rgba(255,255,255,0.20);
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-slider{
+  height: 240px;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-slider{
+  height: 420px;
+}
+
+
+.pv-layout-260218.pv-dark .pv-hero-slider{
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.14);
+}
+
+/* ===== Hero: フル幅 & 大きく（nagomi-support.com のTOPみたいに） ===== */
+.pv-layout-260218 .pv-hero-wide{
+  position: relative;
+  margin: 0;
+}
+.pv-layout-260218 .pv-hero-slider-wide{
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: rgba(255,255,255,0.10);
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
+  height: auto;
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
+  height: auto;
+}
+.pv-layout-260218.pv-dark .pv-hero-slider-wide{
+  background: rgba(0,0,0,0.16);
+}
+
+/* ===== Hero slider dots (4 dots) ===== */
+.pv-layout-260218 .pv-hero-stage{
+  position: relative;
+}
+
+/* PC: dots are shown "below" the hero image, so we keep some space under the hero */
+.pv-layout-260218.pv-mode-pc .pv-hero-wide{
+  margin-bottom: 44px;
+}
+
+.pv-layout-260218 .pv-hero-dots{
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-dots{
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-hero-dots{
+  left: 50%;
+  bottom: -28px;
+  transform: translateX(-50%);
+  flex-direction: row;
+}
+
+.pv-layout-260218 .pv-hero-dot{
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,0.72);
+  background: rgba(255,255,255,0.30);
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.16);
+  transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.pv-layout-260218 .pv-hero-dot:hover{
+  transform: scale(1.15);
+}
+
+.pv-layout-260218 .pv-hero-dot.is-active{
+  background: var(--pv-primary);
+  border-color: rgba(255,255,255,0.92);
+  opacity: 1;
+}
+
+.pv-layout-260218.pv-dark .pv-hero-dot{
+  border-color: rgba(255,255,255,0.62);
+  background: rgba(0,0,0,0.24);
+  box-shadow: 0 12px 26px rgba(0,0,0,0.26);
+}
+
+.pv-layout-260218.pv-dark .pv-hero-dot.is-active{
+  background: rgba(255,255,255,0.92);
+  border-color: rgba(255,255,255,0.96);
+}
+
+.pv-layout-260218 .pv-hero-caption{
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: inline-block;
+  width: fit-content;
+  max-width: min(92%, 980px);
+  padding: 18px 22px;
+  border-radius: 18px;
+  text-align: center;
+  backdrop-filter: blur(18px);
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(255,255,255,0.42);
+  box-shadow: 0 22px 54px rgba(0,0,0,0.12);
+}
+
+/* SP: キャッチは画像に重ねず下へ（画像の下で目立たせる） */
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption{
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: min(92%, 680px);
+  margin: 14px auto 0;
+  padding: 16px 18px;
+  border-radius: 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(12px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.72));
+  border: 1px solid rgba(0,0,0,0.06);
+  border-top: 5px solid var(--pv-primary);
+  box-shadow: 0 20px 52px rgba(0,0,0,0.14);
+}
+.pv-layout-260218.pv-dark.pv-mode-mobile .pv-hero-caption{
+  background: rgba(0,0,0,0.55);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.pv-layout-260218.pv-dark .pv-hero-caption{
+  background: rgba(0,0,0,0.45);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.22);
+}
+
+/* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.996） */
+.pv-layout-260218.pv-mode-pc .pv-hero-caption{
+  bottom: 42px;
+  display: inline-block;
+  width: fit-content;
+  max-width: min(92%, 1120px);
+  padding: 26px 32px;
+  border-radius: 26px;
+  text-align: center;
+  backdrop-filter: blur(22px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
+  border: 1px solid rgba(255,255,255,0.56);
+  box-shadow: 0 40px 120px rgba(0,0,0,0.16);
+}
+.pv-layout-260218.pv-dark.pv-mode-pc .pv-hero-caption{
+  background: linear-gradient(180deg, rgba(0,0,0,0.46), rgba(0,0,0,0.28));
+  border-color: rgba(255,255,255,0.18);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.26);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title{
+  font-size: clamp(2.25rem, 3.2vw, 3.9rem);
+  letter-spacing: 0.02em;
+  text-shadow: 0 12px 30px rgba(0,0,0,0.18);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub{
+  font-size: clamp(1.18rem, 1.45vw, 1.45rem);
+  text-shadow: 0 10px 24px rgba(0,0,0,0.16);
+}
+/* ===== Hero: キャッチ/サブキャッチ 文字サイズ（大/中/小） ===== */
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-l{
+  font-size: clamp(2.6rem, 3.6vw, 4.4rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title.pv-size-s{
+  font-size: clamp(2.0rem, 2.8vw, 3.5rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-l{
+  font-size: clamp(1.35rem, 1.65vw, 1.75rem);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub.pv-size-s{
+  font-size: clamp(1.02rem, 1.25vw, 1.25rem);
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-l{ font-size: 2.05rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-s{ font-size: 1.55rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{ font-size: 1.02rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-l{ font-size: 1.15rem; }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-s{ font-size: 0.95rem; }
+
+
+.pv-layout-260218 .pv-hero-caption-title{
+  font-weight: 1000;
+  font-size: clamp(1.4rem, 2.8vw, 2.8rem);
+  line-height: 1.15;
+}
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
+  font-size: 1.75rem;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title,
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{
+  width: 100%;
+  text-align: center;
+}
+.pv-layout-260218 .pv-hero-caption-sub{
+  margin-top: 8px;
+  line-height: 1.7;
+  color: var(--pv-muted);
+}
+
+.pv-layout-260218 .pv-hero-track{
+  display: flex;
+  height: 100%;
+  transition: transform 500ms ease;
+}
+
+.pv-layout-260218 .pv-hero-slide{
+  flex: 0 0 100%;
+  height: 100%;
+  position: relative;
+}
+
+.pv-layout-260218 .pv-hero-img{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+
+.pv-layout-260218 .pv-news-list{
+  margin-top: 6px;
+}
+
+.pv-layout-260218 .pv-news-item{
+  display: grid;
+  grid-template-columns: 110px 92px 1fr 24px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pv-line);
+}
+
+.pv-layout-260218.pv-dark .pv-news-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-news-date{
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.pv-layout-260218 .pv-news-cat{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--pv-primary-weak);
+  color: var(--pv-primary);
+  font-weight: 900;
+  font-size: 0.72rem;
+}
+
+.pv-layout-260218.pv-dark .pv-news-cat{
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.86);
+}
+
+.pv-layout-260218 .pv-news-title{
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-news-empty{
+  opacity: 0;
+}
+
+.pv-layout-260218 .pv-news-arrow{
+  justify-self: end;
+  opacity: 0.45;
+}
+
+.pv-layout-260218.pv-dark .pv-news-arrow{
+  opacity: 0.55;
+}
+
+.pv-layout-260218 .pv-link-btn.q-btn{
+  margin-top: 10px;
+  font-weight: 900;
+}
+
+.pv-layout-260218 .pv-about-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-about-grid{
+  grid-template-columns: 1.12fr 0.88fr;
+}
+
+.pv-layout-260218 .pv-about-img{
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border-radius: 22px;
+  object-fit: cover;
+  border: 1px solid var(--pv-border);
+  box-shadow: var(--pv-shadow);
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-about-img{
+  height: auto;
+}
+
+.pv-layout-260218 .pv-surface-white{
+  background: linear-gradient(180deg, rgba(255,255,255,0.52), rgba(255,255,255,0.34));
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 22px;
+  box-shadow: var(--pv-shadow);
+  backdrop-filter: blur(16px);
+  padding: 16px;
+}
+
+.pv-layout-260218.pv-dark .pv-surface-white{
+  background: linear-gradient(180deg, rgba(12,15,22,0.64), rgba(12,15,22,0.44));
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-services-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-services-grid{
+  grid-template-columns: 0.95fr 1.05fr;
+  align-items: center;
+}
+
+.pv-layout-260218 .pv-services-img{
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border-radius: 18px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.pv-layout-260218.pv-dark .pv-services-img{
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218.pv-mode-pc .pv-services-img{
+  height: auto;
+}
+
+.pv-layout-260218 .pv-service-item{
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pv-line);
+}
+
+.pv-layout-260218.pv-dark .pv-service-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-service-title{
+  font-weight: 900;
+  margin-bottom: 2px;
+}
+
+.pv-layout-260218 .pv-faq-item{
+  padding: 12px 0;
+  border-bottom: 1px solid var(--pv-line);
+}
+
+.pv-layout-260218.pv-dark .pv-faq-item{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-faq-q{
+  font-weight: 900;
+}
+
+.pv-layout-260218 .pv-faq-a{
+  margin-top: 4px;
+  color: var(--pv-muted);
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-access-card{
+  padding: 16px;
+}
+
+.pv-layout-260218 .pv-access-company{
+  font-weight: 900;
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+.pv-layout-260218 .pv-access-meta{
+  flex-wrap: wrap;
+}
+.pv-layout-260218 .pv-access-icon{
+  font-size: 18px;
+  opacity: 0.92;
+}
+
+
+/* ====== Access: 地図枠（画像風）+ GoogleMap iframe（任意）+ 地図を開くリンク（v0.6.995） ====== */
+.pv-layout-260218 .pv-mapframe{
+  margin-top: 12px;
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+  height: 260px;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 26px 70px rgba(15,23,42,0.14);
+  background:
+    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.36), transparent 70%),
+    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.22), transparent 72%),
+    linear-gradient(135deg, var(--pv-primary-weak), rgba(255,255,255,0.14)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.16) 0, rgba(255,255,255,0.16) 2px, transparent 2px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0, rgba(255,255,255,0.14) 2px, transparent 2px, transparent 30px),
+    repeating-linear-gradient(45deg, rgba(15,23,42,0.05) 0, rgba(15,23,42,0.05) 2px, transparent 2px, transparent 78px),
+    repeating-linear-gradient(-45deg, rgba(15,23,42,0.04) 0, rgba(15,23,42,0.04) 2px, transparent 2px, transparent 92px);
+}
+.pv-layout-260218.pv-mode-mobile .pv-mapframe{
+  height: 230px;
+}
+.pv-layout-260218.pv-mode-pc .pv-mapframe{
+  height: 310px;
+}
+.pv-layout-260218.pv-dark .pv-mapframe{
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.28);
+  background:
+    radial-gradient(420px 260px at 12% 18%, rgba(255,255,255,0.10), transparent 70%),
+    radial-gradient(520px 320px at 88% 92%, rgba(255,255,255,0.06), transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,0.06), rgba(0,0,0,0.22)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 30px),
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0, rgba(255,255,255,0.05) 2px, transparent 2px, transparent 78px),
+    repeating-linear-gradient(-45deg, rgba(255,255,255,0.04) 0, rgba(255,255,255,0.04) 2px, transparent 2px, transparent 92px);
+}
+
+.pv-layout-260218 .pv-mapframe-link{
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* live map (iframe) */
+.pv-layout-260218 .pv-mapframe-live{
+  background: rgba(255,255,255,0.06);
+}
+.pv-layout-260218.pv-dark .pv-mapframe-live{
+  background: rgba(0,0,0,0.20);
+}
+.pv-layout-260218 .pv-map-iframe{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.pv-layout-260218 .pv-mapframe-ui{
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pv-layout-260218 .pv-mapframe-ui .pv-mapframe-open{
+  pointer-events: auto;
+}
+
+.pv-layout-260218 .pv-mapframe-badge{
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  background: rgba(255,255,255,0.66);
+  border: 1px solid rgba(255,255,255,0.28);
+  color: var(--pv-text);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+.pv-layout-260218.pv-dark .pv-mapframe-badge{
+  background: rgba(0,0,0,0.32);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.90);
+}
+
+.pv-layout-260218 .pv-mapframe-pin{
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -70%);
+  font-size: 44px;
+  color: var(--pv-primary);
+  filter: drop-shadow(0 14px 24px rgba(0,0,0,0.22));
+}
+.pv-layout-260218 .pv-mapframe-bottom{
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.20);
+  backdrop-filter: blur(10px);
+}
+.pv-layout-260218.pv-dark .pv-mapframe-bottom{
+  background: rgba(0,0,0,0.22);
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-mapframe-label{
+  font-weight: 900;
+  color: var(--pv-text);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.28);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-mapframe-open{
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: linear-gradient(135deg, var(--pv-accent), var(--pv-accent-2));
+  color: #fff;
+  font-weight: 900;
+  box-shadow: 0 14px 28px rgba(0,0,0,0.22);
+}
+
+.pv-layout-260218 .pv-map-openlink{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-weight: 900;
+  text-decoration: none;
+  color: var(--pv-primary);
+}
+.pv-layout-260218 .pv-map-openlink:hover{
+  text-decoration: underline;
+}
+.pv-layout-260218 .pv-map-openlink .q-icon{
+  font-size: 18px;
+}
+
+.pv-layout-260218 .pv-contact-card{
+  padding: 16px;
+}
+
+.pv-layout-260218 .pv-contact-actions{
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.pv-layout-260218 .pv-companybar{
+  margin: 22px 0 0;
+  padding: 0 18px 18px;
+}
+
+.pv-layout-260218 .pv-companybar-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+  border-radius: 22px;
+  padding: 14px 16px;
+  font-size: 18px; /* v0.6.992: 下部バーも読みやすく */
+  background: linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.26));
+  border: 1px solid rgba(255,255,255,0.22);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pv-layout-260218.pv-dark .pv-companybar-inner{
+  background: linear-gradient(180deg, rgba(13,16,22,0.62), rgba(13,16,22,0.44));
+  border-color: rgba(255,255,255,0.12);
+}
+
+.pv-layout-260218 .pv-companybar-name{
+  font-weight: 1000;
+}
+
+.pv-layout-260218 .pv-companybar-meta{
+  color: var(--pv-muted);
+  font-size: 0.95rem; /* v0.6.992 */
+  margin-top: 2px;
+}
+
+.pv-layout-260218 .pv-mapshot{
+  padding: 0 18px 18px;
+}
+
+.pv-layout-260218 .pv-mapshot-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.pv-layout-260218 .pv-mapshot-card{
+  padding: 14px;
+}
+
+.pv-layout-260218 .pv-mapshot-head{
+  margin-bottom: 10px;
+}
+
+.pv-layout-260218 .pv-mapshot-label{
+  font-weight: 900;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  opacity: 0.65;
+}
+
+.pv-layout-260218 .pv-mapshot-img-link{
+  display: block;
+  text-decoration: none;
+}
+
+.pv-layout-260218 .pv-mapshot-img{
+  position: relative;
+  height: 220px;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: var(--pv-shadow);
+  background:
+    radial-gradient(520px 220px at 18% 22%, rgba(255,255,255,0.44), transparent 62%),
+    radial-gradient(420px 240px at 88% 18%, rgba(255,255,255,0.28), transparent 62%),
+    linear-gradient(160deg, rgba(255,255,255,0.30), rgba(255,255,255,0.14)),
+    repeating-linear-gradient(0deg, rgba(15,23,42,0.06), rgba(15,23,42,0.06) 1px, transparent 1px, transparent 14px),
+    repeating-linear-gradient(90deg, rgba(15,23,42,0.04), rgba(15,23,42,0.04) 1px, transparent 1px, transparent 18px);
+}
+
+.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
+  height: 280px;
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-img{
+  border-color: rgba(255,255,255,0.12);
+  background:
+    radial-gradient(520px 220px at 18% 22%, rgba(255,255,255,0.14), transparent 62%),
+    radial-gradient(420px 240px at 88% 18%, rgba(255,255,255,0.08), transparent 62%),
+    linear-gradient(160deg, rgba(15,18,25,0.66), rgba(15,18,25,0.42)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08), rgba(255,255,255,0.08) 1px, transparent 1px, transparent 14px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.06) 1px, transparent 1px, transparent 18px);
+}
+
+.pv-layout-260218 .pv-mapshot-pin{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -62%);
+  font-size: 46px;
+  color: var(--pv-primary) !important;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.12));
+  opacity: 0.90;
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-pin{
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.32));
+}
+
+.pv-layout-260218 .pv-mapshot-open{
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, 42%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.34);
+  border: 1px solid rgba(255,255,255,0.22);
+  color: var(--pv-text);
+  font-weight: 900;
+  font-size: 0.82rem;
+  backdrop-filter: blur(10px);
+}
+
+.pv-layout-260218.pv-dark .pv-mapshot-open{
+  background: rgba(15,18,25,0.50);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.86);
+}
+
+.pv-layout-260218 .pv-mapshot-address{
+  margin-top: 10px;
+  color: var(--pv-text);
+  opacity: 0.80;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.pv-layout-260218 .pv-footer{
+  margin-top: 8px;
+  padding: 18px;
+  background: rgba(10,12,18,0.92);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.78);
+}
+
+.pv-layout-260218 .pv-footer-grid{
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.pv-layout-260218.pv-mode-pc .pv-footer-grid{
+  grid-template-columns: 1fr;
+}
+
+.pv-layout-260218 .pv-footer-brand{
+  font-weight: 1000;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-footer-cap{
+  font-weight: 900;
+  color: rgba(255,255,255,0.92);
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.pv-layout-260218 .pv-footer-link.q-btn,
+.pv-layout-260218 .pv-footer-link.q-btn .q-btn__content,
+.pv-layout-260218 .pv-footer-link.q-btn .q-btn__content span{
+  color: rgba(255,255,255,0.86) !important;
+}
+.pv-layout-260218 .pv-footer-link.q-btn{
+  justify-content: flex-start;
+  padding-left: 0;
+}
+
+.pv-layout-260218 .pv-footer-link.q-btn:hover{
+  color: #fff !important;
+}
+
+.pv-layout-260218 .pv-footer-text{
+  color: rgba(255,255,255,0.76);
+  line-height: 1.7;
+}
+
+.pv-layout-260218 .pv-footer-copy{
+  max-width: 1280px;
+  margin: 12px auto 0;
+  opacity: 0.62;
+  font-size: 0.8rem;
+}
+/* ====== Legal (Privacy Policy) ====== */
+.pv-legal-title{
+  font-weight: 900;
+  font-size: 1.05rem;
+}
+.pv-legal-md{
+  font-size: 0.98rem;
+  line-height: 1.85;
+}
+.pv-legal-md h1,
+.pv-legal-md h2,
+.pv-legal-md h3{
+  margin: 14px 0 8px;
+  font-weight: 900;
+}
+.pv-legal-md h2{ font-size: 1.05rem; }
+.pv-legal-md h3{ font-size: 1.0rem; }
+.pv-legal-md ul{ padding-left: 1.2em; }
+.pv-legal-md li{ margin: 6px 0; }
+
+/* ====== Preview tabs icon spacing ====== */
+.cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
+    """
+
+    EXPORT_BASE_CSS = r"""
+/* ===== CVHB Export Base ===== */
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; line-height:1.7;}
+a{color:inherit;text-decoration:none;}
+a:hover{text-decoration:none;}
+
+/* Quasarっぽい最小ユーティリティ（プレビューCSSが前提にしているため） */
+.row{display:flex;flex-wrap:wrap;}
+.no-wrap{flex-wrap:nowrap;}
+.items-center{align-items:center;}
+.items-start{align-items:flex-start;}
+.items-end{align-items:flex-end;}
+.justify-between{justify-content:space-between;}
+.justify-center{justify-content:center;}
+.justify-end{justify-content:flex-end;}
+
+/* ボタン風（q-btn依存を外すため、exportでは素のa/buttonにも効かせる） */
+.pv-layout-260218 .pv-desktop-nav-btn,
+.pv-layout-260218 .pv-menu-btn,
+.pv-layout-260218 .pv-link-btn,
+.pv-layout-260218 .pv-nav-item,
+.pv-layout-260218 .pv-footer-link{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:10px 14px;
+  border-radius:999px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  font-weight:800;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+
+.pv-layout-260218 .pv-link-btn{padding:10px 18px;}
+
+.pv-layout-260218 .pv-btn-primary{background:var(--pv-accent); color:#fff;}
+.pv-layout-260218 .pv-btn-outline{border-color:rgba(var(--pv-accent-rgb),.95); color:var(--pv-accent);}
+.pv-layout-260218 .pv-btn-outline:hover{background:rgba(var(--pv-accent-rgb),.10);}
+
+.pv-layout-260218 .pv-inline-link{color:var(--pv-accent); text-decoration:underline; text-underline-offset:3px;}
+
+/* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
+.pv-shell.pv-layout-260218,
+.pv-shell.pv-layout-260218.pv-mode-mobile,
+.pv-shell.pv-layout-260218.pv-mode-pc{
+  width:100% !important;
+  max-width:none !important;
+  height:auto !important;
+  min-height:100vh;
+  border-radius:0 !important;
+  overflow:visible !important;
+}
+
+.pv-layout-260218 .pv-scroll{
+  overflow:visible !important;
+}
+
+/* PCではメニューボタンを隠す（プレビューは条件レンダリングだが、exportは両方DOMに置く） */
+.pv-layout-260218.pv-mode-pc .pv-menu-btn{display:none;}
+
+/* ===== Mobile Menu Overlay (export only) ===== */
+.pv-nav-overlay{
+  position:fixed;
+  inset:0;
+  padding:16px;
+  background:rgba(0,0,0,.45);
+  display:none;
+  align-items:flex-start;
+  justify-content:flex-end;
+  z-index:999;
+}
+.pv-nav-overlay.is-open{display:flex;}
+
+.pv-nav-card{
+  width:min(420px, 100%);
+  border-radius:18px;
+  padding:14px;
+  border:1px solid rgba(255,255,255,.22);
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:0 18px 40px rgba(0,0,0,.25);
+}
+.pv-dark .pv-nav-card{
+  background:rgba(18,18,18,.92);
+  border-color:rgba(255,255,255,.12);
+}
+
+.pv-nav-title{font-weight:900; font-size:14px; opacity:.7; margin:2px 8px 10px;}
+.pv-nav-item{width:100%; justify-content:flex-start; border-radius:14px; padding:12px 14px;}
+.pv-nav-close{width:100%; margin-top:10px; padding:12px 14px; border-radius:14px; border:1px solid rgba(0,0,0,.08); background:rgba(0,0,0,.05); font-weight:900; cursor:pointer;}
+.pv-dark .pv-nav-close{border-color:rgba(255,255,255,.12); background:rgba(255,255,255,.08); color:var(--pv-text);}
+
+/* ===== Contact Form (export only) ===== */
+.pv-error-box{
+  margin:12px 0 0;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(255, 59, 48, .14);
+  border:1px solid rgba(255, 59, 48, .35);
+  color:var(--pv-text);
+  font-weight:800;
+}
+
+.pv-form{margin-top:14px;}
+.pv-form-row{margin-top:12px;}
+.pv-form label{display:block; font-weight:900; font-size:14px;}
+.pv-form input,
+.pv-form textarea{
+  width:100%;
+  margin-top:6px;
+  padding:12px 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.25);
+  background:rgba(255,255,255,.14);
+  color:var(--pv-text);
+  outline:none;
+}
+.pv-dark .pv-form input,
+.pv-dark .pv-form textarea{
+  border-color:rgba(255,255,255,.18);
+  background:rgba(0,0,0,.20);
+}
+
+.pv-form textarea{resize:vertical; min-height:140px;}
+.pv-form input:focus,
+.pv-form textarea:focus{
+  border-color:rgba(var(--pv-accent-rgb), .9);
+  box-shadow:0 0 0 3px rgba(var(--pv-accent-rgb), .20);
+}
+
+.pv-agree{display:flex; gap:10px; align-items:flex-start; margin-top:14px; font-weight:800;}
+.pv-agree input{margin-top:3px;}
+
+.pv-form-actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;}
+
+/* ===== Privacy / Legal (export only) ===== */
+.pv-legal{padding-top:6px;}
+.pv-legal h1,.pv-legal h2,.pv-legal h3{line-height:1.3;}
+.pv-legal h1{font-size:22px; margin:0 0 10px;}
+.pv-legal h2{font-size:18px; margin:18px 0 8px;}
+.pv-legal p{margin:8px 0;}
+.pv-legal ul{margin:8px 0 8px 1.2em;}
+.pv-legal li{margin:6px 0;}
+
+/* ===== Thanks ===== */
+.pv-thanks-card{padding:22px;}
+.pv-thanks-title{font-size:20px; font-weight:1000;}
+.pv-thanks-message{margin-top:10px; opacity:.92;}
+.pv-thanks-actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:16px;}
+.pv-thanks-mail{margin-top:18px; padding-top:14px; border-top:1px solid rgba(255,255,255,.20);}
+.pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
+"""
+
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS
+    # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
+    #   ただし重複許容（sizeより一致優先）
+
+    files: dict[str, bytes] = {}
+
+    # --------------------
+    # favicon / images
+    # --------------------
+    favicon_href = ""
+    if favicon_url and _is_data_url(favicon_url):
+        meta = _data_url_meta(favicon_url)
+        ext = meta.get("ext") or "png"
+        data = meta.get("data") or b""
+        # favicon は常に assets/favicon.xxx に落とす
+        path = f"assets/favicon.{ext}"
+        files[path] = data
+        favicon_href = path
+    elif favicon_url:
+        favicon_href = favicon_url
+
+    # ヒーロー画像（最大4枚）
+    hero = blocks.get("hero") or {}
+    hero_imgs = hero.get("images") or []
+    hero_urls: list[str] = []
+    for i, url in enumerate(hero_imgs[:4]):
+        if not url:
+            continue
+        u = str(url).strip()
+        if _is_data_url(u):
+            meta = _data_url_meta(u)
+            ext = meta.get("ext") or "jpg"
+            bts = meta.get("data") or b""
+            path = f"assets/hero_{i+1}.{ext}"
+            files[path] = bts
+            hero_urls.append(path)
+        else:
+            hero_urls.append(u)
+
+    # 施設ロゴ（faviconとは別）
+    logo_url = str(step2.get("logo_url") or "").strip()
+    logo_href = ""
+    if logo_url and _is_data_url(logo_url):
+        meta = _data_url_meta(logo_url)
+        ext = meta.get("ext") or "png"
+        bts = meta.get("data") or b""
+        path = f"assets/logo.{ext}"
+        files[path] = bts
+        logo_href = path
+    elif logo_url:
+        logo_href = logo_url
+
+    # philosophy / service の画像
+    ph = blocks.get("philosophy") or {}
+    ph_img_url = str(ph.get("image") or "").strip()
+    ph_img_href = ""
+    if ph_img_url and _is_data_url(ph_img_url):
+        meta = _data_url_meta(ph_img_url)
+        ext = meta.get("ext") or "jpg"
+        bts = meta.get("data") or b""
+        path = f"assets/about.{ext}"
+        files[path] = bts
+        ph_img_href = path
+    elif ph_img_url:
+        ph_img_href = ph_img_url
+
+    svc = blocks.get("service") or {}
+    svc_img_url = str(svc.get("image") or "").strip()
+    svc_img_href = ""
+    if svc_img_url and _is_data_url(svc_img_url):
+        meta = _data_url_meta(svc_img_url)
+        ext = meta.get("ext") or "jpg"
+        bts = meta.get("data") or b""
+        path = f"assets/services.{ext}"
+        files[path] = bts
+        svc_img_href = path
+    elif svc_img_url:
+        svc_img_href = svc_img_url
+
+    # --------------------
+    # JS
+    # --------------------
+    site_js = r"""
+(function(){
+  function ready(fn){
+    if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', fn); }
+    else { fn(); }
+  }
+
+  function setMode(root){
+    var isPC = window.matchMedia('(min-width: 980px)').matches;
+    root.classList.toggle('pv-mode-pc', isPC);
+    root.classList.toggle('pv-mode-mobile', !isPC);
+  }
+
+  function initNav(){
+    var openBtn = document.getElementById('pvMenuOpen');
+    var overlay = document.getElementById('pvNavOverlay');
+    var closeBtn = document.getElementById('pvMenuClose');
+    if(!openBtn || !overlay) return;
+
+    var close = function(){
+      overlay.hidden = true;
+      overlay.classList.remove('is-open');
+      document.body.style.overflow = '';
+    };
+    var open = function(){
+      overlay.hidden = false;
+      overlay.classList.add('is-open');
+      document.body.style.overflow = 'hidden';
+    };
+
+    openBtn.addEventListener('click', open);
+    if(closeBtn) closeBtn.addEventListener('click', close);
+
+    overlay.addEventListener('click', function(ev){
+      if(ev.target === overlay) close();
+    });
+    overlay.querySelectorAll('a').forEach(function(a){ a.addEventListener('click', close); });
+
+    document.addEventListener('keydown', function(ev){
+      if(ev.key === 'Escape') close();
+    });
+  }
+
+  function initSmoothScroll(){
+    document.querySelectorAll('a[href^="#"]').forEach(function(a){
+      a.addEventListener('click', function(ev){
+        var href = a.getAttribute('href');
+        if(!href || href.length < 2) return;
+        var id = href.slice(1);
+        var target = document.getElementById(id);
+        if(!target) return;
+        ev.preventDefault();
+        var topbar = document.querySelector('.pv-topbar');
+        var offset = topbar ? topbar.getBoundingClientRect().height : 0;
+        var y = target.getBoundingClientRect().top + window.pageYOffset - offset - 8;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+      });
+    });
+  }
+
+  function initHeroSlider(root){
+    var slider = document.getElementById('pv-hero-slider');
+    if(!slider) return;
+    var track = slider.querySelector('.pv-hero-track');
+    if(!track) return;
+
+    var slides = Array.prototype.slice.call(track.children || []);
+    if(slides.length <= 1) return;
+
+    var dotsBox = document.getElementById('pv-hero-slider-dots');
+    var axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
+    var idx = 0;
+
+    function applyAxis(){
+      axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
+      track.style.flexDirection = axis === 'y' ? 'column' : 'row';
+      slides.forEach(function(sl){ sl.style.flex = '0 0 100%'; });
+      update();
+    }
+
+    function update(){
+      track.style.transform = (axis === 'y')
+        ? ('translate3d(0,' + (-idx * 100) + '%,0)')
+        : ('translate3d(' + (-idx * 100) + '%,0,0)');
+      if(dotsBox){
+        dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(d, i){
+          d.classList.toggle('is-active', i === idx);
+        });
+      }
+    }
+
+    function set(i){
+      idx = (i + slides.length) % slides.length;
+      update();
+    }
+
+    if(dotsBox){
+      dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var i = parseInt(btn.getAttribute('data-i') || '0', 10);
+          if(!isNaN(i)) set(i);
+        });
+      });
+    }
+
+    applyAxis();
+
+    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10);
+    if(intervalMs > 0){
+      var timer = setInterval(function(){ set(idx + 1); }, intervalMs);
+      slider.addEventListener('mouseenter', function(){ clearInterval(timer); });
+      slider.addEventListener('mouseleave', function(){ timer = setInterval(function(){ set(idx + 1); }, intervalMs); });
+    }
+
+    slider.__cvhbReinit = applyAxis;
+  }
+
+  ready(function(){
+    var root = document.getElementById('pv-root');
+    if(!root) return;
+
+    function applyMode(){
+      setMode(root);
+      var slider = document.getElementById('pv-hero-slider');
+      if(slider && slider.__cvhbReinit) slider.__cvhbReinit();
+    }
+
+    applyMode();
+    window.addEventListener('resize', function(){
+      clearTimeout(window.__cvhbModeTimer);
+      window.__cvhbModeTimer = setTimeout(applyMode, 150);
+    });
+
+    initNav();
+    initSmoothScroll();
+    initHeroSlider(root);
+
+    var y = document.getElementById('pvYear');
+    if(y) y.textContent = String(new Date().getFullYear());
+  });
+})();
+    """.strip() + "\n"
+
+    files["assets/site.css"] = site_css.encode("utf-8")
+    files["assets/site.js"] = site_js.encode("utf-8")
+
+    # --------------------
+    # 内容生成ヘルパ
+    # --------------------
+    def _esc(s: str) -> str:
+        return html.escape(s or "")
+
+    def _paras(text: str) -> str:
+        t = (text or "").strip()
+        if not t:
+            return ""
+        return "<p>" + _esc(t).replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>"
+
+    # ページ共通: セクションヘッダー
+    def _section_head(title_jp: str, subtitle_en: str) -> str:
+        return f"""<div class=\"pv-section-head\">\n  <div class=\"pv-section-title\">{_esc(title_jp)}</div>\n  <div class=\"pv-section-subtitle\">{_esc(subtitle_en)}</div>\n</div>"""
+
+    # 共通ナビ（index内リンク）
+    nav_items = [
+        ("pv-news", "お知らせ"),
+        ("pv-about", "私たちについて"),
+        ("pv-services", "業務内容"),
+        ("pv-faq", "よくある質問"),
+        ("pv-access", "アクセス"),
+        ("pv-contact", "お問い合わせ"),
+    ]
+
+    desktop_nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
+    desktop_nav_html += '<a class="pv-desktop-nav-btn" href="privacy.html">プライバシーポリシー</a>'
+
+    mobile_nav_items_html = "".join([
+        f'<a class="pv-nav-item" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items
+    ]) + '<a class="pv-nav-item" href="privacy.html">プライバシーポリシー</a>'
+
+    # --------------------
+    # hero
+    # --------------------
+    sub_catch = str(hero.get("sub_catch") or "").strip()
+    hero_title = catch_copy or company_name
+    hero_sub = sub_catch or ""
+
+    slides_html = ""
+    if hero_urls:
+        slides = []
+        for u in hero_urls:
+            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt=""></div>')
+        slides_html = "".join(slides)
+    else:
+        slides_html = '<div class="pv-hero-slide"><div class="pv-hero-img pv-hero-img-placeholder"></div></div>'
+
+    dots_html = ""
+    if len(hero_urls) >= 2:
+        dot_btns = []
+        for i in range(len(hero_urls)):
+            dot_btns.append(
+                f'<button class="pv-hero-dot{(" is-active" if i == 0 else "")}" type="button" data-i="{i}" aria-label="slide {i+1}"></button>'
+            )
+        dots_html = f'<div class="pv-hero-dots" id="pv-hero-slider-dots">{"".join(dot_btns)}</div>'
+
+    hero_html = f"""
+<section class=\"pv-hero pv-hero-wide pv-hero-260218\" id=\"pv-top\">
+  <div class=\"pv-hero-stage\">
+    <div class=\"pv-hero-slider pv-hero-slider-wide\" id=\"pv-hero-slider\" data-interval=\"4500\">
+      <div class=\"pv-hero-track\">{slides_html}</div>
+    </div>
+    {dots_html}
+    <div class=\"pv-hero-caption\">
+      <div class=\"pv-hero-caption-title pv-catch-size-{_esc(catch_size)}\">{_esc(hero_title)}</div>
+      <div class=\"pv-hero-caption-sub\">{_esc(hero_sub)}</div>
+    </div>
+  </div>
+</section>
+"""
+
+    # --------------------
+    # news pages
+    # --------------------
+    news = blocks.get("news") or {}
+    news_items = [it for it in (news.get("items") or []) if isinstance(it, dict)]
+
+    def _news_slug(idx: int, it: dict) -> str:
+        title = str(it.get("title") or "news").strip() or f"news-{idx+1}"
+        base = re.sub(r"[^0-9A-Za-z\u3040-\u30ff\u4e00-\u9fff]+", "-", title)
+        base = base.strip("-")
+        if not base:
+            base = f"news-{idx+1}"
+        return base
+
+    def _news_date(it: dict) -> str:
+        d = str(it.get("date") or "").strip()
+        return d
+
+    # index側（先頭4件だけ表示）
+    index_news_list = []
+    for i, it in enumerate(news_items[:4]):
+        date = _esc(_news_date(it) or "")
+        cat = _esc(str(it.get("category") or "").strip() or "お知らせ")
+        title = _esc(str(it.get("title") or "").strip() or "")
+        slug = _news_slug(i, it)
+        href = f"news/{slug}.html"
+        index_news_list.append(
+            f'<a class="pv-news-item" href="{href}">'
+            f'<div class="pv-news-date">{date}</div>'
+            f'<div class="pv-news-cat">{cat}</div>'
+            f'<div class="pv-news-title">{title}</div>'
+            f'<div class="pv-news-arrow">›</div>'
+            f'</a>'
+        )
+
+    news_list_html = "\n".join(index_news_list) if index_news_list else '<div class="pv-news-empty">現在、お知らせはありません。</div>'
+    news_section_html = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-news\">
+  {_section_head("お知らせ", "NEWS")}
+  <div class=\"pv-panel pv-panel-glass\">
+    <div class=\"pv-news-list\">{news_list_html}</div>
+    <div class=\"pv-news-more\"><a class=\"pv-link-btn pv-btn-outline\" href=\"news/index.html\">お知らせ一覧へ</a></div>
+  </div>
+</section>
+"""
+
+    # news/index.html と個別記事
+    def _wrap_page(*, title: str, css_href: str, js_href: str, favicon_href_: str, body_inner: str, root_prefix: str = "") -> str:
+        esc_title = _esc(title)
+        icon_tag = f'<link rel="icon" href="{_esc(favicon_href_)}">' if favicon_href_ else ""
+
+        # ルート外ページは index.html#... へのリンクにする
+        def sec_href(sid: str) -> str:
+            return f"#{sid}" if not root_prefix else f"{root_prefix}index.html#{sid}"
+
+        nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
+        nav_html += f'<a class="pv-desktop-nav-btn" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
+
+        mnav_html = "".join([f'<a class="pv-nav-item" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
+        mnav_html += f'<a class="pv-nav-item" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
+
+        brand_href = sec_href("pv-top")
+
+        return f"""<!doctype html>
+<html lang=\"ja\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <title>{esc_title}</title>
+  <link rel=\"stylesheet\" href=\"{_esc(css_href)}\">
+  {icon_tag}
+</head>
+<body>
+  <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
+    <header class=\"pv-topbar pv-topbar-260218\">
+      <div class=\"row pv-topbar-inner items-center justify-between\">
+        <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
+          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
+        </a>
+
+        <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
+          {nav_html}
+        </nav>
+
+        <button class=\"pv-menu-btn\" id=\"pvMenuOpen\" type=\"button\" aria-label=\"メニューを開く\">☰</button>
+      </div>
+    </header>
+
+    <div class=\"pv-nav-overlay\" id=\"pvNavOverlay\" hidden>
+      <div class=\"pv-nav-card\" role=\"dialog\" aria-modal=\"true\" aria-label=\"メニュー\">
+        <div class=\"pv-nav-title\">メニュー</div>
+        {mnav_html}
+        <button class=\"pv-nav-close\" id=\"pvMenuClose\" type=\"button\">閉じる</button>
+      </div>
+    </div>
+
+    <div class=\"pv-scroll\">
+      <main class=\"pv-main\">{body_inner}</main>
+      <footer class=\"pv-footer\">
+        <div class=\"pv-footer-inner\">
+          <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
+          <div class=\"pv-footer-links\">
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
+            <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
+            <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
+          </div>
+          <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <script src=\"{_esc(js_href)}\"></script>
 </body>
 </html>
 """
 
-
-def build_contact_form_files(*, company_name: str, to_email: str, phone: str) -> dict[str, bytes]:
-    """書き出しZIPに含める contact.php / thanks.html / config/ を生成する。"""
-    cfg = build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone)
-    php = build_contact_php(company_name=company_name, to_email=to_email)
-    thanks = build_thanks_html(company_name=company_name, phone=phone, email=to_email)
-    return {
-        "config/config.php": cfg.encode("utf-8"),
-        "contact.php": php.encode("utf-8"),
-        "thanks.html": thanks.encode("utf-8"),
-    }
-
-
-def build_contact_section_html(
-    *,
-    step1: dict,
-    company_name: str,
-    phone: str,
-    email: str,
-    hours_html: str,
-    message_html: str,
-    contact_mode: str,
-    external_form_url: str,
-    contact_warn_html: str,
-) -> tuple[str, str]:
-    """index.html のお問い合わせ欄（section内）を生成し、必要なscriptタグも返す。"""
-    hint = html.escape(_contact_message_hint(step1))
-    safe_phone = html.escape(phone.strip())
-    safe_email = html.escape(email.strip())
-    safe_ext = html.escape(external_form_url.strip())
-
-    # 共通：追加の連絡手段ボタンは出さない（電話も出さない）
-    fallback_actions = ""
-
-    # 共通：エラー表示（JSがここへ出す）
-    err_box = '<div id="contact_error" class="error_box" style="display:none;"></div>'
-
-    # --- mode: external ---
-    if contact_mode == "external":
-        inner = f"""<div class="card">
-      {f'<p class="p-muted">{message_html}</p>' if message_html else ''}
-      <div class="form_note">外部フォームを開きます（別タブ）。</div>
-
-      <div class="form_note" style="margin-top:10px;font-weight:800;">送信前の確認（必須）</div>
-      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;">
-        <input id="external_agree" type="checkbox">
-        <span><a href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する</span>
-      </label>
-
-      <div class="contact_actions">
-        <button id="external_form_btn" class="btn" type="button" data-url="{safe_ext}">フォームを開く</button>
-      </div>
-
-      {err_box}
-      {fallback_actions}
-      {contact_warn_html}
-    </div>"""
-
-    # --- mode: mail ---
-    elif contact_mode == "mail":
-        # メールが未設定なら mailto が作れないので、JS側でも止める
-        inner = f"""<div class="card">
-      {f'<p class="p-muted">{message_html}</p>' if message_html else ''}
-      <div class="form_note">「送信」を押すと、端末のメールアプリが開きます（PHP不要）。</div>
-
-      <form id="mail_contact_form" class="contact_form" data-to="{safe_email}" data-subject="お問い合わせ" novalidate>
-        <label>お名前（任意）</label>
-        <input name="name" type="text" autocomplete="name">
-
-        <label>メール（必須）</label>
-        <input name="email" type="email" required autocomplete="email">
-
-        <label>電話（任意）</label>
-        <input name="tel" type="tel" autocomplete="tel">
-
-        <label>内容（必須） <span class="p-muted" style="font-weight:600;">{hint}</span></label>
-        <textarea name="message" required placeholder="{hint}"></textarea>
-
-        <div class="hp">
-          <label>（迷惑対策）この欄は入力しないでください</label>
-          <input type="text" name="website" tabindex="-1" autocomplete="off">
-        </div>
-
-        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;">
-          <input type="checkbox" name="agree" value="1" required>
-          <span><a href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する（必須）</span>
-        </label>
-
-        {err_box}
-
-        <div class="contact_actions">
-          <button class="btn" type="submit">メールを作成する</button>
-        </div>
-      </form>
-
-      {fallback_actions}
-      {contact_warn_html}
-    </div>"""
-
-    # --- mode: php (default) ---
-    else:
-        submit_disabled = " disabled" if not safe_email else ""
-        inner = f"""<div class="card">
-      {f'<p class="p-muted">{message_html}</p>' if message_html else ''}
-      <div class="form_note">フォームから送信します（PHP対応サーバー向け）。</div>
-
-      <form id="php_contact_form" class="contact_form" action="contact.php" method="post" data-to="{safe_email}" novalidate>
-        <label>お名前（任意）</label>
-        <input name="name" type="text" autocomplete="name">
-
-        <label>メール（必須）</label>
-        <input name="email" type="email" required autocomplete="email">
-
-        <label>電話（任意）</label>
-        <input name="tel" type="tel" autocomplete="tel">
-
-        <label>内容（必須） <span class="p-muted" style="font-weight:600;">{hint}</span></label>
-        <textarea name="message" required placeholder="{hint}"></textarea>
-
-        <div class="hp">
-          <label>（迷惑対策）この欄は入力しないでください</label>
-          <input type="text" name="website" tabindex="-1" autocomplete="off">
-        </div>
-
-        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;">
-          <input type="checkbox" name="agree" value="1" required>
-          <span><a href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する（必須）</span>
-        </label>
-
-        {err_box}
-
-        <div class="contact_actions">
-          <button class="btn" type="submit"{submit_disabled}>送信する</button>
-          {fallback_actions}
-        </div>
-      </form>
-
-      {f'<div class="p-muted" style="margin-top:10px;">受付: {hours_html}</div>' if hours_html else ''}
-      {contact_warn_html}
-    </div>"""
-
-    # JS（フォームの必須チェック / 外部フォームの同意チェック / mailto生成）
-    script_tag = """<script>
-(function() {
-  function showError(msg) {
-    var box = document.getElementById('contact_error');
-    if (box) {
-      box.textContent = msg;
-      box.style.display = 'block';
-      try { box.scrollIntoView({block: 'nearest'}); } catch(e) {}
-    } else {
-      alert(msg);
-    }
-    return false;
-  }
-
-  // PHP form: validate before submit
-  var pf = document.getElementById('php_contact_form');
-  if (pf) {
-    pf.addEventListener('submit', function(ev) {
-      var to = (pf.getAttribute('data-to') || '').trim();
-      var email = pf.querySelector('input[name="email"]');
-      var msg = pf.querySelector('textarea[name="message"]');
-      var agree = pf.querySelector('input[name="agree"]');
-      if (!to) { ev.preventDefault(); showError('受信先メールが未設定です（基本情報のメールを入力してください）。'); return; }
-      if (!email || !email.value.trim()) { ev.preventDefault(); showError('メールが未入力です。'); return; }
-      if (!msg || !msg.value.trim()) { ev.preventDefault(); showError('内容が未入力です。'); return; }
-      if (!agree || !agree.checked) { ev.preventDefault(); showError('プライバシーポリシーに同意してください。'); return; }
-    });
-  }
-
-  // Mail form: build mailto
-  var mf = document.getElementById('mail_contact_form');
-  if (mf) {
-    mf.addEventListener('submit', function(ev) {
-      ev.preventDefault();
-      var to = (mf.getAttribute('data-to') || '').trim();
-      var name = (mf.querySelector('input[name="name"]') || {}).value || '';
-      var from = (mf.querySelector('input[name="email"]') || {}).value || '';
-      var tel = (mf.querySelector('input[name="tel"]') || {}).value || '';
-      var msg = (mf.querySelector('textarea[name="message"]') || {}).value || '';
-      var agree = (mf.querySelector('input[name="agree"]') || {}).checked;
-
-      if (!to) { showError('受信先メールが未設定です（基本情報のメールを入力してください）。'); return; }
-      if (!from.trim()) { showError('メールが未入力です。'); return; }
-      if (!msg.trim()) { showError('内容が未入力です。'); return; }
-      if (!agree) { showError('プライバシーポリシーに同意してください。'); return; }
-
-      var subject = (mf.getAttribute('data-subject') || 'お問い合わせ');
-      var body = '';
-      body += '【お名前】' + name + '\\n';
-      body += '【メール】' + from + '\\n';
-      if (tel.trim()) { body += '【電話】' + tel + '\\n'; }
-      body += '\\n【内容】\\n' + msg;
-
-      // to の危険文字だけ除去（mailto破壊を防ぐ）
-      var safeTo = to.replace(/[^0-9A-Za-z@._+-]/g, '');
-      location.href = 'mailto:' + safeTo + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
-    });
-  }
-
-  // External form: require agree to enable button
-  var eb = document.getElementById('external_form_btn');
-  var ec = document.getElementById('external_agree');
-  if (eb && ec) {
-    function update() { eb.disabled = !ec.checked; }
-    ec.addEventListener('change', update);
-    update();
-
-    eb.addEventListener('click', function() {
-      var url = (eb.getAttribute('data-url') || '').trim();
-      if (!url) { showError('外部フォームURLが未入力です。'); return; }
-      try {
-        window.open(url, '_blank', 'noopener');
-      } catch (e) {
-        location.href = url;
-      }
-    });
-  }
-})();
-</script>"""
-
-    return inner, script_tag
-
-
-def build_static_site_files(p: dict) -> dict[str, bytes]:
-    """案件データから、公開用の静的ファイル一式を生成して返す。"""
-    p = normalize_project(p)
-    data = p.get("data") if isinstance(p, dict) else {}
-    step1 = data.get("step1") if isinstance(data, dict) and isinstance(data.get("step1"), dict) else {}
-    step2 = data.get("step2") if isinstance(data, dict) and isinstance(data.get("step2"), dict) else {}
-    blocks = data.get("blocks") if isinstance(data, dict) and isinstance(data.get("blocks"), dict) else {}
-
-    project_id = str(p.get("project_id") or "")
-    company_name = str(step2.get("company_name") or "会社名").strip() or "会社名"
-    catch_copy = str(step2.get("catch_copy") or "").strip()
-    phone = str(step2.get("phone") or "").strip()
-    address = str(step2.get("address") or "").strip()
-    email = str(step2.get("email") or "").strip()
-
-    primary_key = str(step1.get("primary_color") or "blue")
-    primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
-
-    # --- assets (CSS / images) ---
-    files: dict[str, bytes] = {}
-
-    site_css = f""":root{{{_preview_glass_style(step1)}--site-input-bg:{'rgba(13,16,22,0.55)' if primary_key=='black' else 'rgba(255,255,255,0.72)'};--site-input-border:{'rgba(255,255,255,0.16)' if primary_key=='black' else 'rgba(15,23,42,0.12)'};--site-input-bg2:{'rgba(13,16,22,0.40)' if primary_key=='black' else 'rgba(255,255,255,0.62)'};}}
-*{{box-sizing:border-box;}}
-html{{scroll-behavior:smooth;}}
-body{{
-  margin:0;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
-  color: var(--pv-text);
-  background-image: var(--pv-bg-img);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-  line-height: 1.7;
-}}
-a{{color: var(--pv-primary); text-decoration:none;}}
-a:hover{{text-decoration:underline;}}
-
-.container{{max-width: 1040px; margin: 0 auto; padding: 0 16px;}}
-
-.header{{
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  padding: 12px 0;
-  backdrop-filter: blur(16px);
-  background: var(--pv-card);
-  border-bottom: 1px solid var(--pv-border);
-}}
-/* old/new class names both supported */
-.header_in,
-.header .inner{{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}}
-.brand{{font-weight: 900; letter-spacing: .02em;}}
-.brand a{{color: var(--pv-text); text-decoration:none;}}
-.brand a:hover{{text-decoration:none;}}
-
-.nav{{display:flex; gap: 8px; flex-wrap: wrap; font-size: 13px;}}
-.nav a{{
-  display:inline-flex;
-  align-items:center;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: var(--pv-chip-bg);
-  border: 1px solid var(--pv-chip-border);
-  color: var(--pv-text);
-  font-weight: 800;
-  letter-spacing: .01em;
-  text-decoration:none;
-}}
-.nav a:hover{{text-decoration:none; filter: brightness(1.02);}}
-.nav a:active{{transform: translateY(1px);}}
-
-main.container{{padding: 18px 0 40px;}}
-
-.hero{{margin-top: 10px;}}
-.hero_card{{
-  position: relative;
-  border: 1px solid var(--pv-border);
-  border-radius: 22px;
-  overflow: hidden;
-  background: var(--pv-card);
-  box-shadow: var(--pv-shadow);
-  backdrop-filter: blur(12px);
-}}
-
-.hero_slider{{position:relative;}}
-.hero_slides{{position:relative;width:100%;height:320px;background:rgba(255,255,255,0.30);}}
-.hero_slide{{position:absolute;inset:0;opacity:0;transition:opacity .35s ease;}}
-.hero_slide.is-active{{opacity:1;}}
-.hero_img{{width:100%;height:320px;object-fit:cover;display:block;background:rgba(255,255,255,0.22);}}
-
-.hero_dots{{position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center;gap:8px;}}
-.hero_dot{{width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,0.85);background:rgba(0,0,0,0.25);cursor:pointer;padding:0;}}
-.hero_dot.is-active{{background:rgba(255,255,255,0.95);}}
-
-.hero_text,
-.hero_body{{
-  /* Mobile default: below image (like preview mobile) */
-  position: static;
-  width: min(92%, 680px);
-  margin: 14px auto 0;
-  padding: 16px 18px;
-  border-radius: 18px;
-  text-align: center;
-  backdrop-filter: blur(12px);
-  background: rgba(255,255,255,0.55);
-  border: 1px solid rgba(255,255,255,0.42);
-  box-shadow: 0 22px 54px rgba(0,0,0,0.12);
-}}
-.hero_title{{font-size: 24px; margin: 0 0 6px; font-weight: 900; letter-spacing:.01em;}}
-.hero_sub{{color: var(--pv-muted); margin: 0; font-weight: 700;}}
-
-.section{{margin-top: 22px;}}
-.h2,
-.section_title{{font-size: 18px; font-weight: 900; margin: 0 0 10px; letter-spacing:.01em;}}
-.p-muted{{color: var(--pv-muted);}}
-.card{{
-  border: 1px solid var(--pv-border);
-  border-radius: 18px;
-  background: var(--pv-card);
-  padding: 14px;
-  box-shadow: var(--pv-shadow);
-  backdrop-filter: blur(12px);
-}}
-
-.grid2{{display:grid;grid-template-columns:1fr;gap:12px;}}
-@media(min-width:860px){{
-  .grid2{{grid-template-columns:1fr 1fr;}}
-  .hero_slides{{height: 420px;}}
-  .hero_img{{height: 420px;}}
-  .hero_title{{font-size: 30px;}}
-  /* Desktop: overlay caption (like preview pc) */
-  .hero_text,
-  .hero_body{{
-    position: absolute;
-    left: 50%;
-    bottom: 26px;
-    transform: translateX(-50%);
-    width: fit-content;
-    max-width: min(92%, 980px);
-    margin: 0;
-    padding: 18px 22px;
-    border-radius: 18px;
-  }}
-}}
-
-.badge{{
-  display:inline-flex;
-  align-items:center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--pv-chip-bg);
-  border: 1px solid var(--pv-chip-border);
-  font-size: 12px;
-  font-weight: 900;
-  color: var(--pv-text);
-}}
-
-.news_list{{display:grid;gap:12px;}}
-.news_item{{
-  border: 1px solid var(--pv-border);
-  border-radius: 16px;
-  padding: 12px;
-  background: var(--pv-card);
-  box-shadow: var(--pv-shadow);
-  backdrop-filter: blur(12px);
-}}
-
-.btn,
-.btn-outline{{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  font-weight: 900;
-  letter-spacing:.01em;
-  text-decoration:none;
-  cursor:pointer;
-  user-select:none;
-}}
-.btn{{
-  background: var(--pv-primary);
-  color: white;
-  border: none;
-}}
-.btn:hover{{filter: brightness(1.03); text-decoration:none;}}
-.btn-outline{{
-  background: transparent;
-  color: var(--pv-primary);
-  border: 1px solid rgba(255,255,255,0.44);
-}}
-.btn-outline:hover{{text-decoration:none; filter: brightness(1.03);}}
-.btn:disabled,
-.btn.is-disabled{{opacity:0.6;pointer-events:none;}}
-
-.footer{{border-top:1px solid var(--pv-border); padding: 18px 0; color: var(--pv-muted); font-size: 14px; background: rgba(255,255,255,0.22); backdrop-filter: blur(10px);}}
-
-.faq details{{
-  border: 1px solid var(--pv-border);
-  border-radius: 16px;
-  padding: 10px 12px;
-  background: var(--pv-card);
-  box-shadow: var(--pv-shadow);
-  backdrop-filter: blur(12px);
-}}
-.faq details+details{{margin-top:10px;}}
-.faq summary{{cursor:pointer;}}
-
-.contact_form{{margin-top:12px;}}
-.contact_form label{{display:block;font-weight:900;font-size:14px;margin:12px 0 6px;}}
-.contact_form input,
-.contact_form textarea{{
-  width:100%;
-  padding:10px 12px;
-  border:1px solid var(--site-input-border);
-  border-radius:14px;
-  font-size:16px;
-  font:inherit;
-  color: var(--pv-text);
-  background: var(--site-input-bg);
-}}
-.contact_form input:focus,
-.contact_form textarea:focus{{
-  outline: none;
-  box-shadow: 0 0 0 4px var(--pv-primary-weak);
-  border-color: rgba(255,255,255,0.40);
-  background: var(--site-input-bg2);
-}}
-.contact_form textarea{{min-height:150px;resize:vertical;}}
-.contact_actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;}}
-.form_note{{font-size:13px;color:var(--pv-muted);margin-top:8px;}}
-.hp{{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden;}}
-.error_box{{border:1px solid rgba(239,68,68,0.65);background:rgba(239,68,68,0.10);padding:10px 12px;border-radius:14px;margin-top:12px;}}
-"""
-    files["assets/site.css"] = site_css.encode("utf-8")
-
-    def _asset_from_data_url(data_url: str, key: str) -> str:
-        """dataURL を assets/img/ 配下のファイルとして書き出し、相対パスを返す。
-
-        重要:
-        - ここで「アップロード時の表示用ファイル名（省略された名前）」を使うと、
-          ZIP内のファイル名やHTML参照が壊れて見た目が崩れる原因になる。
-        - そのため、key（用途/位置） + 内容ハッシュで、常に安全で再現性のある名前にする。
-        """
-        mime, b = _data_url_meta(data_url)
-        ext = _mime_to_ext(mime)
-        h = hashlib.sha1(b).hexdigest()[:10] if b else secrets.token_hex(4)
-
-        base = _safe_filename(Path(str(key or "file")).stem)
-        try:
-            base = base[:40]
-        except Exception:
-            pass
-
-        fname = f"{base}_{h}{ext}"
-        rel = f"assets/img/{fname}"
-        files[rel] = b
-        return rel
-
-    # favicon
-    favicon_href = ""
-    fav_url = str(step2.get("favicon_url") or "").strip()
-    if _is_data_url(fav_url):
-        try:
-            favicon_href = _asset_from_data_url(fav_url, f"favicon_{project_id}")
-        except Exception:
-            favicon_href = ""
-    else:
-        favicon_href = fav_url
-
-    # hero images
-    hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
-    hero_urls = hero.get("hero_image_urls")
-    # NOTE: hero_upload_names は「表示用に省略された名前」が入り得るため、
-    #       書き出しファイル名の材料には使わない（ZIP/HTMLが壊れる原因）。
-    hero_imgs: list[str] = []
-    if isinstance(hero_urls, list):
-        for i, url in enumerate(hero_urls):
-            u = str(url or "").strip()
-            if not u:
-                continue
-            if _is_data_url(u):
-                key = f"hero_{i+1}_{project_id or 'p'}"
-                try:
-                    hero_imgs.append(_asset_from_data_url(u, key))
-                except Exception:
-                    pass
-            else:
-                hero_imgs.append(u)
-
-    hero_main = hero_imgs[0] if hero_imgs else ""
-
-    # philosophy image
-    philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
-    ph_img = str(philosophy.get("image_url") or "").strip()
-    ph_img_rel = ""
-    if _is_data_url(ph_img):
-        try:
-            ph_img_rel = _asset_from_data_url(ph_img, f"philosophy_{project_id}")
-        except Exception:
-            ph_img_rel = ""
-    else:
-        ph_img_rel = ph_img
-
-    # service image
-    service = blocks.get("service") if isinstance(blocks.get("service"), dict) else {}
-    svc_img = str(service.get("image_url") or "").strip()
-    svc_img_rel = ""
-    if _is_data_url(svc_img):
-        try:
-            svc_img_rel = _asset_from_data_url(svc_img, f"service_{project_id}")
-        except Exception:
-            svc_img_rel = ""
-    else:
-        svc_img_rel = svc_img
-
-    # text blocks
-    ph_title = str(philosophy.get("title") or "私たちの想い").strip()
-    ph_body = html.escape(str(philosophy.get("body") or "").strip()).replace("\n", "<br>")
-    svc_title = str(service.get("title") or "業務内容").strip()
-    svc_lead = html.escape(str(service.get("lead") or "").strip()).replace("\n", "<br>")
-
-    svc_items = service.get("items")
-    if not isinstance(svc_items, list):
-        svc_items = []
-    svc_items = [it for it in svc_items if isinstance(it, dict)]
-
-    news = blocks.get("news") if isinstance(blocks.get("news"), dict) else {}
-    news_items = news.get("items")
-    if not isinstance(news_items, list):
-        news_items = []
-    news_items = [it for it in news_items if isinstance(it, dict)]
-
-    faq = blocks.get("faq") if isinstance(blocks.get("faq"), dict) else {}
-    faq_items = faq.get("items")
-    if not isinstance(faq_items, list):
-        faq_items = []
-    faq_items = [it for it in faq_items if isinstance(it, dict)]
-
-    access = blocks.get("access") if isinstance(blocks.get("access"), dict) else {}
-    embed_map = bool(access.get("embed_map", True))
-    notes = html.escape(str(access.get("notes") or "").strip()).replace("\n", "<br>")
-
-    contact = blocks.get("contact") if isinstance(blocks.get("contact"), dict) else {}
-    hours = html.escape(str(contact.get("hours") or "").strip()).replace("\n", "<br>")
-    message = html.escape(str(contact.get("message") or "").strip()).replace("\n", "<br>")
-    button_text = str(contact.get("button_text") or "お問い合わせ").strip()
-
-    # news pages
-    def _news_slug(i: int, it: dict) -> str:
-        d = str(it.get("date") or "").strip()
-        d = re.sub(r"[^0-9]", "", d)[:8]
-        return f"{d or 'news'}_{i+1}.html"
-
-    news_list_items_html = ""
-    news_detail_files: dict[str, str] = {}
+    # news/index
+    news_list_items_full = []
     for i, it in enumerate(news_items):
-        title = html.escape(str(it.get("title") or "").strip() or f"お知らせ{i+1}")
-        body = html.escape(str(it.get("body") or "").strip()).replace("\n", "<br>")
-        date = html.escape(str(it.get("date") or "").strip())
-        cat = html.escape(str(it.get("category") or "").strip())
+        date = _esc(_news_date(it) or "")
+        cat = _esc(str(it.get("category") or "").strip() or "お知らせ")
+        title = _esc(str(it.get("title") or "").strip() or "")
         slug = _news_slug(i, it)
-        link = f"news/{slug}"
-        news_list_items_html += f"""<div class="news_item"><div><span class="badge">{cat or "NEWS"}</span>{date}</div><div style="font-weight:800;margin-top:6px;"><a href="{link}">{title}</a></div></div>"""
-        detail_html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{title} | {html.escape(company_name)}</title><link rel="stylesheet" href="../assets/site.css"></head><body>
-<header class="header"><div class="container inner"><div class="brand"><a href="../index.html">{html.escape(company_name)}</a></div><div class="nav"><a href="../news/index.html">お知らせ一覧</a><a href="../privacy.html">プライバシー</a></div></div></header>
-<main class="container section"><h1 class="h2">{title}</h1><div class="p-muted">{date} {cat}</div><div class="card" style="margin-top:12px;">{body or "<p class='p-muted'>本文がありません</p>"}</div><div style="margin-top:14px;"><a class="btn-outline" href="../news/index.html">一覧へ戻る</a></div></main>
-<footer class="footer"><div class="container">© {html.escape(company_name)}</div></footer></body></html>"""
-        news_detail_files[f"news/{slug}"] = detail_html
+        href = f"{slug}.html"
+        news_list_items_full.append(
+            f'<a class="pv-news-item" href="{href}">'
+            f'<div class="pv-news-date">{date}</div>'
+            f'<div class="pv-news-cat">{cat}</div>'
+            f'<div class="pv-news-title">{title}</div>'
+            f'<div class="pv-news-arrow">›</div>'
+            f'</a>'
+        )
 
-    news_index_html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>お知らせ | {html.escape(company_name)}</title><link rel="stylesheet" href="../assets/site.css"></head><body>
-<header class="header"><div class="container inner"><div class="brand"><a href="../index.html">{html.escape(company_name)}</a></div><div class="nav"><a href="../index.html#contact">{html.escape(button_text)}</a><a href="../privacy.html">プライバシー</a></div></div></header>
-<main class="container section"><h1 class="h2">お知らせ</h1><div class="news_list">{news_list_items_html or "<p class='p-muted'>お知らせはまだありません</p>"}</div></main>
-<footer class="footer"><div class="container"><a href="../index.html">トップへ戻る</a></div></footer></body></html>"""
-    files["news/index.html"] = news_index_html.encode("utf-8")
-    for path, body in news_detail_files.items():
-        files[path] = body.encode("utf-8")
+    news_list_full_html = "\n".join(news_list_items_full) if news_list_items_full else '<div class="pv-news-empty">現在、お知らせはありません。</div>'
+    news_index_body = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-news-list\">
+  {_section_head("お知らせ一覧", "NEWS")}
+  <div class=\"pv-panel pv-panel-glass\">
+    <div class=\"pv-news-list\">{news_list_full_html}</div>
+    <div class=\"pv-news-more\"><a class=\"pv-link-btn pv-btn-outline\" href=\"../index.html#pv-news\">トップへ戻る</a></div>
+  </div>
+</section>
+"""
 
-    # map embed
-    map_html = ""
-    if address:
-        q = quote_plus(address)
-        if embed_map:
-            map_html = f"""<iframe title="map" src="https://www.google.com/maps?q={q}&output=embed" style="width:100%;height:260px;border:0;border-radius:12px;"></iframe>"""
-        else:
-            map_html = f"""<a class="btn-outline" href="https://www.google.com/maps?q={q}" target="_blank" rel="noopener">地図を開く</a>"""
-    else:
-        map_html = '<p class="p-muted">住所が未入力のため地図を表示できません</p>'
+    files["news/index.html"] = _wrap_page(
+        title=f"{company_name}｜お知らせ一覧",
+        css_href="../assets/site.css",
+        js_href="../assets/site.js",
+        favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
+        body_inner=news_index_body,
+        root_prefix="../",
+    ).encode("utf-8")
 
-    # service items html
-    svc_items_html = ""
+    # detail
+    for i, it in enumerate(news_items):
+        slug = _news_slug(i, it)
+        date = _esc(_news_date(it) or "")
+        cat = _esc(str(it.get("category") or "").strip() or "お知らせ")
+        title = _esc(str(it.get("title") or "").strip() or "")
+        body = str(it.get("body") or "").strip()
+        body_html = _paras(body)
+
+        detail_body = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-news-detail\">
+  {_section_head(title or "お知らせ", "NEWS")}
+  <div class=\"pv-panel pv-panel-glass\">
+    <div class=\"pv-news-meta\"><span class=\"pv-news-date\">{date}</span><span class=\"pv-news-cat\">{cat}</span></div>
+    <div class=\"pv-legal\">{body_html}</div>
+    <div class=\"pv-news-more\">
+      <a class=\"pv-link-btn pv-btn-outline\" href=\"index.html\">一覧へ戻る</a>
+      <a class=\"pv-link-btn\" href=\"../index.html#pv-news\">トップへ戻る</a>
+    </div>
+  </div>
+</section>
+"""
+
+        files[f"news/{slug}.html"] = _wrap_page(
+            title=f"{company_name}｜{title or 'お知らせ'}",
+            css_href="../assets/site.css",
+            js_href="../assets/site.js",
+            favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
+            body_inner=detail_body,
+            root_prefix="../",
+        ).encode("utf-8")
+
+    # --------------------
+    # about
+    # --------------------
+    ph_title = str(ph.get("title") or "").strip() or "私たちについて"
+    ph_body = str(ph.get("body") or "").strip()
+    ph_points = [str(x).strip() for x in (ph.get("points") or []) if str(x).strip()]
+
+    points_html = ""
+    if ph_points:
+        points_cards = []
+        for pt in ph_points:
+            points_cards.append(f'<div class="pv-point-card">{_esc(pt)}</div>')
+        points_html = f'<div class="pv-points">{"".join(points_cards)}</div>'
+
+    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
+
+    about_body_html = _paras(ph_body)
+
+    about_section_html = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-about\">
+  {_section_head("私たちについて", "ABOUT")}
+  <div class=\"pv-panel pv-panel-glass\">
+    <div class=\"pv-about-grid\">
+      {about_img_html}
+      <div class=\"pv-about-body\">
+        <div class=\"pv-about-title\">{_esc(ph_title)}</div>
+        {points_html}
+        <div class=\"pv-about-text\">{about_body_html}</div>
+      </div>
+    </div>
+  </div>
+</section>
+"""
+
+    # --------------------
+    # services
+    # --------------------
+    svc_title = str(svc.get("title") or "").strip() or "業務内容"
+    svc_lead = str(svc.get("lead") or "").strip()
+    svc_lead_html = _paras(svc_lead)
+    svc_items = [it for it in (svc.get("items") or []) if isinstance(it, dict)]
+
+    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="">' if svc_img_href else ''
+
+    svc_cards = []
     for it in svc_items:
-        t = html.escape(str(it.get("title") or "").strip())
-        b = html.escape(str(it.get("body") or "").strip()).replace("\n", "<br>")
-        if not (t or b):
-            continue
-        svc_items_html += f"""<div class="card"><div style="font-weight:800;">{t or "項目"}</div><div class="p-muted" style="margin-top:6px;">{b}</div></div>"""
-    if not svc_items_html:
-        svc_items_html = '<p class="p-muted">業務内容はまだありません</p>'
+        t = _esc(str(it.get("title") or "").strip() or "")
+        btxt = str(it.get("body") or "").strip()
+        bhtml = _paras(btxt)
+        svc_cards.append(
+            f'<div class="pv-service-item">'
+            f'<div class="pv-service-title">{t}</div>'
+            f'<div class="pv-service-body">{bhtml}</div>'
+            f'</div>'
+        )
 
-    # faq html
-    faq_html = ""
+    svc_list_html = "".join(svc_cards) if svc_cards else '<div class="pv-news-empty">内容は準備中です。</div>'
+
+    services_section_html = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-services\">
+  {_section_head("業務内容", "SERVICES")}
+  <div class=\"pv-panel pv-panel-glass\">
+    <div class=\"pv-services-grid\">
+      {svc_img_html}
+      <div class=\"pv-services-body\">
+        <div class=\"pv-about-title\">{_esc(svc_title)}</div>
+        <div class=\"pv-services-lead\">{svc_lead_html}</div>
+        <div class=\"pv-service-list\">{svc_list_html}</div>
+      </div>
+    </div>
+  </div>
+</section>
+"""
+
+    # --------------------
+    # FAQ
+    # --------------------
+    faq = blocks.get("faq") or {}
+    faq_items = [it for it in (faq.get("items") or []) if isinstance(it, dict)]
+    faq_cards = []
     for it in faq_items:
-        q = html.escape(str(it.get("q") or "").strip())
-        a = html.escape(str(it.get("a") or "").strip()).replace("\n", "<br>")
-        if not (q or a):
-            continue
-        faq_html += f"""<details><summary style="font-weight:800;">{q or "質問"}</summary><div style="margin-top:8px;" class="p-muted">{a}</div></details>"""
-    if not faq_html:
-        faq_html = '<p class="p-muted">FAQはまだありません</p>'
+        q = _esc(str(it.get("q") or "").strip() or "")
+        a = str(it.get("a") or "").strip()
+        a_html = _paras(a)
+        faq_cards.append(
+            f'<div class="pv-faq-item">'
+            f'<div class="pv-faq-q"><span class="pv-faq-qmark">Q</span><span class="pv-faq-qtext">{q}</span></div>'
+            f'<div class="pv-faq-a"><span class="pv-faq-amark">A</span><span class="pv-faq-atext">{a_html}</span></div>'
+            f'</div>'
+        )
+    faq_list_html = "".join(faq_cards) if faq_cards else '<div class="pv-news-empty">現在、よくある質問はありません。</div>'
 
-    hero_sub = html.escape(catch_copy) if catch_copy else html.escape("ここにキャッチコピーが入ります")
+    faq_section_html = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-faq\">
+  {_section_head("よくある質問", "FAQ")}
+  <div class=\"pv-panel pv-panel-glass\">
+    <div class=\"pv-faq-list\">{faq_list_html}</div>
+  </div>
+</section>
+"""
 
-    # 書き出しHTMLもプレビューの見た目に寄せる：ヒーローは複数画像ならスライダー化
-    hero_slider_script_tag = ""
-    if len(hero_imgs) >= 2:
-        slides = ""
-        dots = ""
-        for i, src in enumerate(hero_imgs):
-            esc = html.escape(src)
-            active = " is-active" if i == 0 else ""
-            slides += f'<div class="hero_slide{active}" data-idx="{i}"><img class="hero_img" src="{esc}" alt="hero {i+1}"></div>'
-            dots += f'<button type="button" class="hero_dot{active}" data-idx="{i}" aria-label="スライド{i+1}"></button>'
-        hero_media_tag = f'<div class="hero_slider"><div class="hero_slides">{slides}</div><div class="hero_dots">{dots}</div></div>'
-        hero_slider_script_tag = """<script>
-(function(){
-  var slider = document.querySelector('.hero_slider');
-  if (!slider) return;
-  var slides = Array.prototype.slice.call(slider.querySelectorAll('.hero_slide'));
-  var dots = Array.prototype.slice.call(slider.querySelectorAll('.hero_dot'));
-  if (!slides.length) return;
-  var idx = 0;
-  function show(i){
-    idx = (i + slides.length) % slides.length;
-    slides.forEach(function(s, j){ s.classList.toggle('is-active', j === idx); });
-    dots.forEach(function(d, j){ d.classList.toggle('is-active', j === idx); });
-  }
-  dots.forEach(function(d){
-    d.addEventListener('click', function(){
-      var n = parseInt(d.getAttribute('data-idx') || '0', 10);
-      if (!isNaN(n)) show(n);
-    });
-  });
-  show(0);
-  setInterval(function(){ show(idx + 1); }, 5000);
-})();
-</script>"""
-    else:
-        hero_media_tag = f'<img class="hero_img" src="{html.escape(hero_main)}" alt="hero">' if hero_main else '<div class="hero_img"></div>'
+    # --------------------
+    # Access
+    # --------------------
+    access = blocks.get("access") or {}
+    map_url = str(access.get("map_url") or "").strip()
+    map_embed = bool(access.get("embed") or False)
+    access_notes = str(access.get("notes") or "").strip()
 
-    # --- contact form mode (v0.8) ---
-    contact_mode_raw = ""
-    try:
-        contact_mode_raw = str(contact.get("form_mode") or "").strip()
-    except Exception:
-        contact_mode_raw = ""
-    contact_mode = _normalize_contact_form_mode(contact_mode_raw)
+    access_addr_html = _paras(address) if address else ''
+    access_notes_html = _paras(access_notes) if access_notes else ''
 
-    external_form_url = ""
-    try:
-        external_form_url = str(contact.get("external_form_url") or "").strip()
-    except Exception:
-        external_form_url = ""
+    map_frame_html = ''
+    map_openlink_html = ''
+    if map_url:
+        esc_map_url = _esc(map_url)
+        if map_embed:
+            iframe_src = esc_map_url
+            map_frame_html = f"""<div class=\"pv-mapframe pv-mapframe-live\">
+  <iframe class=\"pv-map-iframe\" title=\"map\" loading=\"lazy\" src=\"{iframe_src}\"></iframe>
+  <div class=\"pv-mapframe-ui\">
+    <a class=\"pv-link-btn pv-btn-outline pv-mapframe-open\" href=\"{esc_map_url}\" target=\"_blank\" rel=\"noopener\">地図を開く</a>
+    <span class=\"pv-mapframe-badge\">Google Map</span>
+  </div>
+</div>"""
+        else:
+            map_frame_html = f"""<a class=\"pv-mapframe pv-mapframe-link\" href=\"{esc_map_url}\" target=\"_blank\" rel=\"noopener\">
+  <div class=\"pv-mapframe-ui\">
+    <span class=\"pv-mapframe-badge\">Google Map</span>
+    <span class=\"pv-link-btn pv-btn-outline pv-mapframe-open\">地図を開く</span>
+  </div>
+</a>"""
+        map_openlink_html = f'<a class="pv-map-openlink" href="{esc_map_url}" target="_blank" rel="noopener">Google Mapで開く</a>'
 
-    # 連絡先/設定の未入力チェック（現場で迷わないための警告）
+    access_section_html = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-access\">
+  {_section_head("アクセス", "ACCESS")}
+  <div class=\"pv-panel pv-panel-glass\">
+    <div class=\"pv-access-grid\">
+      <div class=\"pv-access-card\">
+        <div class=\"pv-access-title\">所在地</div>
+        <div class=\"pv-access-text\">{access_addr_html}</div>
+        <div class=\"pv-access-notes\">{access_notes_html}</div>
+        {map_openlink_html}
+      </div>
+      <div class=\"pv-access-map\">{map_frame_html}</div>
+    </div>
+  </div>
+</section>
+"""
+
+    # --------------------
+    # Contact
+    # --------------------
+    contact = blocks.get("contact") or {}
+    contact_mode = str(contact.get("mode") or "php").strip().lower()
+    external_form_url = str(contact.get("external_form_url") or "").strip()
+    contact_message = str(contact.get("message") or "").strip() or _contact_message_hint(step1)
+    contact_hours = str(contact.get("hours") or "").strip()
+    contact_button_text = str(contact.get("button_text") or "").strip() or "お問い合わせ"
+
+    message_html = _paras(contact_message) if contact_message else ''
+    hours_html = f'<div class="pv-contact-hours">{_esc(contact_hours)}</div>' if contact_hours else ''
+
     contact_warn_html = ""
-    if contact_mode in {"php", "mail"} and not email:
-        contact_warn_html = '<p class="p-muted" style="margin-top:10px;">メールアドレスが未入力です（フォーム送信にはメールが必要です）</p>'
-    elif contact_mode == "external" and not external_form_url:
-        contact_warn_html = '<p class="p-muted" style="margin-top:10px;">外部フォームURLが未入力です（お問い合わせブロックで入力）</p>'
+    if not email and contact_mode in ("php", "mail"):
+        contact_warn_html = '<div class="pv-contact-warn">※ 送信先メールアドレスが未設定です（ビルダーの基本情報で設定してください）。</div>'
 
-    contact_section_html, contact_script_tag = build_contact_section_html(
-        step1=step1,
+    contact_card_html = build_contact_section_html(
         company_name=company_name,
-        phone=phone,
-        email=email,
-        hours_html=hours,
-        message_html=message,
+        to_email=email,
+        hours_html=hours_html,
+        message_html=message_html,
+        button_text=contact_button_text,
         contact_mode=contact_mode,
         external_form_url=external_form_url,
         contact_warn_html=contact_warn_html,
     )
 
-    # index page
+    contact_section_html = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-contact\">
+  {_section_head("お問い合わせ", "CONTACT")}
+  {contact_card_html}
+</section>
+"""
+
+    # phpフォームの場合は contact.php / config / thanks を同梱
+    if contact_mode == "php":
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1))
+
+    # --------------------
+    # index.html
+    # --------------------
+    favicon_tag = f'<link rel="icon" href="{_esc(favicon_href)}">' if favicon_href else ''
 
     index_html = f"""<!doctype html>
-<html lang="ja">
+<html lang=\"ja\">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(company_name)}</title>
-<link rel="stylesheet" href="assets/site.css">
-{f'<link rel="icon" href="{html.escape(favicon_href)}">' if favicon_href else ''}
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <title>{_esc(company_name)}</title>
+  <link rel=\"stylesheet\" href=\"assets/site.css\">
+  {favicon_tag}
 </head>
 <body>
-<header class="header">
-  <div class="container inner">
-    <div class="brand"><a href="#top">{html.escape(company_name)}</a></div>
-    <nav class="nav">
-      <a href="#about">私たちの想い</a>
-      <a href="#service">業務内容</a>
-      <a href="news/index.html">お知らせ</a>
-      <a href="#faq">FAQ</a>
-      <a href="#access">アクセス</a>
-      <a href="#contact">{html.escape(button_text)}</a>
-      <a href="privacy.html">プライバシー</a>
-    </nav>
+  <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
+    <header class=\"pv-topbar pv-topbar-260218\">
+      <div class=\"row pv-topbar-inner items-center justify-between\">
+        <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
+          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
+        </a>
+
+        <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
+          {desktop_nav_html}
+        </nav>
+
+        <button class=\"pv-menu-btn\" id=\"pvMenuOpen\" type=\"button\" aria-label=\"メニューを開く\">☰</button>
+      </div>
+    </header>
+
+    <div class=\"pv-nav-overlay\" id=\"pvNavOverlay\" hidden>
+      <div class=\"pv-nav-card\" role=\"dialog\" aria-modal=\"true\" aria-label=\"メニュー\">
+        <div class=\"pv-nav-title\">メニュー</div>
+        {mobile_nav_items_html}
+        <button class=\"pv-nav-close\" id=\"pvMenuClose\" type=\"button\">閉じる</button>
+      </div>
+    </div>
+
+    <div class=\"pv-scroll\">
+      <main class=\"pv-main\">
+        {hero_html}
+        {news_section_html}
+        {about_section_html}
+        {services_section_html}
+        {faq_section_html}
+        {access_section_html}
+        {contact_section_html}
+      </main>
+
+      <footer class=\"pv-footer\">
+        <div class=\"pv-footer-inner\">
+          <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
+          <div class=\"pv-footer-links\">
+            <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
+            <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
+            <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
+          </div>
+          <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
+        </div>
+      </footer>
+    </div>
   </div>
-</header>
 
-<main id="top" class="container">
-  <section class="hero">
-    <div class="hero_card">
-      {hero_media_tag}
-      <div class="hero_text">
-        <h1 class="hero_title">{html.escape(company_name)}</h1>
-        <div class="hero_sub">{hero_sub}</div>
-      </div>
-    </div>
-  </section>
-
-  <section id="about" class="section">
-    <h2 class="h2">{html.escape(ph_title)}</h2>
-    <div class="grid2">
-      <div class="card">{ph_body or '<p class="p-muted">内容はまだありません</p>'}</div>
-      <div class="card">
-        {f'<img src="{html.escape(ph_img_rel)}" alt="about" style="width:100%;height:260px;object-fit:cover;border-radius:12px;">' if ph_img_rel else '<p class="p-muted">画像は未設定です</p>'}
-      </div>
-    </div>
-  </section>
-
-  <section id="service" class="section">
-    <h2 class="h2">{html.escape(svc_title)}</h2>
-    {f'<p class="p-muted">{svc_lead}</p>' if svc_lead else ''}
-    <div class="grid2">
-      <div class="card">
-        {f'<img src="{html.escape(svc_img_rel)}" alt="service" style="width:100%;height:260px;object-fit:cover;border-radius:12px;">' if svc_img_rel else '<p class="p-muted">画像は未設定です</p>'}
-      </div>
-      <div class="news_list">{svc_items_html}</div>
-    </div>
-  </section>
-
-  <section id="news" class="section">
-    <h2 class="h2">お知らせ</h2>
-    <div class="news_list">{news_list_items_html or '<p class="p-muted">お知らせはまだありません</p>'}</div>
-    <div style="margin-top:12px;"><a class="btn-outline" href="news/index.html">お知らせ一覧へ</a></div>
-  </section>
-
-  <section id="faq" class="section faq">
-    <h2 class="h2">FAQ</h2>
-    {faq_html}
-  </section>
-
-  <section id="access" class="section">
-    <h2 class="h2">アクセス</h2>
-    <div class="grid2">
-      <div class="card">
-        <div style="font-weight:800;">住所</div>
-        <div class="p-muted" style="margin-top:6px;">{html.escape(address) if address else '（未入力）'}</div>
-        {f'<div class="p-muted" style="margin-top:10px;">{notes}</div>' if notes else ''}
-        <div style="margin-top:12px;">{map_html}</div>
-      </div>
-      <div class="card">
-        <div style="font-weight:800;">連絡先</div>
-        <div class="p-muted" style="margin-top:6px;">{html.escape(email) if email else '（未入力）'}</div>
-        {f'<div class="p-muted" style="margin-top:10px;">受付: {hours}</div>' if hours else ''}
-      </div>
-    </div>
-  </section>
-
-  <section id="contact" class="section">
-    <h2 class="h2">{html.escape(button_text)}</h2>
-    {contact_section_html}
-  </section>
-</main>
-
-<footer class="footer">
-  <div class="container">
-    <div>© {html.escape(company_name)}</div>
-    <div style="margin-top:6px;"><a href="privacy.html">プライバシーポリシー</a></div>
-  </div>
-</footer>
+  <script src=\"assets/site.js\"></script>
 </body>
 </html>
 """
 
-    # index: append scripts（hero slider + contact form）
-    try:
-        script_tags = "\n".join([x for x in [hero_slider_script_tag, contact_script_tag] if x])
-        if script_tags:
-            index_html = index_html.replace("</footer>\n</body>", f"</footer>\n{script_tags}\n</body>")
-    except Exception:
-        pass
-
     files["index.html"] = index_html.encode("utf-8")
 
-    # privacy page
-    privacy_md = build_privacy_markdown(p)
-    privacy_html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>プライバシーポリシー | {html.escape(company_name)}</title><link rel="stylesheet" href="assets/site.css"></head><body>
-<header class="header"><div class="container inner"><div class="brand"><a href="index.html">{html.escape(company_name)}</a></div><div class="nav"><a href="news/index.html">お知らせ</a><a href="index.html#contact">{html.escape(button_text)}</a></div></div></header>
-<main class="container section"><h1 class="h2">プライバシーポリシー</h1><div class="card">{_simple_md_to_html(privacy_md)}</div><div style="margin-top:14px;"><a class="btn-outline" href="index.html">トップへ戻る</a></div></main>
-<footer class="footer"><div class="container">© {html.escape(company_name)}</div></footer></body></html>"""
+    # --------------------
+    # privacy.html
+    # --------------------
+    privacy_md = build_privacy_markdown(step1)
+    privacy_body = render_markdown_html(privacy_md)
+    privacy_page_body = f"""
+<section class=\"pv-section pv-section-260218\" id=\"pv-privacy\">
+  {_section_head("プライバシーポリシー", "PRIVACY")}
+  <div class=\"pv-panel pv-panel-glass pv-legal\">{privacy_body}</div>
+  <div class=\"pv-news-more\"><a class=\"pv-link-btn pv-btn-outline\" href=\"index.html#pv-contact\">お問い合わせへ戻る</a></div>
+</section>
+"""
+
+    privacy_html = _wrap_page(
+        title=f"{company_name}｜プライバシーポリシー",
+        css_href="assets/site.css",
+        js_href="assets/site.js",
+        favicon_href_=favicon_href,
+        body_inner=privacy_page_body,
+        root_prefix="",
+    )
     files["privacy.html"] = privacy_html.encode("utf-8")
 
-    # contact form files (v0.8)
-    try:
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, phone=phone))
-    except Exception:
-        pass
-
     return files
-
-
-def validate_static_site_files(files: dict[str, bytes]) -> tuple[bool, list[str]]:
-    """静的サイト生成結果の簡易バリデーション。
-
-    目的:
-    - ZIPを書き出せても「中身が壊れていて見た目が崩れる」事故を防ぐ
-    - 15歳でも原因が追えるよう、失敗時は『どこがダメか』を短い文章で返す
-
-    ※ 厳密なHTML検証ではなく、よくある致命傷だけを確実に弾く。
-    """
-    errors: list[str] = []
-
-    try:
-        if not isinstance(files, dict) or not files:
-            return False, ["生成ファイルが空です（内部エラー）"]
-    except Exception:
-        return False, ["生成ファイルの形式が不正です（内部エラー）"]
-
-    # 必須ファイル
-    for req in ("index.html", "privacy.html", "assets/site.css"):
-        if req not in files:
-            errors.append(f"必須ファイルがありません: {req}")
-
-    # パスの安全性（zip slip 対策 + 文字化け/事故対策）
-    for path, content in list(files.items()):
-        try:
-            p = str(path or "")
-            if not p:
-                errors.append("空のパスが含まれています")
-                continue
-            if p.startswith("/") or p.startswith("\\") or ":" in p:
-                errors.append(f"不正なパス: {p}")
-                continue
-            if "\\" in p:
-                errors.append(f"バックスラッシュを含むパス: {p}")
-                continue
-            parts = [x for x in p.split("/") if x]
-            if any(x == ".." for x in parts):
-                errors.append(f"危険な相対パス: {p}")
-                continue
-            if not isinstance(content, (bytes, bytearray)):
-                errors.append(f"内容がbytesではありません: {p}")
-        except Exception:
-            errors.append("ファイル一覧の検証中に例外が発生しました")
-
-    # HTMLの致命傷チェック（index中心）
-    try:
-        idx = files.get("index.html", b"")
-        idx_s = idx.decode("utf-8", errors="replace")
-
-        # CSS参照
-        if 'href="assets/site.css"' not in idx_s:
-            errors.append("index.html が assets/site.css を参照していません")
-
-        # ありがちな壊れ方: button type の引用符抜け（HTMLが全崩れ）
-        if 'type="submit>' in idx_s or 'type="submit disabled>' in idx_s:
-            errors.append("index.html の送信ボタン(type=submit)の引用符が欠けています")
-
-        # ありがちな壊れ方: JSの \n が \n ではなく改行になっている（JS構文エラー）
-        if re.search(r"body\s*\+=\s*'【お名前】'\s*\+\s*name\s*\+\s*\n\s*';", idx_s):
-            errors.append("index.html のJS内で\\nが改行になっており、スクリプトが壊れています")
-
-        # assets/ 参照の実在チェック（../ を剥がして照合）
-        for m in re.findall(r"(?:src|href)=['\"]([^'\"]+)['\"]", idx_s):
-            ref = (m or "").strip()
-            if not ref:
-                continue
-            if ref.startswith("http://") or ref.startswith("https://") or ref.startswith("mailto:") or ref.startswith("#"):
-                continue
-            # normalize ./ ../
-            r = ref
-            while r.startswith("./"):
-                r = r[2:]
-            while r.startswith("../"):
-                r = r[3:]
-            if r.startswith("assets/") and r not in files:
-                errors.append(f"index.html が存在しないファイルを参照しています: {ref}")
-    except Exception:
-        errors.append("index.html の検証中に例外が発生しました")
-
-    # 追加: 全HTMLで assets/ 参照が存在するか（news/ 配下は ../assets/... になるため ../ を剥がす）
-    try:
-        for fpath, bb in files.items():
-            fp = str(fpath or "")
-            if not fp.endswith(".html"):
-                continue
-            s = (bb or b"").decode("utf-8", errors="replace")
-            for m in re.findall(r"(?:src|href)=['\"]([^'\"]+)['\"]", s):
-                ref = (m or "").strip()
-                if not ref:
-                    continue
-                if ref.startswith("http://") or ref.startswith("https://") or ref.startswith("mailto:") or ref.startswith("#"):
-                    continue
-
-                r = ref
-                while r.startswith("./"):
-                    r = r[2:]
-                while r.startswith("../"):
-                    r = r[3:]
-
-                if r.startswith("assets/") and r not in files:
-                    errors.append(f"{fp} が存在しないファイルを参照しています: {ref}")
-    except Exception:
-        errors.append("HTML参照（assets/）の検証中に例外が発生しました")
-
-    ok = len(errors) == 0
-    return ok, errors
-
-
 def build_site_zip_filename(p: dict, *, dt: Optional[datetime] = None) -> str:
     """書き出しZIPのファイル名を生成する。
 
@@ -6696,29 +8491,14 @@ def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
     p = normalize_project(p)
     files = build_static_site_files(p)
 
-    # 生成物の簡易検証（壊れたZIPを配らない）
-    ok, errs = validate_static_site_files(files)
-    if not ok:
-        msg = " / ".join(errs[:5])
-        if len(errs) > 5:
-            msg += f" …ほか{len(errs)-5}件"
-        raise RuntimeError(f"ZIP書き出しに失敗しました（生成ファイルが壊れています）: {msg}")
-
     mem = BytesIO()
-    write_errors: list[str] = []
     with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for path, content in files.items():
             try:
                 z.writestr(path, content)
-            except Exception as e:
-                # ここで握りつぶすと『見た目が崩れたZIP』になるので、集計して最後に止める
-                write_errors.append(f"{path} ({type(e).__name__})")
-
-    if write_errors:
-        msg = ", ".join(write_errors[:5])
-        if len(write_errors) > 5:
-            msg += f" …ほか{len(write_errors)-5}件"
-        raise RuntimeError(f"ZIP作成中にファイル書き込みで失敗しました: {msg}")
+            except Exception:
+                # 1ファイルで失敗しても全体を落とさない
+                pass
 
     filename = build_site_zip_filename(p)
     return mem.getvalue(), filename
@@ -7834,72 +9614,11 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-blob4: {blob4};"
         f"--pv-bg-img: {bg_img_str};"
     )
-
-def render_preview_static_site(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
-    """プレビューを「ZIP書き出しと同じHTML/CSS」で表示する（ズレ防止）"""
-    user = current_user()
-    if not user:
-        ui.label("ログインが必要です").classes("text-negative q-pa-md")
-        return
-
-    # ZIP書き出しと同じ生成ロジックを使う（＝同じ見た目）
-    try:
-        files = build_static_site_files(p)
-    except Exception as ex:
-        traceback.print_exc()
-        ui.label("プレビュー生成に失敗しました").classes("text-negative q-pa-md")
-        ui.label(f"{type(ex).__name__}: {ex}").classes("cvhb-muted q-pa-md")
-        return
-
-    # userごとに安定したkeyを持つ（ブラウザキャッシュが効きやすい）
-    key = None
-    try:
-        key = app.storage.user.get("pv_site_key")
-    except Exception:
-        key = None
-    if not key or not isinstance(key, str) or len(key) < 8:
-        key = secrets.token_urlsafe(12)
-        try:
-            app.storage.user["pv_site_key"] = key
-        except Exception:
-            pass
-
-    _pv_site_cache_upsert(int(user.id), str(key), files)
-
-    # iframeの強制リロード用（クエリを変える）
-    ver = 0
-    try:
-        ver = int(app.storage.user.get("pv_site_ver") or 0) + 1
-        if ver > 1000000:
-            ver = 1
-        app.storage.user["pv_site_ver"] = ver
-    except Exception:
-        ver = int(datetime.now(JST).timestamp())
-
-    # legacyの fit-to-width との整合（modeに応じた固定幅）
-    design_w = 720 if mode == "mobile" else 1920
-    root_id = root_id or "pv-root"
-    src = f"/pv_site/{key}/index.html?v={ver}"
-
-    with ui.element("div").props(f'id="{root_id}"').style(
-        f"width: {design_w}px; height: 2400px; overflow: hidden; background: transparent;"
-    ):
-        # NOTE: ui.html() はラッパー要素の高さが 0 になりやすく、iframe が見えなくなることがある
-        #       -> 直接 iframe 要素を作り、親(div)の高さ100%で確実に表示する
-        ui.element("iframe").props(
-            f'title="preview" src="{html.escape(src, quote=True)}" loading="eager"'
-        ).style("width:100%; height:100%; border:0; display:block; background:transparent;")
-
-
-
 def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
     p は「プロジェクト全体(dict)」または p["data"] 相当(dict) のどちらでも受け付ける。
     """
-    if PREVIEW_USE_EXPORT_TEMPLATE:
-        return render_preview_static_site(p, mode=mode, root_id=root_id)
-
     # -------- data extraction (project dict / data dict 両対応) --------
     if isinstance(p, dict) and isinstance(p.get("data"), dict):
         d = p.get("data") or {}
