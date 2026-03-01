@@ -2923,7 +2923,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.11")
+VERSION = read_text_file("VERSION", "0.8.13")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -5533,6 +5533,11 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
           <div class="pv-footer-links">
             <a class="pv-footer-link" href="index.html#pv-top">トップ</a>
             <a class="pv-footer-link" href="news/index.html">お知らせ一覧</a>
+            <a class="pv-footer-link" href="index.html#pv-about">私たちについて</a>
+            <a class="pv-footer-link" href="index.html#pv-services">業務内容</a>
+            <a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>
+            <a class="pv-footer-link" href="index.html#pv-access">アクセス</a>
+            <a class="pv-footer-link" href="index.html#pv-contact">お問い合わせ</a>
             <a class="pv-footer-link" href="privacy.html">プライバシーポリシー</a>
           </div>
           <div class="pv-footer-copy">© <span id="pvYear"></span> {esc_company}</div>
@@ -7574,6 +7579,20 @@ a:hover{text-decoration:none;}
 
 .pv-layout-260218 .pv-inline-link{color:var(--pv-accent); text-decoration:underline; text-underline-offset:3px;}
 
+/* ===== Export Footer Layout ===== */
+.pv-layout-260218 .pv-footer-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pv-layout-260218 .pv-footer-links{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
 .pv-shell.pv-layout-260218,
 .pv-shell.pv-layout-260218.pv-mode-mobile,
@@ -8119,6 +8138,11 @@ a:hover{text-decoration:none;}
           <div class=\"pv-footer-links\">
             <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
             <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">私たちについて</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">業務内容</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
             <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
           </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
@@ -8307,8 +8331,25 @@ a:hover{text-decoration:none;}
     # --------------------
     access = blocks.get("access") or {}
     map_url = str(access.get("map_url") or "").strip()
-    map_embed = bool(access.get("embed") or False)
     access_notes = str(access.get("notes") or "").strip()
+
+    # map_url が空でも、住所があれば GoogleMap リンクを自動生成（プレビューと同じ挙動）
+    if (not map_url) and address:
+        map_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
+
+    # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
+    # 旧データ互換: embed / embed_map の両方を見る（デフォルトは True）
+    try:
+        map_embed = bool(access.get("embed_map", access.get("embed", True)))
+    except Exception:
+        map_embed = True
+
+    # iframe src は map_url ではなく address から作る（search API は iframe だと表示されない場合がある）
+    iframe_src = ""
+    if address:
+        iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
+    elif map_url:
+        iframe_src = map_url
 
     access_addr_html = _paras(address) if address else ''
     access_notes_html = _paras(access_notes) if access_notes else ''
@@ -8317,23 +8358,31 @@ a:hover{text-decoration:none;}
     map_openlink_html = ''
     if map_url:
         esc_map_url = _esc(map_url)
-        if map_embed:
-            iframe_src = esc_map_url
+        esc_iframe_src = _esc(iframe_src) if iframe_src else esc_map_url
+        esc_addr = _esc(address) if address else ''
+        if map_embed and esc_iframe_src:
             map_frame_html = f"""<div class=\"pv-mapframe pv-mapframe-live\">
-  <iframe class=\"pv-map-iframe\" title=\"map\" loading=\"lazy\" src=\"{iframe_src}\"></iframe>
+  <iframe class=\"pv-map-iframe\" title=\"map\" loading=\"lazy\" referrerpolicy=\"no-referrer-when-downgrade\" src=\"{esc_iframe_src}\"></iframe>
   <div class=\"pv-mapframe-ui\">
-    <a class=\"pv-link-btn pv-btn-outline pv-mapframe-open\" href=\"{esc_map_url}\" target=\"_blank\" rel=\"noopener\">地図を開く</a>
-    <span class=\"pv-mapframe-badge\">Google Map</span>
+    <span class=\"pv-mapframe-badge\">MAP</span>
+    <div class=\"pv-mapframe-bottom\">
+      <div class=\"pv-mapframe-label\">{esc_addr}</div>
+      <a class=\"pv-link-btn pv-btn-outline pv-mapframe-open\" href=\"{esc_map_url}\" target=\"_blank\" rel=\"noopener\">地図を開く</a>
+    </div>
   </div>
 </div>"""
         else:
             map_frame_html = f"""<a class=\"pv-mapframe pv-mapframe-link\" href=\"{esc_map_url}\" target=\"_blank\" rel=\"noopener\">
   <div class=\"pv-mapframe-ui\">
-    <span class=\"pv-mapframe-badge\">Google Map</span>
-    <span class=\"pv-link-btn pv-btn-outline pv-mapframe-open\">地図を開く</span>
+    <span class=\"pv-mapframe-badge\">MAP</span>
+    <div class=\"pv-mapframe-pin\">📍</div>
+    <div class=\"pv-mapframe-bottom\">
+      <div class=\"pv-mapframe-label\">{esc_addr}</div>
+      <span class=\"pv-link-btn pv-btn-outline pv-mapframe-open\">地図を開く</span>
+    </div>
   </div>
 </a>"""
-        map_openlink_html = f'<a class="pv-map-openlink" href="{esc_map_url}" target="_blank" rel="noopener">Google Mapで開く</a>'
+        map_openlink_html = f'<a class=\"pv-map-openlink\" href=\"{esc_map_url}\" target=\"_blank\" rel=\"noopener\">地図を開く（Googleマップ）</a>'
 
     access_section_html = f"""
 <section class=\"pv-section pv-section-260218\" id=\"pv-access\">
@@ -8447,6 +8496,11 @@ a:hover{text-decoration:none;}
           <div class=\"pv-footer-links\">
             <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
             <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
+            <a class=\"pv-footer-link\" href=\"#pv-about\">私たちについて</a>
+            <a class=\"pv-footer-link\" href=\"#pv-services\">業務内容</a>
+            <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
+            <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
+            <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
             <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
           </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
