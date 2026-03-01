@@ -2923,7 +2923,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.13")
+VERSION = read_text_file("VERSION", "0.9.3")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -9486,6 +9486,270 @@ def publish_site_via_sftp(
 
 
 
+# =========================
+# [BLK-09b] In-app Help Popup (v0.9.3)
+# =========================
+
+# ヘルプ（ビルダー内ポップアップ）のQ&A
+# - 15歳でも迷わない
+# - まずは「上の箇条書き」→該当Qへジャンプできる構成
+# - 秘密情報（キー/URL/DB/パスワード等の値）は書かない
+INAPP_HELP_FAQ = [
+    {
+        "id": "cvhb-help-start",
+        "title": "まず何からやればいい？",
+        "q": "まず何からやればいい？",
+        "a_md": """作業は **上から順番** でOKです。
+
+1. **案件一覧** → **新規作成**（なければ）→ **開く**
+2. 左の **作成ステップ** を 1 → 2 → 3 の順に入力
+3. こまめに **保存（PROJECT.JSON）** を押す（大事）
+4. できたら **承認依頼** を出す（利用者）
+5. 管理者が **承認OK** にしたら、**ZIPを書き出し** できます
+
+迷ったら「保存」と「プレビュー」を見れば、今どこまでできたか分かります。""",
+    },
+    {
+        "id": "cvhb-help-login",
+        "title": "ログインできない",
+        "q": "ログインできない（ユーザー名/パスワードが分からない）",
+        "a_md": """まず、次を上から確認してください。
+
+1. **ユーザー名** は、スペースが入っていないか確認（コピペの最後に空白が入りやすい）
+2. **大文字/小文字** が合っているか確認
+3. それでもダメなら、**管理者** に「パスワード再発行」を依頼してください  
+   ※このビルダーは、利用者が自分でパスワードを復旧できません
+
+ログインできない時は、勝手に何度も試さず、管理者に連絡するのが一番早いです。""",
+    },
+    {
+        "id": "cvhb-help-project",
+        "title": "案件ってなに？ 新規作成と開き方",
+        "q": "案件ってなに？ 新規作成と開き方",
+        "a_md": """**案件 = 1つのお客さん（1つのホームページ）** と思ってください。
+
+- 新しく作る → **案件一覧** → **新規作成**
+- 続きを編集 → **案件一覧** → **開く**
+
+ポイント：
+- 作業する前に、右上に **「案件: ○○」** が出ているか確認  
+  出ていないときは、まだ案件を開けていません。""",
+    },
+    {
+        "id": "cvhb-help-save",
+        "title": "保存し忘れが怖い（保存のタイミング）",
+        "q": "保存し忘れが怖い（保存のタイミング）",
+        "a_md": """このビルダーは **入力しただけでは保存されません**（プレビューは変わりますが、保存ではありません）。
+
+必ず、次のタイミングで **保存（PROJECT.JSON）** を押してください。
+
+1. 10分作業したら1回
+2. 画像を入れた直後
+3. 作成ステップを移動する前
+4. PCを閉じる前（最後にもう1回）
+
+おすすめ：  
+「保存しました」と通知が出るのを見てから次へ進む。""",
+    },
+    {
+        "id": "cvhb-help-preview-mode",
+        "title": "スマホ/PCの見え方を切り替えたい",
+        "q": "スマホ/PCの見え方を切り替えたい",
+        "a_md": """右側のプレビュー上部にある **スマホ / PC** ボタンで切り替えできます。
+
+- **スマホ**：お客さんがスマホで見る見た目
+- **PC**：パソコンで見る見た目
+
+ポイント：  
+「スマホでOKでもPCで崩れる」ことがあるので、最後は両方チェック。""",
+    },
+    {
+        "id": "cvhb-help-color",
+        "title": "色を変えたい（どこが変わる？）",
+        "q": "色を変えたい（どこが変わる？）",
+        "a_md": """左の **1. 業種設定・ページカラー設定** で変えられます。
+
+1. **スマホ用カラー** を選ぶ → スマホ表示の色が変わる
+2. **PC用カラー** を選ぶ → PC表示の色が変わる
+
+ポイント：  
+色は「濃すぎる」と文字が読みにくくなるので、プレビューで文字の読みやすさを確認してください。""",
+    },
+    {
+        "id": "cvhb-help-basic-required",
+        "title": "最低限どこを入れれば完成？（必須）",
+        "q": "最低限どこを入れれば完成？（必須）",
+        "a_md": """最低限、次が入っていれば「公開しても困らない」状態になります。
+
+1. **会社名/屋号**
+2. **住所**（アクセスに出ます）
+3. **電話番号**（またはメールどちらか）
+4. **営業時間**（分からなければ「要相談」でもOK）
+5. **お問い合わせ** の文章（連絡方法）
+
+迷ったら、まず「基本情報設定」を全部埋めてから、ブロックの文章を整えると早いです。""",
+    },
+    {
+        "id": "cvhb-help-image",
+        "title": "画像が入らない / 重い / 画質が荒い",
+        "q": "画像が入らない / 重い / 画質が荒い",
+        "a_md": """よくある原因は「画像サイズが大きすぎる」です。
+
+1. まず画像を **横1920px以下**（スマホ写真そのままは大きい）にする  
+2. ファイル容量は **1枚 1MB以下** を目安（重いと表示も保存も遅くなります）
+3. 形式は **JPG / PNG** が安定
+4. 入れたあと、**保存（PROJECT.JSON）** を押す
+
+それでも入らない時：  
+一度ページを更新して、もう1回アップロードしてみてください。""",
+    },
+    {
+        "id": "cvhb-help-news-faq",
+        "title": "お知らせ/FAQを追加・削除したい",
+        "q": "お知らせ/FAQを追加・削除したい",
+        "a_md": """**ページ内容詳細設定** の中にあります。
+
+- お知らせ：記事を追加 → タイトルと本文を入れる → 反映を確認
+- FAQ：質問と答えを追加 → 反映を確認
+
+ポイント：  
+最初は「少なめ」でOK。公開後に増やす方がミスが少ないです。""",
+    },
+    {
+        "id": "cvhb-help-map",
+        "title": "地図（Googleマップ）が表示されない",
+        "q": "地図（Googleマップ）が表示されない",
+        "a_md": """次を順番に確認してください。
+
+1. **住所** が入っているか（基本情報）
+2. 住所の「番地」まで入っているか（ざっくりだと表示できないことがあります）
+3. 右プレビューを一度 **更新** してみる
+4. それでもダメなら、住所を **短く**（建物名を外す等）して試す
+
+※公開後は、通信環境によって地図が遅く出ることもあります。""",
+    },
+    {
+        "id": "cvhb-help-approval",
+        "title": "承認ってなに？（依頼→承認→差戻し）",
+        "q": "承認ってなに？（依頼→承認→差戻し）",
+        "a_md": """このビルダーは「公開前に管理者が最終確認」するために **承認** があります。
+
+- 利用者：**承認依頼** を出す（メモがあると親切）
+- 管理者：内容を見て **承認OK** か **差戻し** を選ぶ
+- 差戻しになったら：直して、もう一度 **承認依頼**
+
+ポイント：  
+承認OKになるまで、ZIP書き出し/公開はできません。""",
+    },
+    {
+        "id": "cvhb-help-zip",
+        "title": "ZIP書き出しってなに？（ダウンロード/バックアップ）",
+        "q": "ZIP書き出しってなに？（ダウンロード/バックアップ）",
+        "a_md": """ZIPは「ホームページ一式をまとめたファイル」です。公開するときにも使います。
+
+- **ZIPを書き出す**：自分のPCにダウンロード（手元に残る）
+- **ZIPを案件バックアップへ保存**：サーバー側に残す（復元用）
+
+おすすめ運用：  
+公開前に **案件バックアップへ保存** → そのあと公開。""",
+    },
+    {
+        "id": "cvhb-help-conoha",
+        "title": "ConoHa WINGで公開する流れ（超ざっくり）",
+        "q": "ConoHa WINGで公開する流れ（超ざっくり）",
+        "a_md": """※これは **管理者向け** の内容です（利用者は読まなくてOK）。
+
+1. このビルダーで **ZIPを書き出す**
+2. ZIPをPCで **展開** する（中に index.html がある状態）
+3. ConoHa WING の **ファイルマネージャー** を開く
+4. **public_html → ドメイン名** のフォルダへ、展開した中身をアップロード
+5. ConoHa の **動作確認URL** で表示チェック → OKなら本番ドメインで確認
+6. **無料SSL** をONにする（https化）
+
+詳しい手順は、公開マニュアル（ConoHa WING版）を見てください。""",
+    },
+    {
+        "id": "cvhb-help-trouble-publish",
+        "title": "公開できない / 表示されない時（最短で戻す）",
+        "q": "公開できない / 表示されない時（最短で戻す）",
+        "a_md": """まずは **この順番だけ** で確認してください（一本道）。
+
+1. ビルダー側で **承認OK** になっているか  
+   → まだなら「承認依頼」→ 管理者の承認待ち
+2. **ZIPを書き出せるか**  
+   → できないなら、権限（admin/subadmin）を確認
+3. ConoHaのファイルマネージャーで、置き場所が **public_html/ドメイン名/** になっているか  
+   → public_html直下や別フォルダだと表示されません
+4. そのフォルダの中に **index.html があるか**  
+   → 無いならアップロード漏れ。ZIPを展開して「中身」を全部アップロード
+5. ドメインで表示されない時は、ConoHaの **動作確認URL** をONにして表示確認  
+   → 動作確認URLで見えれば、DNS反映待ちの可能性が高い
+6. httpsで警告が出る時は、ConoHaで **無料独自SSL** をON  
+   → 反映まで少し時間がかかることがあります
+
+ここまでで戻らない場合は、管理者が「案件バックアップ」から1つ前のZIPに戻して再公開します。""",
+    },
+]
+
+def _render_inapp_help_links_html(items: list[dict]) -> str:
+    """上部の箇条書きリンク（ページ内リンク）をHTMLで返す"""
+    try:
+        lis = []
+        for it in items:
+            sid = html.escape(str(it.get("id") or ""))
+            title = html.escape(str(it.get("title") or it.get("q") or ""))
+            if not sid or not title:
+                continue
+            lis.append(
+                f"<li><a href='javascript:void(0)' onclick=\"try{{document.getElementById('{sid}').scrollIntoView({{behavior:'smooth', block:'start'}});}}catch(e){{}}\">{title}</a></li>"
+            )
+        joined = "".join(lis)
+        return (
+            "<div class='cvhb-help-links'>"
+            "<div style='font-weight:700; margin-bottom:6px;'>よくある質問（クリックで移動）</div>"
+            "<ul style='margin: 0 0 0 18px; padding: 0; line-height: 1.6;'>"
+            + joined
+            + "</ul></div>"
+        )
+    except Exception:
+        return ""
+
+def create_inapp_help_dialog() -> ui.dialog:
+    """ビルダー内で開くヘルプ（ポップアップ）"""
+    with ui.dialog() as dialog, ui.card().classes("q-pa-md rounded-borders").style("width: 980px; max-width: 96vw;").props("bordered"):
+        with ui.row().classes("items-center justify-between"):
+            ui.label("ヘルプ（よくある質問）").classes("text-h6")
+            ui.button("閉じる", on_click=dialog.close).props("flat")
+        ui.label("困ったときは、まず上のリンクから該当項目へジャンプしてください。").classes("cvhb-muted q-mt-xs")
+
+        ui.separator().classes("q-my-sm")
+
+        with ui.scroll_area().style("height: 72vh; width: 100%;"):
+            # 上部：箇条書き（ページ内リンク）
+            ui.html(_render_inapp_help_links_html(INAPP_HELP_FAQ)).classes("q-mb-md")
+
+            # 下：Q&A
+            for it in INAPP_HELP_FAQ:
+                sid = str(it.get("id") or "")
+                q = str(it.get("q") or "")
+                a = str(it.get("a_md") or "")
+                if not sid or not q:
+                    continue
+                ui.html(f"<div id='{html.escape(sid)}' style='scroll-margin-top: 90px;'></div>")
+                ui.label(f"Q. {q}").classes("text-subtitle2 q-mt-md")
+                if a:
+                    ui.markdown(a).classes("q-mt-xs")
+                else:
+                    ui.label("（準備中）").classes("cvhb-muted")
+
+        ui.separator().classes("q-mt-sm")
+        with ui.row().classes("items-center justify-end q-gutter-sm q-mt-sm"):
+            ui.button("閉じる", on_click=dialog.close).props("color=primary outline")
+    return dialog
+
+
+
+
 def render_header(u: Optional[User]) -> None:
     with ui.element("div").classes("w-full bg-white shadow-1").style("position: sticky; top: 0; z-index: 1000;"):
         with ui.row().classes("w-full items-center justify-between q-pa-md").style("gap: 12px;"):
@@ -9509,8 +9773,14 @@ def render_header(u: Optional[User]) -> None:
                 if u:
                     ui.badge(f"{u.username} ({u.role})").props("outline")
                     ui.button("案件", on_click=lambda: navigate_to("/projects")).props("flat")
+
+                    # ヘルプ（ポップアップ）
+                    help_dialog = create_inapp_help_dialog()
+                    ui.button("ヘルプ", icon="help_outline", on_click=help_dialog.open).props("flat")
+
+                    # HELP_MODE（スクショ/オフライン用）
                     if HELP_MODE:
-                        ui.button("ヘルプ", on_click=lambda: navigate_to("/help")).props("flat")
+                        ui.button("ヘルプ（ページ）", on_click=lambda: navigate_to("/help")).props("flat")
                     if (not HELP_MODE) and (u.role in {"admin", "subadmin"}):
                         ui.button("操作ログ", on_click=lambda: navigate_to("/audit")).props("flat")
                     ui.button("ログアウト", on_click=logout).props("color=negative flat")
@@ -12038,12 +12308,40 @@ def render_main(u: User) -> None:
                                                         label += f" / {wf.get('last_backup_zip_file')}"
                                                     ui.label(label).classes("cvhb-muted q-mt-xs")
 
+
                                             # -----------------
-                                            # 2) 公開（SFTP）
+                                            # 2) 公開（ConoHa WING：ファイルマネージャー）
+                                            # -----------------
+                                            with ui.card().classes("q-pa-sm rounded-borders q-mb-sm w-full").props("flat bordered"):
+                                                ui.label("公開（ConoHa WING：ファイルマネージャー）").classes("text-subtitle1")
+                                                ui.label("ZIPを書き出して、ConoHaの管理画面からアップロードします。").classes("cvhb-muted")
+
+                                                ui.markdown(
+                                                    """**最短手順（迷ったらこの順番）**
+1. 上の「ZIPを書き出す」で ZIP を作って、パソコンにダウンロードする
+2. ZIPを右クリック → 「すべて展開」で展開する（中に **index.html** が見える状態にする）
+3. ConoHa WING → **WING** → **サイト管理** → **ファイルマネージャー** を開く
+4. 左の **public_html** → **あなたのドメイン名のフォルダ** を開く
+5. 展開したフォルダの **中身（index.html など）** を全部ドラッグ＆ドロップでアップロードする
+6. ConoHaの **動作確認URL**（テスト用URL）で表示確認 → OKなら本番ドメインで確認する
+7. 最後に ConoHa の **無料独自SSL** をONにして、httpsで開けるようにする
+"""
+                                                ).classes("q-mt-sm")
+
+                                                ui.label("ポイント：『フォルダごと』ではなく『中身』をアップロードすると、トップ（/）で表示されます。").classes("text-caption text-grey q-mt-xs")
+                                                ui.label("※ ConoHa側の画面は変わることがあります。迷ったら公開マニュアル（ConoHa WING版）を見てください。").classes("text-caption text-grey q-mt-xs")
+
+                                                with ui.row().classes("items-center q-gutter-sm q-mt-sm").style("flex-wrap: wrap;"):
+                                                    ui.link("ConoHa公式：ファイルマネージャーの使い方", "https://support.conoha.jp/w/filemanager/").classes("text-caption")
+                                                    ui.link("ConoHa公式：動作確認URLの使い方", "https://support.conoha.jp/w/checkurl/").classes("text-caption")
+                                                    ui.link("ConoHa公式：ドメイン追加（無料SSLあり）", "https://support.conoha.jp/w/adddomain/").classes("text-caption")
+
+                                            # -----------------
+                                            # 3) 公開（SFTP / 上級者向け）
                                             # -----------------
                                             with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
-                                                ui.label("公開（SFTPアップロード）").classes("text-subtitle1")
-                                                ui.label("※ ここは管理者（admin）のみ。公開先サーバーの情報がある案件だけ使えます。").classes("cvhb-muted")
+                                                ui.label("上級者向け：SFTPで自動公開").classes("text-subtitle1")
+                                                ui.label("※ ここは管理者（admin）のみ。ConoHaのファイルマネージャーで公開する場合は、上の手順を使ってください。").classes("cvhb-muted")
 
                                                 data = p.get("data") if isinstance(p, dict) else {}
                                                 publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
