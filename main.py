@@ -5162,6 +5162,19 @@ def _simple_md_to_html(md: str) -> str:
     return "\n".join(html_parts)
 
 
+
+def render_markdown_html(md: str) -> str:
+    """このアプリで使う簡易MarkdownをHTMLに変換（export/プレビュー共通の最小実装）。
+
+    ポイント:
+    - 外部ライブラリに依存しない（環境差で落ちない）
+    - HTMLは必ずエスケープして出力（XSS防止）
+    - プライバシーポリシー向けに最低限の要素（h2 / ul / p）だけ対応
+    """
+    body = _simple_md_to_html(md)
+    return f'<div class="pv-legal-md">{body}</div>'
+
+
 def build_privacy_markdown(p: dict) -> str:
     data = p.get("data") if isinstance(p, dict) else {}
     step2 = data.get("step2") if isinstance(data, dict) and isinstance(data.get("step2"), dict) else {}
@@ -8452,7 +8465,7 @@ a:hover{text-decoration:none;}
     # --------------------
     # privacy.html
     # --------------------
-    privacy_md = build_privacy_markdown(step1)
+    privacy_md = build_privacy_markdown(p)
     privacy_body = render_markdown_html(privacy_md)
     privacy_page_body = f"""
 <section class=\"pv-section pv-section-260218\" id=\"pv-privacy\">
@@ -8513,22 +8526,121 @@ def build_site_zip_filename(p: dict, *, dt: Optional[datetime] = None) -> str:
     return f"{date_prefix}_{safe_name}_site.zip"
 
 
-def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
-    """静的サイト一式をZIP化して返す。"""
-    p = normalize_project(p)
-    files = build_static_site_files(p)
 
+def _normalize_static_site_files(files: dict) -> dict[str, bytes]:
+    """静的サイト生成の戻り値を ZIP へ安全に入れられる形（bytes）に正規化する。"""
+    out: dict[str, bytes] = {}
+    if not isinstance(files, dict):
+        return out
+
+    for k, v in files.items():
+        if k is None:
+            continue
+        path = str(k)
+        if v is None:
+            out[path] = b""
+            continue
+        try:
+            if isinstance(v, bytes):
+                out[path] = v
+            elif isinstance(v, bytearray):
+                out[path] = bytes(v)
+            elif isinstance(v, memoryview):
+                out[path] = v.tobytes()
+            elif isinstance(v, str):
+                out[path] = v.encode("utf-8")
+            else:
+                # 最後の手段（壊れた型が混ざっても落とさない）
+                out[path] = str(v).encode("utf-8", errors="ignore")
+        except Exception:
+            out[path] = b""
+    return out
+
+
+def _static_site_selfcheck(p: dict, files: dict[str, bytes]) -> None:
+    """書き出しZIPが「納品物として成立するか」を最低限チェックする。
+
+    ここで落ちる場合は、利用者の入力ミスではなく「内部の組み立てバグ」を想定。
+    """
+    required = [
+        "index.html",
+        "privacy.html",
+        "assets/site.css",
+        "assets/site.js",
+        "news/index.html",
+    ]
+    missing = [k for k in required if k not in files]
+    if missing:
+        raise RuntimeError("内部エラー: 書き出しに必要なファイルが不足しています: " + ", ".join(missing))
+
+    # index.html が「pv-layout-260218」を使っているか（プレビュー基準になっているか）
+    try:
+        idx = files.get("index.html", b"").decode("utf-8", errors="ignore")
+        if "pv-layout-260218" not in idx:
+            raise RuntimeError("内部エラー: index.html がプレビュー基準のテンプレになっていません（pv-layout-260218 が未検出）")
+    except RuntimeError:
+        raise
+    except Exception:
+        # decode に失敗しても、ここでは落とさない
+        pass
+
+    # contact.php 同梱（PHPフォーム方式のときだけ必須）
+    try:
+        contact_mode = ""
+        data = p.get("data") if isinstance(p, dict) else {}
+        blocks = data.get("blocks") if isinstance(data, dict) else {}
+        contact = blocks.get("contact") if isinstance(blocks, dict) else {}
+        contact_mode = str(contact.get("mode") or "php").strip().lower()
+    except Exception:
+        contact_mode = ""
+
+    if contact_mode == "php":
+        required_php = [
+            "contact.php",
+            "thanks.html",
+            "config/config.php",
+        ]
+        missing_php = [k for k in required_php if k not in files]
+        if missing_php:
+            raise RuntimeError("内部エラー: PHPフォーム同梱ファイルが不足しています: " + ", ".join(missing_php))
+
+
+def build_site_zip_bytes(p: dict) -> tuple[bytes, str]:
+    """静的サイト一式をZIP化して返す。
+
+    - 書き出しは「納品物」なので、途中で失敗したら黙って欠けたZIPを出さず、必ず失敗として扱う。
+    - ただしアプリ全体は落とさない（呼び出し側で try/except して notify する）。
+    """
+    p = normalize_project(p)
+
+    # 1) 静的ファイル生成
+    files_raw = build_static_site_files(p)
+    files = _normalize_static_site_files(files_raw)
+
+    # 2) 最低限の自己診断（壊れたZIPを出さない）
+    _static_site_selfcheck(p, files)
+
+    # 3) ZIP作成
     mem = BytesIO()
+    write_errors: list[str] = []
     with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for path, content in files.items():
             try:
                 z.writestr(path, content)
-            except Exception:
-                # 1ファイルで失敗しても全体を落とさない
-                pass
+            except Exception as ex:
+                # ここで握りつぶすと「欠けた納品物」になるので、エラーとして保持する
+                write_errors.append(f"{path} ({type(ex).__name__})")
+
+    if write_errors:
+        # 先頭だけ表示（長すぎるとUIに収まらない）
+        head = ", ".join(write_errors[:8])
+        tail = " ..." if len(write_errors) > 8 else ""
+        raise RuntimeError("ZIPに含めるファイルの書き込みに失敗しました: " + head + tail)
 
     filename = build_site_zip_filename(p)
     return mem.getvalue(), filename
+
+
 
 
 def save_site_zip_backup_to_project(p: dict, actor: User, zip_bytes: bytes, filename: str) -> str:
