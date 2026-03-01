@@ -2923,7 +2923,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.9")
+VERSION = read_text_file("VERSION", "0.8.10")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -7684,31 +7684,44 @@ a:hover{text-decoration:none;}
     # --------------------
     favicon_href = ""
     if favicon_url and _is_data_url(favicon_url):
-        meta = _data_url_meta(favicon_url)
-        ext = meta.get("ext") or "png"
-        data = meta.get("data") or b""
-        # favicon は常に assets/favicon.xxx に落とす
-        path = f"assets/favicon.{ext}"
-        files[path] = data
-        favicon_href = path
+        mime, data = _data_url_meta(favicon_url)
+        ext = _mime_to_ext(mime).lstrip(".").lower()
+        if not ext or ext == "bin":
+            ext = "png"
+        if data:
+            # favicon は常に assets/favicon.xxx に落とす
+            path = f"assets/favicon.{ext}"
+            files[path] = data
+            favicon_href = path
+        else:
+            # 解析に失敗した場合は dataURL をそのまま使う（落とさない）
+            favicon_href = favicon_url
     elif favicon_url:
         favicon_href = favicon_url
 
     # ヒーロー画像（最大4枚）
-    hero = blocks.get("hero") or {}
-    hero_imgs = hero.get("images") or []
+    hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
+    hero_imgs = hero.get("hero_image_urls") if isinstance(hero.get("hero_image_urls"), list) else []
+    # legacy: hero_image_url があれば先頭へ
+    legacy_hero = str(hero.get("hero_image_url") or "").strip()
+    if legacy_hero:
+        hero_imgs = [legacy_hero] + [u for u in hero_imgs if str(u).strip() and str(u).strip() != legacy_hero]
     hero_urls: list[str] = []
     for i, url in enumerate(hero_imgs[:4]):
         if not url:
             continue
         u = str(url).strip()
         if _is_data_url(u):
-            meta = _data_url_meta(u)
-            ext = meta.get("ext") or "jpg"
-            bts = meta.get("data") or b""
-            path = f"assets/hero_{i+1}.{ext}"
-            files[path] = bts
-            hero_urls.append(path)
+            mime, bts = _data_url_meta(u)
+            ext = _mime_to_ext(mime).lstrip(".").lower()
+            if not ext or ext == "bin":
+                ext = "jpg"
+            if bts:
+                path = f"assets/hero_{i+1}.{ext}"
+                files[path] = bts
+                hero_urls.append(path)
+            else:
+                hero_urls.append(u)
         else:
             hero_urls.append(u)
 
@@ -7716,39 +7729,52 @@ a:hover{text-decoration:none;}
     logo_url = str(step2.get("logo_url") or "").strip()
     logo_href = ""
     if logo_url and _is_data_url(logo_url):
-        meta = _data_url_meta(logo_url)
-        ext = meta.get("ext") or "png"
-        bts = meta.get("data") or b""
-        path = f"assets/logo.{ext}"
-        files[path] = bts
-        logo_href = path
+        mime, bts = _data_url_meta(logo_url)
+        ext = _mime_to_ext(mime).lstrip(".").lower()
+        if not ext or ext == "bin":
+            ext = "png"
+        if bts:
+            path = f"assets/logo.{ext}"
+            files[path] = bts
+            logo_href = path
+        else:
+            logo_href = logo_url
     elif logo_url:
         logo_href = logo_url
 
-    # philosophy / service の画像
-    ph = blocks.get("philosophy") or {}
-    ph_img_url = str(ph.get("image") or "").strip()
+    # philosophy / services の画像（プレビューと同じキー）
+    ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
+    ph_img_url = str(ph.get("image_url") or "").strip()
     ph_img_href = ""
     if ph_img_url and _is_data_url(ph_img_url):
-        meta = _data_url_meta(ph_img_url)
-        ext = meta.get("ext") or "jpg"
-        bts = meta.get("data") or b""
-        path = f"assets/about.{ext}"
-        files[path] = bts
-        ph_img_href = path
+        mime, bts = _data_url_meta(ph_img_url)
+        ext = _mime_to_ext(mime).lstrip(".").lower()
+        if not ext or ext == "bin":
+            ext = "jpg"
+        if bts:
+            path = f"assets/about.{ext}"
+            files[path] = bts
+            ph_img_href = path
+        else:
+            ph_img_href = ph_img_url
     elif ph_img_url:
         ph_img_href = ph_img_url
 
-    svc = blocks.get("service") or {}
-    svc_img_url = str(svc.get("image") or "").strip()
+    # services は philosophy 内に統合（6ブロック固定方針）
+    svc = ph.get("services") if isinstance(ph.get("services"), dict) else {}
+    svc_img_url = str(svc.get("image_url") or "").strip()
     svc_img_href = ""
     if svc_img_url and _is_data_url(svc_img_url):
-        meta = _data_url_meta(svc_img_url)
-        ext = meta.get("ext") or "jpg"
-        bts = meta.get("data") or b""
-        path = f"assets/services.{ext}"
-        files[path] = bts
-        svc_img_href = path
+        mime, bts = _data_url_meta(svc_img_url)
+        ext = _mime_to_ext(mime).lstrip(".").lower()
+        if not ext or ext == "bin":
+            ext = "jpg"
+        if bts:
+            path = f"assets/services.{ext}"
+            files[path] = bts
+            svc_img_href = path
+        else:
+            svc_img_href = svc_img_url
     elif svc_img_url:
         svc_img_href = svc_img_url
 
