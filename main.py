@@ -956,7 +956,7 @@ if not _pv_site_route_added:
                 content=body,
                 status_code=404,
                 media_type="text/html",
-                headers={"Cache-Control": "no-store"},
+                headers={"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"},
             )
 
         path = (full_path or "").lstrip("/") or "index.html"
@@ -982,7 +982,7 @@ if not _pv_site_route_added:
                 content=body,
                 status_code=404,
                 media_type="text/html",
-                headers={"Cache-Control": "no-store"},
+                headers={"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"},
             )
 
         # media type
@@ -991,7 +991,7 @@ if not _pv_site_route_added:
         # cache policy:
         # - html/css: no-store (編集が即反映されることを優先)
         # - hashed images: immutable (転送を軽くする)
-        headers = {"Cache-Control": "no-store"}
+        headers = {"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"}
         try:
             if path.startswith("assets/img/") and re.search(r"_[0-9a-f]{10}\\.", path):
                 headers["Cache-Control"] = "public, max-age=31536000, immutable"
@@ -1030,7 +1030,7 @@ if not _pv_site_route_added:
             # fallback: thanks.html をそのまま返す
             files = item.get("files") or {}
             content = files.get("thanks.html") or b""
-            return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store"})
+            return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"})
 
 
 
@@ -3100,7 +3100,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.12")
+VERSION = read_text_file("VERSION", "0.8.13")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # Preview: ZIP書き出しと同じHTML/CSSで描画する（ズレ防止）
@@ -7884,11 +7884,11 @@ def render_preview_static_site(p: dict, mode: str = "pc", *, root_id: Optional[s
     with ui.element("div").props(f'id="{root_id}"').style(
         f"width: {design_w}px; height: 2400px; overflow: hidden; background: transparent;"
     ):
-        ui.html(
-            f'<iframe title="preview" src="{html.escape(src, quote=True)}" '
-            'style="width:100%; height:100%; border:0; display:block; background:transparent;" '
-            'loading="eager"></iframe>'
-        )
+        # NOTE: ui.html() はラッパー要素の高さが 0 になりやすく、iframe が見えなくなることがある
+        #       -> 直接 iframe 要素を作り、親(div)の高さ100%で確実に表示する
+        ui.element("iframe").props(
+            f'title="preview" src="{html.escape(src, quote=True)}" loading="eager"'
+        ).style("width:100%; height:100%; border:0; display:block; background:transparent;")
 
 
 
