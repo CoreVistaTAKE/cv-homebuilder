@@ -863,6 +863,142 @@ if not _export_route_added:
     except Exception:
         pass
 
+# =========================
+# Preview Static-Site serving (export template)  (v0.8.11)
+# 目的: プレビューとZIP書き出しの HTML/CSS を「同じ生成物」に揃えて、ズレを根絶する
+# =========================
+
+_PV_SITE_CACHE: dict[str, dict] = {}
+_PV_SITE_CACHE_MAX = 8  # safety cap (per dyno)
+
+def _pv_site_cache_upsert(user_id: int, key: str, files: dict[str, bytes]) -> str:
+    # Preview用: 生成した静的ファイル一式をメモリに置く（keyはユーザーごとに安定させる）
+    try:
+        # cap: drop oldest if too many
+        if len(_PV_SITE_CACHE) >= _PV_SITE_CACHE_MAX and key not in _PV_SITE_CACHE:
+            try:
+                oldest = sorted(_PV_SITE_CACHE.items(), key=lambda kv: kv[1].get("updated_at", ""))[0][0]
+                _PV_SITE_CACHE.pop(oldest, None)
+            except Exception:
+                _PV_SITE_CACHE.clear()
+        _PV_SITE_CACHE[key] = {
+            "user_id": int(user_id),
+            "files": files,
+            "updated_at": now_jst_iso(),
+        }
+    except Exception:
+        traceback.print_exc()
+    return key
+
+def _pv_site_guess_media_type(path: str) -> str:
+    # 拡張子から Content-Type を推定（プレビュー用）
+    try:
+        mt, _ = mimetypes.guess_type(path)
+        if mt:
+            return mt
+    except Exception:
+        pass
+    p = (path or "").lower()
+    if p.endswith(".html"):
+        return "text/html"
+    if p.endswith(".css"):
+        return "text/css"
+    if p.endswith(".js"):
+        return "application/javascript"
+    if p.endswith(".png"):
+        return "image/png"
+    if p.endswith(".jpg") or p.endswith(".jpeg"):
+        return "image/jpeg"
+    if p.endswith(".svg"):
+        return "image/svg+xml"
+    if p.endswith(".webp"):
+        return "image/webp"
+    return "application/octet-stream"
+
+try:
+    _pv_site_route_added = getattr(app, "_cvhb_pv_site_route_added", False)
+except Exception:
+    _pv_site_route_added = False
+
+if not _pv_site_route_added:
+
+    @app.get("/pv_site/{key}/{full_path:path}")
+    def _pv_site_get_endpoint(key: str, full_path: str):
+        user = current_user()
+        item = _PV_SITE_CACHE.get(key)
+        if not user or not item:
+            return Response(status_code=404)
+        try:
+            if int(item.get("user_id") or 0) != int(user.id):
+                return Response(status_code=404)
+        except Exception:
+            return Response(status_code=404)
+
+        path = (full_path or "").lstrip("/") or "index.html"
+        files = item.get("files") or {}
+        content = files.get(path)
+        if content is None:
+            return Response(status_code=404)
+
+        # media type
+        mt = _pv_site_guess_media_type(path)
+
+        # cache policy:
+        # - html/css: no-store (編集が即反映されることを優先)
+        # - hashed images: immutable (転送を軽くする)
+        headers = {"Cache-Control": "no-store"}
+        try:
+            if path.startswith("assets/img/") and re.search(r"_[0-9a-f]{10}\.", path):
+                headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        except Exception:
+            pass
+
+        # Response は bytes/str 前提
+        try:
+            if isinstance(content, memoryview):
+                content = content.tobytes()
+            elif isinstance(content, bytearray):
+                content = bytes(content)
+        except Exception:
+            pass
+
+        return Response(content=content, media_type=mt, headers=headers)
+
+    # プレビュー内で contact.php を POST した場合だけ、thanks.html を返して「送信導線」を確認できるようにする
+    # ※メール送信などは行わない（あくまでプレビュー上の見た目確認用）
+    @app.post("/pv_site/{key}/contact.php")
+    def _pv_site_contact_post_endpoint(key: str):
+        user = current_user()
+        item = _PV_SITE_CACHE.get(key)
+        if not user or not item:
+            return Response(status_code=404)
+        try:
+            if int(item.get("user_id") or 0) != int(user.id):
+                return Response(status_code=404)
+        except Exception:
+            return Response(status_code=404)
+
+        # 302 redirect -> thanks.html (ok=1)
+        try:
+            return Response(
+                status_code=302,
+                headers={
+                    "Location": f"/pv_site/{key}/thanks.html?ok=1",
+                    "Cache-Control": "no-store",
+                },
+            )
+        except Exception:
+            # fallback: thanks.html をそのまま返す
+            files = item.get("files") or {}
+            content = files.get("thanks.html") or b""
+            return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store"})
+
+    try:
+        app._cvhb_pv_site_route_added = True
+    except Exception:
+        pass
+
+
 def _preview_preflight_error() -> Optional[str]:
     """プレビュー描画前に、必要な定義が揃っているかチェックして事故を減らす。"""
     try:
@@ -2923,8 +3059,12 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.10")
+VERSION = read_text_file("VERSION", "0.8.11")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
+
+# Preview: ZIP書き出しと同じHTML/CSSで描画する（ズレ防止）
+# - 1: 有効（デフォルト） / 0: 従来プレビュー（デバッグ用）
+PREVIEW_USE_EXPORT_TEMPLATE = str(os.getenv("CVHB_PREVIEW_UNIFY") or "1").strip().lower() not in {"0", "false", "no", "off"}
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
 # - 通常モード: 必須（Heroku Config Vars）
@@ -7653,11 +7793,72 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-blob4: {blob4};"
         f"--pv-bg-img: {bg_img_str};"
     )
+
+def render_preview_static_site(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
+    """プレビューを「ZIP書き出しと同じHTML/CSS」で表示する（ズレ防止）"""
+    user = current_user()
+    if not user:
+        ui.label("ログインが必要です").classes("text-negative q-pa-md")
+        return
+
+    # ZIP書き出しと同じ生成ロジックを使う（＝同じ見た目）
+    try:
+        files = build_static_site_files(p)
+    except Exception as ex:
+        traceback.print_exc()
+        ui.label("プレビュー生成に失敗しました").classes("text-negative q-pa-md")
+        ui.label(f"{type(ex).__name__}: {ex}").classes("cvhb-muted q-pa-md")
+        return
+
+    # userごとに安定したkeyを持つ（ブラウザキャッシュが効きやすい）
+    key = None
+    try:
+        key = app.storage.user.get("pv_site_key")
+    except Exception:
+        key = None
+    if not key or not isinstance(key, str) or len(key) < 8:
+        key = secrets.token_urlsafe(12)
+        try:
+            app.storage.user["pv_site_key"] = key
+        except Exception:
+            pass
+
+    _pv_site_cache_upsert(int(user.id), str(key), files)
+
+    # iframeの強制リロード用（クエリを変える）
+    ver = 0
+    try:
+        ver = int(app.storage.user.get("pv_site_ver") or 0) + 1
+        if ver > 1000000:
+            ver = 1
+        app.storage.user["pv_site_ver"] = ver
+    except Exception:
+        ver = int(datetime.now(JST).timestamp())
+
+    # legacyの fit-to-width との整合（modeに応じた固定幅）
+    design_w = 720 if mode == "mobile" else 1920
+    root_id = root_id or "pv-root"
+    src = f"/pv_site/{key}/index.html?v={ver}"
+
+    with ui.element("div").props(f'id="{root_id}"').style(
+        f"width: {design_w}px; height: 2400px; overflow: hidden; background: transparent;"
+    ):
+        ui.html(
+            f'<iframe title="preview" src="{html.escape(src, quote=True)}" '
+            'style="width:100%; height:100%; border:0; display:block; background:transparent;" '
+            'loading="eager"></iframe>'
+        )
+
+
+
 def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
     p は「プロジェクト全体(dict)」または p["data"] 相当(dict) のどちらでも受け付ける。
     """
+    if PREVIEW_USE_EXPORT_TEMPLATE:
+        return render_preview_static_site(p, mode=mode, root_id=root_id)
+
     # -------- data extraction (project dict / data dict 両対応) --------
     if isinstance(p, dict) and isinstance(p.get("data"), dict):
         d = p.get("data") or {}
