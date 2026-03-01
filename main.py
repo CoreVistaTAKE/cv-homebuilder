@@ -924,21 +924,66 @@ if not _pv_site_route_added:
 
     @app.get("/pv_site/{key}/{full_path:path}")
     def _pv_site_get_endpoint(key: str, full_path: str):
-        user = current_user()
+        """Preview用の静的ファイル配信エンドポイント。
+
+        ⚠ 重要（今回の不具合の根本原因）:
+        /pv_site は iframe から通常の HTTP リクエストとして呼ばれます。
+        そのため NiceGUI の UI セッション（app.storage.user）に依存する current_user() が
+        取得できないケースがあり、404（中身なし）になってプレビューが「真っ白」に見えることがあります。
+
+        ここでは「key が一致している＝そのプレビューを生成したブラウザ」とみなして返します。
+        （key は十分に長いランダム値で、推測は現実的ではありません）
+        """
+
         item = _PV_SITE_CACHE.get(key)
-        if not user or not item:
-            return Response(status_code=404)
-        try:
-            if int(item.get("user_id") or 0) != int(user.id):
-                return Response(status_code=404)
-        except Exception:
-            return Response(status_code=404)
+        if not item:
+            # 404 でも「真っ白」にならないように、簡易HTMLを返す（デバッグ容易化）
+            body = (
+                "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                "<title>Preview not found</title>"
+                "<style>"
+                "body{font-family:system-ui,-apple-system,'Segoe UI','Noto Sans JP',sans-serif;padding:24px;line-height:1.7;}"
+                ".box{max-width:780px;margin:0 auto;padding:16px 18px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;}"
+                "h1{margin:0 0 8px;font-size:18px;}"
+                "p{margin:0;color:#374151;}"
+                "</style></head><body><div class='box'>"
+                "<h1>プレビューが見つかりません</h1>"
+                "<p>プレビュー用の一時データが見つかりません。画面を更新して、もう一度開き直してください。</p>"
+                "</div></body></html>"
+            ).encode("utf-8")
+            return Response(
+                content=body,
+                status_code=404,
+                media_type="text/html",
+                headers={"Cache-Control": "no-store"},
+            )
 
         path = (full_path or "").lstrip("/") or "index.html"
         files = item.get("files") or {}
         content = files.get(path)
         if content is None:
-            return Response(status_code=404)
+            body = (
+                "<!doctype html><html lang='ja'><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                "<title>File not found</title>"
+                "<style>"
+                "body{font-family:system-ui,-apple-system,'Segoe UI','Noto Sans JP',sans-serif;padding:24px;line-height:1.7;}"
+                ".box{max-width:780px;margin:0 auto;padding:16px 18px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;}"
+                "h1{margin:0 0 8px;font-size:18px;}"
+                "p{margin:0;color:#374151;}"
+                "code{background:#f3f4f6;padding:2px 6px;border-radius:6px;}"
+                "</style></head><body><div class='box'>"
+                "<h1>ファイルが見つかりません</h1>"
+                "<p>要求されたファイル: <code>" + html.escape(path) + "</code></p>"
+                "</div></body></html>"
+            ).encode("utf-8")
+            return Response(
+                content=body,
+                status_code=404,
+                media_type="text/html",
+                headers={"Cache-Control": "no-store"},
+            )
 
         # media type
         mt = _pv_site_guess_media_type(path)
@@ -948,7 +993,7 @@ if not _pv_site_route_added:
         # - hashed images: immutable (転送を軽くする)
         headers = {"Cache-Control": "no-store"}
         try:
-            if path.startswith("assets/img/") and re.search(r"_[0-9a-f]{10}\.", path):
+            if path.startswith("assets/img/") and re.search(r"_[0-9a-f]{10}\\.", path):
                 headers["Cache-Control"] = "public, max-age=31536000, immutable"
         except Exception:
             pass
@@ -968,22 +1013,16 @@ if not _pv_site_route_added:
     # ※メール送信などは行わない（あくまでプレビュー上の見た目確認用）
     @app.post("/pv_site/{key}/contact.php")
     def _pv_site_contact_post_endpoint(key: str):
-        user = current_user()
         item = _PV_SITE_CACHE.get(key)
-        if not user or not item:
-            return Response(status_code=404)
-        try:
-            if int(item.get("user_id") or 0) != int(user.id):
-                return Response(status_code=404)
-        except Exception:
+        if not item:
             return Response(status_code=404)
 
-        # 302 redirect -> thanks.html (ok=1)
+        # 302 redirect -> thanks.html (status=ok)
         try:
             return Response(
                 status_code=302,
                 headers={
-                    "Location": f"/pv_site/{key}/thanks.html?ok=1",
+                    "Location": f"/pv_site/{key}/thanks.html?status=ok",
                     "Cache-Control": "no-store",
                 },
             )
@@ -992,6 +1031,8 @@ if not _pv_site_route_added:
             files = item.get("files") or {}
             content = files.get("thanks.html") or b""
             return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store"})
+
+
 
     try:
         app._cvhb_pv_site_route_added = True
@@ -3059,7 +3100,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.11")
+VERSION = read_text_file("VERSION", "0.8.12")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # Preview: ZIP書き出しと同じHTML/CSSで描画する（ズレ防止）
