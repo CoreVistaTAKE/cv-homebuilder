@@ -2923,7 +2923,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.8.10")
+VERSION = read_text_file("VERSION", "0.8.11")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -5555,7 +5555,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict) -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -5564,7 +5564,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict) -
     """
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
-        "config/config.php": build_contact_config_php(to_email=to_email).encode("utf-8"),
+        "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
         "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1).encode("utf-8"),
     }
 def build_contact_section_html(
@@ -5853,6 +5853,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     catch_size = str(step2.get("catch_size") or "md").strip() or "md"
     email = str(step2.get("email") or "").strip()
     address = str(step2.get("address") or "").strip()
+    phone = str(step2.get("phone") or "").strip()
 
     favicon_url = str(step2.get("favicon_url") or "").strip()
     favicon_filename = str(step2.get("favicon_filename") or "").strip()
@@ -8375,7 +8376,7 @@ a:hover{text-decoration:none;}
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone))
 
     # --------------------
     # index.html
