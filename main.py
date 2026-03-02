@@ -1973,6 +1973,13 @@ def inject_global_styles() -> None:
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{
   width: 100%;
   text-align: center;
+
+  /* v0.9.7: SPは省略(…)せず全文表示（狭くても切らない） */
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
   margin-top: 0;
@@ -3022,7 +3029,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.9.6")
+VERSION = read_text_file("VERSION", "0.9.7")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -7057,6 +7064,13 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub{
   width: 100%;
   text-align: center;
+
+  /* v0.9.7: SPは省略(…)せず全文表示（狭くても切らない） */
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
   margin-top: 0;
