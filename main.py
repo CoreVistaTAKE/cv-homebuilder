@@ -1554,6 +1554,8 @@ def inject_global_styles() -> None:
   font-weight: 800;
   border-radius: 999px;
   padding: 6px 10px;
+  font-size: 0.86rem; /* v0.9.3: ヘッダーメニューを少し小さく */
+  letter-spacing: 0.01em;
   color: var(--pv-text) !important;
 }
 .pv-layout-260218 .pv-desktop-nav .q-btn:hover{
@@ -1567,8 +1569,13 @@ def inject_global_styles() -> None:
   max-width: 1280px;
   margin: 0 auto;
   padding: 20px 18px 0;
-  font-size: 18px; /* v0.6.992: 本文を大きく（ヘッダー/フッターは除外） */
+  font-size: 16px; /* v0.9.3: 公開PCでも読みやすい標準サイズへ */
+  line-height: 1.8;
 }
+
+/* 文章の段落は「余白」をCSSで統一（export/previewの差をなくす） */
+.pv-layout-260218 .pv-main p{ margin: 0; }
+.pv-layout-260218 .pv-main p + p{ margin-top: 0.9em; }
 
 .pv-layout-260218 .pv-section{
   margin: 22px 0 34px;
@@ -1684,6 +1691,8 @@ def inject_global_styles() -> None:
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
   backdrop-filter: blur(14px);
   border-left: 6px solid var(--pv-primary);
+  font-weight: 900; /* v0.9.3: ラベルを太字に（HTML側にspanが無くてもOK） */
+  line-height: 1.55;
 }
 .pv-layout-260218.pv-dark .pv-point-card{
   background: linear-gradient(180deg, rgba(15,18,25,0.58), rgba(15,18,25,0.38));
@@ -1850,9 +1859,13 @@ def inject_global_styles() -> None:
   left: 50%;
   bottom: 26px;
   transform: translateX(-50%);
-  display: inline-block;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: fit-content;
-  max-width: min(92%, 980px);
+  max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
   padding: 18px 22px;
   border-radius: 18px;
   text-align: center;
@@ -1897,11 +1910,10 @@ def inject_global_styles() -> None:
 /* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.996） */
 .pv-layout-260218.pv-mode-pc .pv-hero-caption{
   bottom: 42px;
-  display: inline-block;
   width: fit-content;
-  max-width: min(92%, 1120px);
-  padding: 26px 32px;
-  border-radius: 26px;
+  max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
+  padding: 18px 22px;
+  border-radius: 22px;
   text-align: center;
   backdrop-filter: blur(22px);
   background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
@@ -1947,6 +1959,11 @@ def inject_global_styles() -> None:
   font-weight: 1000;
   font-size: clamp(1.4rem, 2.8vw, 2.8rem);
   line-height: 1.15;
+  display: block;
+  max-width: 100%;
+  white-space: nowrap; /* 1行固定 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
   font-size: 1.75rem;
@@ -1958,9 +1975,14 @@ def inject_global_styles() -> None:
   text-align: center;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
-  margin-top: 8px;
-  line-height: 1.7;
+  margin-top: 0;
+  line-height: 1.6;
   color: var(--pv-muted);
+  display: block;
+  max-width: 100%;
+  white-space: nowrap; /* 1行固定 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pv-layout-260218 .pv-hero-track{
@@ -2086,6 +2108,46 @@ def inject_global_styles() -> None:
   border-color: rgba(255,255,255,0.12);
 }
 
+/* ===== About / Services: 見出し・本文（exportで崩れないように統一） ===== */
+.pv-layout-260218 .pv-about-body,
+.pv-layout-260218 .pv-services-body{
+  min-width: 0;
+}
+
+.pv-layout-260218 .pv-about-title{
+  font-weight: 1000;
+  font-size: 1.08rem;
+  line-height: 1.25;
+  margin: 0 0 10px;
+  padding-left: 12px;
+  border-left: 6px solid var(--pv-primary);
+}
+
+.pv-layout-260218 .pv-about-text{
+  margin-top: 10px;
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.75;
+}
+
+.pv-layout-260218 .pv-services-lead{
+  margin-top: 6px;
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.75;
+}
+
+.pv-layout-260218 .pv-service-list{
+  margin-top: 10px;
+}
+
+.pv-layout-260218 .pv-service-body{
+  margin-top: 4px;
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.75;
+}
+
 .pv-layout-260218 .pv-services-grid{
   display: grid;
   grid-template-columns: 1fr;
@@ -2125,8 +2187,17 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-service-title{
-  font-weight: 900;
-  margin-bottom: 2px;
+  font-weight: 1000;
+  margin-bottom: 4px;
+  padding: 4px 0 4px 12px;
+  border-left: 6px solid var(--pv-primary);
+  border-radius: 12px;
+  background: rgba(var(--pv-accent-rgb), 0.06);
+  line-height: 1.35;
+}
+
+.pv-layout-260218.pv-dark .pv-service-title{
+  background: rgba(255,255,255,0.06);
 }
 
 .pv-layout-260218 .pv-faq-item{
@@ -2138,12 +2209,38 @@ def inject_global_styles() -> None:
   border-bottom-color: rgba(255,255,255,0.10);
 }
 
+/* ===== FAQ: ビルダーに近い見え方（Aマークは不要） ===== */
 .pv-layout-260218 .pv-faq-q{
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
   font-weight: 900;
 }
 
+.pv-layout-260218 .pv-faq-qmark{
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 1000;
+  background: var(--pv-primary-weak);
+  color: var(--pv-primary);
+  margin-top: 1px;
+}
+
+.pv-layout-260218 .pv-faq-qtext{
+  flex: 1;
+  min-width: 0;
+}
+
+.pv-layout-260218 .pv-faq-amark{ display: none; } /* 旧HTML互換: もう表示しない */
+
 .pv-layout-260218 .pv-faq-a{
-  margin-top: 4px;
+  margin-top: 8px;
+  padding-left: 38px; /* Qマーク分 */
   color: var(--pv-muted);
   line-height: 1.7;
 }
@@ -2508,6 +2605,8 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-footer-link.q-btn{
   justify-content: flex-start;
   padding-left: 0;
+  font-size: 0.82rem; /* v0.9.3: フッターメニューを小さく */
+  letter-spacing: 0.01em;
 }
 
 .pv-layout-260218 .pv-footer-link.q-btn:hover{
@@ -6538,6 +6637,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   font-weight: 800;
   border-radius: 999px;
   padding: 6px 10px;
+  font-size: 0.86rem; /* v0.9.3: ヘッダーメニューを少し小さく */
+  letter-spacing: 0.01em;
   color: var(--pv-text) !important;
 }
 .pv-layout-260218 .pv-desktop-nav .q-btn:hover{
@@ -6551,8 +6652,13 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   max-width: 1280px;
   margin: 0 auto;
   padding: 20px 18px 0;
-  font-size: 18px; /* v0.6.992: 本文を大きく（ヘッダー/フッターは除外） */
+  font-size: 16px; /* v0.9.3: 公開PCでも読みやすい標準サイズへ */
+  line-height: 1.8;
 }
+
+/* 文章の段落は「余白」をCSSで統一（export/previewの差をなくす） */
+.pv-layout-260218 .pv-main p{ margin: 0; }
+.pv-layout-260218 .pv-main p + p{ margin-top: 0.9em; }
 
 .pv-layout-260218 .pv-section{
   margin: 22px 0 34px;
@@ -6668,6 +6774,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
   backdrop-filter: blur(14px);
   border-left: 6px solid var(--pv-primary);
+  font-weight: 900; /* v0.9.3: ラベルを太字に（HTML側にspanが無くてもOK） */
+  line-height: 1.55;
 }
 .pv-layout-260218.pv-dark .pv-point-card{
   background: linear-gradient(180deg, rgba(15,18,25,0.58), rgba(15,18,25,0.38));
@@ -6834,9 +6942,13 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   left: 50%;
   bottom: 26px;
   transform: translateX(-50%);
-  display: inline-block;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: fit-content;
-  max-width: min(92%, 980px);
+  max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
   padding: 18px 22px;
   border-radius: 18px;
   text-align: center;
@@ -6881,11 +6993,10 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 /* PC: キャッチを「ガラスっぽく」して目立たせる（v0.6.996） */
 .pv-layout-260218.pv-mode-pc .pv-hero-caption{
   bottom: 42px;
-  display: inline-block;
   width: fit-content;
-  max-width: min(92%, 1120px);
-  padding: 26px 32px;
-  border-radius: 26px;
+  max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
+  padding: 18px 22px;
+  border-radius: 22px;
   text-align: center;
   backdrop-filter: blur(22px);
   background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
@@ -6931,6 +7042,11 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   font-weight: 1000;
   font-size: clamp(1.4rem, 2.8vw, 2.8rem);
   line-height: 1.15;
+  display: block;
+  max-width: 100%;
+  white-space: nowrap; /* 1行固定 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
   font-size: 1.75rem;
@@ -6942,9 +7058,14 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   text-align: center;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
-  margin-top: 8px;
-  line-height: 1.7;
+  margin-top: 0;
+  line-height: 1.6;
   color: var(--pv-muted);
+  display: block;
+  max-width: 100%;
+  white-space: nowrap; /* 1行固定 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pv-layout-260218 .pv-hero-track{
@@ -7070,6 +7191,46 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   border-color: rgba(255,255,255,0.12);
 }
 
+/* ===== About / Services: 見出し・本文（exportで崩れないように統一） ===== */
+.pv-layout-260218 .pv-about-body,
+.pv-layout-260218 .pv-services-body{
+  min-width: 0;
+}
+
+.pv-layout-260218 .pv-about-title{
+  font-weight: 1000;
+  font-size: 1.08rem;
+  line-height: 1.25;
+  margin: 0 0 10px;
+  padding-left: 12px;
+  border-left: 6px solid var(--pv-primary);
+}
+
+.pv-layout-260218 .pv-about-text{
+  margin-top: 10px;
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.75;
+}
+
+.pv-layout-260218 .pv-services-lead{
+  margin-top: 6px;
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.75;
+}
+
+.pv-layout-260218 .pv-service-list{
+  margin-top: 10px;
+}
+
+.pv-layout-260218 .pv-service-body{
+  margin-top: 4px;
+  color: var(--pv-text);
+  opacity: 0.86;
+  line-height: 1.75;
+}
+
 .pv-layout-260218 .pv-services-grid{
   display: grid;
   grid-template-columns: 1fr;
@@ -7109,8 +7270,17 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-layout-260218 .pv-service-title{
-  font-weight: 900;
-  margin-bottom: 2px;
+  font-weight: 1000;
+  margin-bottom: 4px;
+  padding: 4px 0 4px 12px;
+  border-left: 6px solid var(--pv-primary);
+  border-radius: 12px;
+  background: rgba(var(--pv-accent-rgb), 0.06);
+  line-height: 1.35;
+}
+
+.pv-layout-260218.pv-dark .pv-service-title{
+  background: rgba(255,255,255,0.06);
 }
 
 .pv-layout-260218 .pv-faq-item{
@@ -7122,12 +7292,38 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   border-bottom-color: rgba(255,255,255,0.10);
 }
 
+/* ===== FAQ: ビルダーに近い見え方（Aマークは不要） ===== */
 .pv-layout-260218 .pv-faq-q{
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
   font-weight: 900;
 }
 
+.pv-layout-260218 .pv-faq-qmark{
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 1000;
+  background: var(--pv-primary-weak);
+  color: var(--pv-primary);
+  margin-top: 1px;
+}
+
+.pv-layout-260218 .pv-faq-qtext{
+  flex: 1;
+  min-width: 0;
+}
+
+.pv-layout-260218 .pv-faq-amark{ display: none; } /* 旧HTML互換: もう表示しない */
+
 .pv-layout-260218 .pv-faq-a{
-  margin-top: 4px;
+  margin-top: 8px;
+  padding-left: 38px; /* Qマーク分 */
   color: var(--pv-muted);
   line-height: 1.7;
 }
@@ -7492,6 +7688,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218 .pv-footer-link.q-btn{
   justify-content: flex-start;
   padding-left: 0;
+  font-size: 0.82rem; /* v0.9.3: フッターメニューを小さく */
+  letter-spacing: 0.01em;
 }
 
 .pv-layout-260218 .pv-footer-link.q-btn:hover{
@@ -7537,7 +7735,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 /* ===== CVHB Export Base ===== */
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; line-height:1.7;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; line-height:1.7; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility;}
 a{color:inherit;text-decoration:none;}
 a:hover{text-decoration:none;}
 
@@ -7573,6 +7771,24 @@ a:hover{text-decoration:none;}
 
 .pv-layout-260218 .pv-link-btn{padding:10px 18px;}
 
+/* v0.9.3: ヘッダー/フッターメニューは少し小さめ（PCで横並びが崩れにくい） */
+.pv-layout-260218 .pv-desktop-nav-btn{
+  padding: 6px 10px;
+  font-size: 0.86rem;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.pv-layout-260218 .pv-menu-btn{
+  padding: 6px 10px;
+  font-size: 18px;
+  line-height: 1;
+}
+.pv-layout-260218 .pv-footer-link{
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
 .pv-layout-260218 .pv-btn-primary{background:var(--pv-accent); color:#fff;}
 .pv-layout-260218 .pv-btn-outline{border-color:rgba(var(--pv-accent-rgb),.95); color:var(--pv-accent);}
 .pv-layout-260218 .pv-btn-outline:hover{background:rgba(var(--pv-accent-rgb),.10);}
@@ -7590,7 +7806,17 @@ a:hover{text-decoration:none;}
 .pv-layout-260218 .pv-footer-links{
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
+}
+
+/* v0.9.3: PCではフッターメニューを「1行」に寄せる（入りきらない場合は横スクロール） */
+.pv-layout-260218.pv-mode-pc .pv-footer-links{
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
@@ -8312,7 +8538,7 @@ a:hover{text-decoration:none;}
         faq_cards.append(
             f'<div class="pv-faq-item">'
             f'<div class="pv-faq-q"><span class="pv-faq-qmark">Q</span><span class="pv-faq-qtext">{q}</span></div>'
-            f'<div class="pv-faq-a"><span class="pv-faq-amark">A</span><span class="pv-faq-atext">{a_html}</span></div>'
+            f'<div class="pv-faq-a"><span class="pv-faq-atext">{a_html}</span></div>'
             f'</div>'
         )
     faq_list_html = "".join(faq_cards) if faq_cards else '<div class="pv-news-empty">現在、よくある質問はありません。</div>'
