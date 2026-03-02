@@ -1866,8 +1866,8 @@ def inject_global_styles() -> None:
   gap: 6px;
   width: fit-content;
   max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
-  padding: 18px 22px;
-  border-radius: 18px;
+  padding: 0.55em 1.1em; /* 左右=約1文字分。文字サイズで枠が伸縮 */
+  border-radius: 1.2em;
   text-align: center;
   backdrop-filter: blur(18px);
   background: rgba(255,255,255,0.55);
@@ -1883,8 +1883,8 @@ def inject_global_styles() -> None:
   transform: none;
   width: min(92%, 680px);
   margin: 14px auto 0;
-  padding: 16px 18px;
-  border-radius: 16px;
+  padding: 0.55em 1.0em;
+  border-radius: 1.0em;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -1912,8 +1912,8 @@ def inject_global_styles() -> None:
   bottom: 42px;
   width: fit-content;
   max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
-  padding: 18px 22px;
-  border-radius: 22px;
+  padding: 0.55em 1.1em; /* 左右=約1文字分。文字サイズで枠が伸縮 */
+  border-radius: 1.2em;
   text-align: center;
   backdrop-filter: blur(22px);
   background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
@@ -2077,7 +2077,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-mode-pc .pv-about-grid{
-  grid-template-columns: 1.12fr 0.88fr;
+  grid-template-columns: 1fr; /* v0.9.6: ビルダーと同じ1カラム */
 }
 
 .pv-layout-260218 .pv-about-img{
@@ -2156,8 +2156,8 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218.pv-mode-pc .pv-services-grid{
-  grid-template-columns: 0.95fr 1.05fr;
-  align-items: center;
+  grid-template-columns: 1fr; /* v0.9.6: ビルダーと同じ1カラム */
+  align-items: stretch;
 }
 
 .pv-layout-260218 .pv-services-img{
@@ -3022,7 +3022,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.9.5")
+VERSION = read_text_file("VERSION", "0.9.6")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -5967,7 +5967,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
     company_name = str(step2.get("company_name") or "").strip() or "会社名"
     catch_copy = str(step2.get("catch_copy") or "").strip()
-    catch_size = str(step2.get("catch_size") or "md").strip() or "md"
+    catch_size = str(step2.get("catch_size") or "").strip() or "中"
+    sub_catch_size = str(step2.get("sub_catch_size") or "").strip() or "中"
     email = str(step2.get("email") or "").strip()
     address = str(step2.get("address") or "").strip()
     phone = str(step2.get("phone") or "").strip()
@@ -6949,8 +6950,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   gap: 6px;
   width: fit-content;
   max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
-  padding: 18px 22px;
-  border-radius: 18px;
+  padding: 0.55em 1.1em; /* 左右=約1文字分。文字サイズで枠が伸縮 */
+  border-radius: 1.2em;
   text-align: center;
   backdrop-filter: blur(18px);
   background: rgba(255,255,255,0.55);
@@ -6966,8 +6967,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   transform: none;
   width: min(92%, 680px);
   margin: 14px auto 0;
-  padding: 16px 18px;
-  border-radius: 16px;
+  padding: 0.55em 1.0em;
+  border-radius: 1.0em;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -6995,8 +6996,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   bottom: 42px;
   width: fit-content;
   max-width: calc(100% - 36px); /* 画像幅からはみ出さない */
-  padding: 18px 22px;
-  border-radius: 22px;
+  padding: 0.55em 1.1em; /* 左右=約1文字分。文字サイズで枠が伸縮 */
+  border-radius: 1.2em;
   text-align: center;
   backdrop-filter: blur(22px);
   background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.14));
@@ -7160,7 +7161,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-layout-260218.pv-mode-pc .pv-about-grid{
-  grid-template-columns: 1.12fr 0.88fr;
+  grid-template-columns: 1fr; /* v0.9.6: ビルダーと同じ1カラム */
 }
 
 .pv-layout-260218 .pv-about-img{
@@ -7239,8 +7240,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-layout-260218.pv-mode-pc .pv-services-grid{
-  grid-template-columns: 0.95fr 1.05fr;
-  align-items: center;
+  grid-template-columns: 1fr; /* v0.9.6: ビルダーと同じ1カラム */
+  align-items: stretch;
 }
 
 .pv-layout-260218 .pv-services-img{
@@ -8217,6 +8218,16 @@ a:hover{text-decoration:none;}
     def _section_head(title_jp: str, subtitle_en: str) -> str:
         return f"""<div class=\"pv-section-head\">\n  <div class=\"pv-section-title\">{_esc(title_jp)}</div>\n  <div class=\"pv-section-subtitle\">{_esc(subtitle_en)}</div>\n</div>"""
 
+
+    # ヒーロー文字サイズ（大/中/小）をCSSクラスへ（公開HTML側）
+    def _size_class(v: str) -> str:
+        v = str(v or "").strip()
+        if v in ("大", "L", "large", "big"):
+            return "pv-size-l"
+        if v in ("小", "S", "small"):
+            return "pv-size-s"
+        return "pv-size-m"
+
     # 共通ナビ（index内リンク）
     nav_items = [
         ("pv-news", "お知らせ"),
@@ -8240,6 +8251,7 @@ a:hover{text-decoration:none;}
     sub_catch = str(hero.get("sub_catch") or "").strip()
     hero_title = catch_copy or company_name
     hero_sub = sub_catch or ""
+    hero_sub_html = f'<div class="pv-hero-caption-sub {_size_class(sub_catch_size)}">{_esc(hero_sub)}</div>' if hero_sub else ""
 
     slides_html = ""
     if hero_urls:
@@ -8267,8 +8279,8 @@ a:hover{text-decoration:none;}
     </div>
     {dots_html}
     <div class=\"pv-hero-caption\">
-      <div class=\"pv-hero-caption-title pv-catch-size-{_esc(catch_size)}\">{_esc(hero_title)}</div>
-      <div class=\"pv-hero-caption-sub\">{_esc(hero_sub)}</div>
+      <div class=\"pv-hero-caption-title {_size_class(catch_size)}\">{_esc(hero_title)}</div>
+      {hero_sub_html}
     </div>
   </div>
 </section>
@@ -8491,7 +8503,6 @@ a:hover{text-decoration:none;}
     <div class=\"pv-about-grid\">
       {about_img_html}
       <div class=\"pv-about-body\">
-        <div class=\"pv-about-title\">{_esc(ph_title)}</div>
         {points_html}
         <div class=\"pv-about-text\">{about_body_html}</div>
       </div>
@@ -8526,12 +8537,11 @@ a:hover{text-decoration:none;}
 
     services_section_html = f"""
 <section class=\"pv-section pv-section-260218\" id=\"pv-services\">
-  {_section_head(svc_title, "SERVICES")}
+  {_section_head(svc_title, "SERVICE")}
   <div class=\"pv-panel pv-panel-glass\">
     <div class=\"pv-services-grid\">
       {svc_img_html}
       <div class=\"pv-services-body\">
-        <div class=\"pv-about-title\">{_esc(svc_title)}</div>
         <div class=\"pv-services-lead\">{svc_lead_html}</div>
         <div class=\"pv-service-list\">{svc_list_html}</div>
       </div>
