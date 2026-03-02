@@ -3022,7 +3022,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.9.3")
+VERSION = read_text_file("VERSION", "0.9.5")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -7805,18 +7805,28 @@ a:hover{text-decoration:none;}
 }
 .pv-layout-260218 .pv-footer-links{
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* どの画面幅でも「1行」 */
   justify-content: center;
   gap: 10px;
-}
-
-/* v0.9.3: PCではフッターメニューを「1行」に寄せる（入りきらない場合は横スクロール） */
-.pv-layout-260218.pv-mode-pc .pv-footer-links{
-  flex-wrap: nowrap;
-  gap: 8px;
   overflow-x: auto;
   max-width: 100%;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge(旧) */
+}
+.pv-layout-260218 .pv-footer-links::-webkit-scrollbar{ display:none; }
+
+/* PC: さらに詰めて1行を維持（入りきらない場合は横スクロール） */
+.pv-layout-260218.pv-mode-pc .pv-footer-links{
+  gap: 8px;
+}
+
+/* v0.9.5: PCヒーローのキャッチ/サブキャッチは必ず1行（崩れ防止） */
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title,
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
@@ -8037,6 +8047,11 @@ a:hover{text-decoration:none;}
     elif svc_img_url:
         svc_img_href = svc_img_url
 
+    # v0.9.5: 完成品HPの「見出し文言」をビルダーと完全一致させる（重要）
+    #   - ここがズレると「プレビューと公開結果が違う」事故になる
+    about_nav_label = str(ph.get("title") or "").strip() or "私たちについて"
+    services_nav_label = str(svc.get("title") or "").strip() or "業務内容"
+
     # --------------------
     # JS
     # --------------------
@@ -8205,8 +8220,8 @@ a:hover{text-decoration:none;}
     # 共通ナビ（index内リンク）
     nav_items = [
         ("pv-news", "お知らせ"),
-        ("pv-about", "私たちについて"),
-        ("pv-services", "業務内容"),
+        ("pv-about", about_nav_label),
+        ("pv-services", services_nav_label),
         ("pv-faq", "よくある質問"),
         ("pv-access", "アクセス"),
         ("pv-contact", "お問い合わせ"),
@@ -8364,8 +8379,8 @@ a:hover{text-decoration:none;}
           <div class=\"pv-footer-links\">
             <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
             <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">私たちについて</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">業務内容</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">{_esc(about_nav_label)}</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">{_esc(services_nav_label)}</a>
             <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
             <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
             <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
@@ -8454,7 +8469,7 @@ a:hover{text-decoration:none;}
     # --------------------
     # about
     # --------------------
-    ph_title = str(ph.get("title") or "").strip() or "私たちについて"
+    ph_title = about_nav_label
     ph_body = str(ph.get("body") or "").strip()
     ph_points = [str(x).strip() for x in (ph.get("points") or []) if str(x).strip()]
 
@@ -8471,7 +8486,7 @@ a:hover{text-decoration:none;}
 
     about_section_html = f"""
 <section class=\"pv-section pv-section-260218\" id=\"pv-about\">
-  {_section_head("私たちについて", "ABOUT")}
+  {_section_head(ph_title, "ABOUT")}
   <div class=\"pv-panel pv-panel-glass\">
     <div class=\"pv-about-grid\">
       {about_img_html}
@@ -8488,7 +8503,7 @@ a:hover{text-decoration:none;}
     # --------------------
     # services
     # --------------------
-    svc_title = str(svc.get("title") or "").strip() or "業務内容"
+    svc_title = services_nav_label
     svc_lead = str(svc.get("lead") or "").strip()
     svc_lead_html = _paras(svc_lead)
     svc_items = [it for it in (svc.get("items") or []) if isinstance(it, dict)]
@@ -8511,7 +8526,7 @@ a:hover{text-decoration:none;}
 
     services_section_html = f"""
 <section class=\"pv-section pv-section-260218\" id=\"pv-services\">
-  {_section_head("業務内容", "SERVICES")}
+  {_section_head(svc_title, "SERVICES")}
   <div class=\"pv-panel pv-panel-glass\">
     <div class=\"pv-services-grid\">
       {svc_img_html}
@@ -8722,8 +8737,8 @@ a:hover{text-decoration:none;}
           <div class=\"pv-footer-links\">
             <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
             <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"#pv-about\">私たちについて</a>
-            <a class=\"pv-footer-link\" href=\"#pv-services\">業務内容</a>
+            <a class=\"pv-footer-link\" href=\"#pv-about\">{_esc(about_nav_label)}</a>
+            <a class=\"pv-footer-link\" href=\"#pv-services\">{_esc(services_nav_label)}</a>
             <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
             <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
             <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
