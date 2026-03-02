@@ -1961,9 +1961,12 @@ def inject_global_styles() -> None:
   line-height: 1.15;
   display: block;
   max-width: 100%;
-  white-space: nowrap; /* 1行固定 */
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+  /* v0.9.8: どのサイズでも全文表示（…にしない）
+     1行固定は維持し、はみ出す場合は assets/site.js が自動で文字サイズを下げてフィットさせる */
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
 }
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
   font-size: 1.75rem;
@@ -1974,12 +1977,10 @@ def inject_global_styles() -> None:
   width: 100%;
   text-align: center;
 
-  /* v0.9.7: SPは省略(…)せず全文表示（狭くても切らない） */
-  white-space: normal !important;
+  /* v0.9.8: SPでも「…」にならない（JSで1行フィット） */
+  white-space: nowrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
   margin-top: 0;
@@ -1987,9 +1988,11 @@ def inject_global_styles() -> None:
   color: var(--pv-muted);
   display: block;
   max-width: 100%;
-  white-space: nowrap; /* 1行固定 */
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+  /* v0.9.8: サブも全文表示（…にしない） */
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .pv-layout-260218 .pv-hero-track{
@@ -3029,7 +3032,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.9.7")
+VERSION = read_text_file("VERSION", "0.9.8")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -5519,7 +5522,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -5548,6 +5551,12 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
 
     esc_company = html.escape(company_name)
     esc_email = html.escape(to_email)
+
+    favicon_href = (favicon_href or "").strip()
+    favicon_tags = ""
+    if favicon_href:
+        esc_fav = html.escape(favicon_href)
+        favicon_tags = f'<link rel="icon" href="{esc_fav}">\n  <link rel="shortcut icon" href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
 
     # ナビリンク（thanks はトップページ外なので、index.html へ戻す導線に揃える）
     sec = lambda sid: f"index.html#{sid}"
@@ -5585,6 +5594,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{esc_company}｜送信結果</title>
   <link rel="stylesheet" href="assets/site.css">
+  {favicon_tags}
 
 </head>
 <body>
@@ -5679,7 +5689,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -5689,7 +5699,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -5720,6 +5730,12 @@ def build_contact_section_html(
 
     esc_company = html.escape(company_name)
     esc_email = html.escape(to_email)
+
+    favicon_href = (favicon_href or "").strip()
+    favicon_tags = ""
+    if favicon_href:
+        esc_fav = html.escape(favicon_href)
+        favicon_tags = f'<link rel="icon" href="{esc_fav}">\n  <link rel="shortcut icon" href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
     esc_btn = html.escape(button_text)
 
     # 共通の注意文
@@ -5982,6 +5998,11 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
     favicon_url = str(step2.get("favicon_url") or "").strip()
     favicon_filename = str(step2.get("favicon_filename") or "").strip()
+
+    # v0.9.8: favicon未設定なら「ロゴ」をfaviconとして使う（管理者が迷わない）
+    logo_url = str(step2.get("logo_url") or "").strip()
+    if (not favicon_url) and logo_url:
+        favicon_url = logo_url
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
@@ -7052,9 +7073,12 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   line-height: 1.15;
   display: block;
   max-width: 100%;
-  white-space: nowrap; /* 1行固定 */
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+  /* v0.9.8: どのサイズでも全文表示（…にしない）
+     1行固定は維持し、はみ出す場合は assets/site.js が自動で文字サイズを下げてフィットさせる */
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
 }
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-title{
   font-size: 1.75rem;
@@ -7065,12 +7089,10 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   width: 100%;
   text-align: center;
 
-  /* v0.9.7: SPは省略(…)せず全文表示（狭くても切らない） */
-  white-space: normal !important;
+  /* v0.9.8: SPでも「…」にならない（JSで1行フィット） */
+  white-space: nowrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 .pv-layout-260218 .pv-hero-caption-sub{
   margin-top: 0;
@@ -7078,9 +7100,11 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   color: var(--pv-muted);
   display: block;
   max-width: 100%;
-  white-space: nowrap; /* 1行固定 */
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+  /* v0.9.8: サブも全文表示（…にしない） */
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .pv-layout-260218 .pv-hero-track{
@@ -7799,9 +7823,16 @@ a:hover{text-decoration:none;}
   line-height: 1;
 }
 .pv-layout-260218 .pv-footer-link{
-  padding: 6px 10px;
+  /* 横幅を増やさない（フッターを1行に収めるため） */
+  padding: 0.25em 0;
   font-size: 0.82rem;
   white-space: nowrap;
+  text-decoration: none;
+  opacity: 0.92;
+}
+.pv-layout-260218 .pv-footer-link:hover{
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .pv-layout-260218 .pv-btn-primary{background:var(--pv-accent); color:#fff;}
@@ -7819,29 +7850,29 @@ a:hover{text-decoration:none;}
   gap: 10px;
 }
 .pv-layout-260218 .pv-footer-links{
+  /* v0.9.9: 横スクロールは禁止 → JSで文字サイズを自動フィットして「必ず1行」にする */
   display: flex;
   flex-wrap: nowrap; /* どの画面幅でも「1行」 */
   justify-content: center;
-  gap: 10px;
-  overflow-x: auto;
+  align-items: center;
+
+  /* gap は em にして、文字サイズに連動して自動で詰まる */
+  gap: 0.65em;
+
+  /* スクロールは禁止（全部見えるように縮小して合わせる） */
+  overflow: visible;
   max-width: 100%;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/Edge(旧) */
-}
-.pv-layout-260218 .pv-footer-links::-webkit-scrollbar{ display:none; }
-
-/* PC: さらに詰めて1行を維持（入りきらない場合は横スクロール） */
-.pv-layout-260218.pv-mode-pc .pv-footer-links{
-  gap: 8px;
+  width: 100%;
 }
 
-/* v0.9.5: PCヒーローのキャッチ/サブキャッチは必ず1行（崩れ防止） */
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-title,
-.pv-layout-260218.pv-mode-pc .pv-hero-caption-sub{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* v0.9.9: ヒーローのキャッチ/サブキャッチは「1行・全文表示」固定（…禁止）
+   - 文字がはみ出す時は assets/site.js のfitが自動で文字サイズを下げます */
+.pv-layout-260218 .pv-hero-caption-title,
+.pv-layout-260218 .pv-hero-caption-sub{
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  display: block;
 }
 
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
@@ -7909,29 +7940,48 @@ a:hover{text-decoration:none;}
 
 .pv-form{margin-top:14px;}
 .pv-form-row{margin-top:12px;}
-.pv-form label{display:block; font-weight:900; font-size:14px;}
+.pv-form label{display:block; font-weight:900; font-size:15px;}
 .pv-form input,
 .pv-form textarea{
   width:100%;
   margin-top:6px;
   padding:12px 12px;
   border-radius:14px;
-  border:1px solid rgba(255,255,255,.25);
-  background:rgba(255,255,255,.14);
+
+  /* v0.9.9: 入力欄を「くっきり」見せる（スマホでも迷わない） */
+  border:2px solid rgba(15,23,42,.20);
+  background:rgba(255,255,255,.92);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 14px 32px rgba(15,23,42,.10);
+
   color:var(--pv-text);
   outline:none;
 }
+.pv-form input::placeholder,
+.pv-form textarea::placeholder{
+  color: rgba(15,23,42,.48);
+}
+
 .pv-dark .pv-form input,
 .pv-dark .pv-form textarea{
-  border-color:rgba(255,255,255,.18);
-  background:rgba(0,0,0,.20);
+  border-color:rgba(255,255,255,.22);
+  background:rgba(0,0,0,.34);
+  box-shadow:none;
+}
+.pv-dark .pv-form input::placeholder,
+.pv-dark .pv-form textarea::placeholder{
+  color: rgba(255,255,255,.55);
 }
 
 .pv-form textarea{resize:vertical; min-height:140px;}
 .pv-form input:focus,
 .pv-form textarea:focus{
-  border-color:rgba(var(--pv-accent-rgb), .9);
-  box-shadow:0 0 0 3px rgba(var(--pv-accent-rgb), .20);
+  border-color:rgba(var(--pv-accent-rgb), .92);
+  box-shadow:0 0 0 4px rgba(var(--pv-accent-rgb), .22);
+  background: rgba(255,255,255,.98);
+}
+.pv-dark .pv-form input:focus,
+.pv-dark .pv-form textarea:focus{
+  background: rgba(0,0,0,.40);
 }
 
 .pv-agree{display:flex; gap:10px; align-items:flex-start; margin-top:14px; font-weight:800;}
@@ -8010,7 +8060,7 @@ a:hover{text-decoration:none;}
             hero_urls.append(u)
 
     # 施設ロゴ（faviconとは別）
-    logo_url = str(step2.get("logo_url") or "").strip()
+    # logo_url は上で取得済み（faviconのフォールバックにも使う）
     logo_href = ""
     if logo_url and _is_data_url(logo_url):
         mime, bts = _data_url_meta(logo_url)
@@ -8082,6 +8132,96 @@ a:hover{text-decoration:none;}
     root.classList.toggle('pv-mode-pc', isPC);
     root.classList.toggle('pv-mode-mobile', !isPC);
   }
+
+  // v0.9.8: ヒーロー文言を「どのサイズでも全文表示」させる（…にならない）
+  // - 1行固定（white-space: nowrap）を維持しつつ、はみ出す場合は文字サイズを下げてフィットさせる
+  function fitOneLine(el, maxW, minPx){
+    try{
+      if(!el || !maxW || maxW < 20) return;
+      el.style.whiteSpace = 'nowrap';
+      el.style.overflow = 'visible';
+      el.style.textOverflow = 'clip';
+
+      // まずCSSの指定に戻す（モード切替/リサイズでの再計算用）
+      el.style.fontSize = '';
+      var cs = window.getComputedStyle(el);
+      var base = parseFloat(cs.fontSize || '16') || 16;
+
+      // すでに収まっていれば何もしない
+      var w = el.scrollWidth || el.getBoundingClientRect().width || 0;
+      if(w <= maxW + 1) return;
+
+      var size = base;
+      var safety = 0;
+      while(safety < 10){
+        w = el.scrollWidth || el.getBoundingClientRect().width || 0;
+        if(w <= maxW + 1) break;
+
+        var ratio = maxW / w;
+        // いきなり小さくなりすぎないように、少しずつ寄せる
+        var next = Math.floor(size * ratio);
+        if(!next || next >= size) next = size - 1;
+        size = Math.max(minPx || 12, next);
+
+        el.style.fontSize = String(size) + 'px';
+        safety++;
+        if(size <= (minPx || 12)) break;
+      }
+    }catch(_e){}
+  }
+
+  function fitHeroCaption(root){
+    try{
+      if(!root) return;
+      var cap = root.querySelector('.pv-hero-caption');
+      if(!cap) return;
+
+      var title = cap.querySelector('.pv-hero-caption-title');
+      var sub = cap.querySelector('.pv-hero-caption-sub');
+
+      // 先にリセット（capのfit-content幅をCSSに戻す）
+      if(title) title.style.fontSize = '';
+      if(sub) sub.style.fontSize = '';
+
+      // paddingを引いた「中身の幅」を上限にする
+      var cs = window.getComputedStyle(cap);
+      var pad = (parseFloat(cs.paddingLeft||'0')||0) + (parseFloat(cs.paddingRight||'0')||0);
+      var inner = (cap.clientWidth || 0) - pad;
+
+      // capがfit-contentで 0 になるケース回避
+      if(inner <= 0){
+        inner = cap.getBoundingClientRect().width - pad;
+      }
+      if(!inner || inner <= 0) return;
+
+      // タイトルは最低9px、サブは最低8pxまで下げる（どの幅でも「全文表示」）
+      fitOneLine(title, inner, 9);
+      fitOneLine(sub, inner, 8);
+    }catch(_e){}
+  }
+
+  // フッターのメニュー（リンク列）を「1行・全文表示」にフィット（横スクロール禁止）
+  function fitFooterLinks(root){
+    try{
+      if(!root) return;
+      var inner = root.querySelector('.pv-footer-inner');
+      if(!inner) return;
+      var links = inner.querySelector('.pv-footer-links');
+      if(!links) return;
+
+      // まずCSS基準に戻す
+      links.style.fontSize = '';
+      links.style.flexWrap = 'nowrap';
+      links.style.overflow = 'visible';
+
+      var maxW = inner.clientWidth || inner.getBoundingClientRect().width || 0;
+      if(!maxW || maxW <= 0) return;
+
+      // 最低6pxまで下げて必ず1行で収める
+      fitOneLine(links, maxW, 5);
+    }catch(_e){}
+  }
+
 
   function initNav(){
     var openBtn = document.getElementById('pvMenuOpen');
@@ -8195,6 +8335,8 @@ a:hover{text-decoration:none;}
       setMode(root);
       var slider = document.getElementById('pv-hero-slider');
       if(slider && slider.__cvhbReinit) slider.__cvhbReinit();
+      fitHeroCaption(root);
+      fitFooterLinks(root);
     }
 
     applyMode();
@@ -8206,6 +8348,13 @@ a:hover{text-decoration:none;}
     initNav();
     initSmoothScroll();
     initHeroSlider(root);
+
+    // フォント読み込み後にもう一度フィット（iPhone等で幅が変わることがある）
+    try{
+      if(document.fonts && document.fonts.ready){
+        document.fonts.ready.then(function(){ fitHeroCaption(root); fitFooterLinks(root); });
+      }
+    }catch(_e){}
 
     var y = document.getElementById('pvYear');
     if(y) y.textContent = String(new Date().getFullYear());
@@ -8221,6 +8370,16 @@ a:hover{text-decoration:none;}
     # --------------------
     def _esc(s: str) -> str:
         return html.escape(s or "")
+
+    # favicon（ブラウザのタブのアイコン）
+    # - ConoHa WING にアップ後、端末側のキャッシュで反映が遅れることがあるため rel を複数入れる
+    def _favicon_head_tags(href: str) -> str:
+        h = str(href or "").strip()
+        if not h:
+            return ""
+        esc_h = _esc(h)
+        return f'<link rel="icon" href="{esc_h}">\n  <link rel="shortcut icon" href="{esc_h}">\n  <link rel="apple-touch-icon" href="{esc_h}">'
+
 
     def _paras(text: str) -> str:
         t = (text or "").strip()
@@ -8349,7 +8508,7 @@ a:hover{text-decoration:none;}
     # news/index.html と個別記事
     def _wrap_page(*, title: str, css_href: str, js_href: str, favicon_href_: str, body_inner: str, root_prefix: str = "") -> str:
         esc_title = _esc(title)
-        icon_tag = f'<link rel="icon" href="{_esc(favicon_href_)}">' if favicon_href_ else ""
+        icon_tag = _favicon_head_tags(favicon_href_)
 
         # ルート外ページは index.html#... へのリンクにする
         def sec_href(sid: str) -> str:
@@ -8703,12 +8862,12 @@ a:hover{text-decoration:none;}
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href))
 
     # --------------------
     # index.html
     # --------------------
-    favicon_tag = f'<link rel="icon" href="{_esc(favicon_href)}">' if favicon_href else ''
+    favicon_tag = _favicon_head_tags(favicon_href)
 
     index_html = f"""<!doctype html>
 <html lang=\"ja\">
