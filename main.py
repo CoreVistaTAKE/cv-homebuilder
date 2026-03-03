@@ -3032,7 +3032,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.9.8")
+VERSION = read_text_file("VERSION", "0.9.11")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -5554,9 +5554,27 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     favicon_href = (favicon_href or "").strip()
     favicon_tags = ""
+    header_icon_html = ""
     if favicon_href:
-        esc_fav = html.escape(favicon_href)
-        favicon_tags = f'<link rel="icon" href="{esc_fav}">\n  <link rel="shortcut icon" href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
+        esc_fav = html.escape(favicon_href, quote=True)
+
+        # できるだけブラウザに伝わるように type も付ける（Safari対策）
+        low = favicon_href.lower().split("?", 1)[0]
+        icon_type = ""
+        if low.endswith(".png"):
+            icon_type = "image/png"
+        elif low.endswith(".ico"):
+            icon_type = "image/x-icon"
+        elif low.endswith(".svg"):
+            icon_type = "image/svg+xml"
+        elif low.endswith(".jpg") or low.endswith(".jpeg"):
+            icon_type = "image/jpeg"
+        elif low.endswith(".webp"):
+            icon_type = "image/webp"
+
+        type_attr = f' type="{icon_type}"' if icon_type else ""
+        favicon_tags = f'<link rel="icon"{type_attr} href="{esc_fav}">\n  <link rel="shortcut icon" href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
+        header_icon_html = f'<img class="pv-favicon" src="{esc_fav}" alt="">'
 
     # ナビリンク（thanks はトップページ外なので、index.html へ戻す導線に揃える）
     sec = lambda sid: f"index.html#{sid}"
@@ -5602,6 +5620,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
         <a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">
+          {header_icon_html}
           <span class="pv-brand-name">{esc_company}</span>
         </a>
 
@@ -5699,7 +5718,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href_html).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -7820,7 +7839,7 @@ a:hover{text-decoration:none;}
 .pv-layout-260218 .pv-footer-link{
   /* 横幅を増やさない（フッターを1行に収めるため） */
   padding: 0.25em 0;
-  font-size: 0.82rem;
+  font-size: inherit;
   white-space: nowrap;
   text-decoration: none;
   opacity: 0.92;
@@ -7852,7 +7871,12 @@ a:hover{text-decoration:none;}
   align-items: center;
 
   /* gap は em にして、文字サイズに連動して自動で詰まる */
-  gap: 0.65em;
+  gap: 0.42em;
+
+  /* v0.9.11: まずCSSだけでも縮むように（JSが動く前でも切れにくい） */
+  font-size: clamp(6px, 2.55vw, 0.82rem);
+  line-height: 1.2;
+  letter-spacing: 0;
 
   /* スクロールは禁止（全部見えるように縮小して合わせる） */
   overflow: visible;
@@ -7869,6 +7893,15 @@ a:hover{text-decoration:none;}
   text-overflow: clip !important;
   display: block;
 }
+
+/* v0.9.11: JSが動く前でも、まずCSSだけで縮む（スマホで折り返し/切れを減らす） */
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-l{ font-size: clamp(10px, 8.8vw, 2.05rem); }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-m{ font-size: clamp(10px, 7.6vw, 1.75rem); }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-title.pv-size-s{ font-size: clamp(10px, 6.8vw, 1.55rem); }
+
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-l{ font-size: clamp(8px, 4.3vw, 1.12rem); }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-m{ font-size: clamp(8px, 3.9vw, 0.98rem); }
+.pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-s{ font-size: clamp(8px, 3.6vw, 0.92rem); }
 
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
 .pv-shell.pv-layout-260218,
@@ -7944,7 +7977,7 @@ a:hover{text-decoration:none;}
   border-radius:14px;
 
   /* v0.9.9: 入力欄を「くっきり」見せる（スマホでも迷わない） */
-  border:2px solid rgba(15,23,42,.20);
+  border:2px solid rgba(var(--pv-accent-rgb), .45);
   background:rgba(255,255,255,.92);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 14px 32px rgba(15,23,42,.10);
 
@@ -8028,6 +8061,11 @@ a:hover{text-decoration:none;}
     elif favicon_url:
         favicon_href = favicon_url
 
+    # v0.9.11: favicon はキャッシュされやすい → URL に版数を付けて更新がすぐ反映されるようにする
+    favicon_href_html = favicon_href
+    if favicon_href_html and ("?" not in favicon_href_html) and favicon_href_html.startswith("assets/"):
+        favicon_href_html = f"{favicon_href_html}?v={VERSION}"
+
     # ヒーロー画像（最大4枚）
     hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
     hero_imgs = hero.get("hero_image_urls") if isinstance(hero.get("hero_image_urls"), list) else []
@@ -8070,6 +8108,9 @@ a:hover{text-decoration:none;}
             logo_href = logo_url
     elif logo_url:
         logo_href = logo_url
+
+    # v0.9.11: ヘッダー左の小アイコンは「ロゴ優先」。ロゴが無い場合は favicon を使う（現場で迷わない）
+    header_icon_href = logo_href or favicon_href_html or ""
 
     # philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
@@ -8148,7 +8189,7 @@ a:hover{text-decoration:none;}
 
       var size = base;
       var safety = 0;
-      while(safety < 10){
+      while(safety < 25){
         w = el.scrollWidth || el.getBoundingClientRect().width || 0;
         if(w <= maxW + 1) break;
 
@@ -8190,8 +8231,8 @@ a:hover{text-decoration:none;}
       if(!inner || inner <= 0) return;
 
       // タイトルは最低9px、サブは最低8pxまで下げる（どの幅でも「全文表示」）
-      fitOneLine(title, inner, 9);
-      fitOneLine(sub, inner, 8);
+      fitOneLine(title, inner, 5);
+      fitOneLine(sub, inner, 5);
     }catch(_e){}
   }
 
@@ -8213,7 +8254,7 @@ a:hover{text-decoration:none;}
       if(!maxW || maxW <= 0) return;
 
       // 最低6pxまで下げて必ず1行で収める
-      fitOneLine(links, maxW, 5);
+      fitOneLine(links, maxW, 4);
     }catch(_e){}
   }
 
@@ -8340,6 +8381,18 @@ a:hover{text-decoration:none;}
       window.__cvhbModeTimer = setTimeout(applyMode, 150);
     });
 
+    // iPhone等: 画面回転やアドレスバーの出入りで幅が変わることがある
+    window.addEventListener('orientationchange', function(){
+      clearTimeout(window.__cvhbModeTimer);
+      window.__cvhbModeTimer = setTimeout(applyMode, 180);
+    });
+
+    // Safari BFCache 対策（戻る/進むでJSが止まったままになるのを防ぐ）
+    window.addEventListener('pageshow', function(){
+      clearTimeout(window.__cvhbModeTimer);
+      window.__cvhbModeTimer = setTimeout(applyMode, 80);
+    });
+
     initNav();
     initSmoothScroll();
     initHeroSlider(root);
@@ -8373,14 +8426,41 @@ a:hover{text-decoration:none;}
         if not h:
             return ""
         esc_h = _esc(h)
-        return f'<link rel="icon" href="{esc_h}">\n  <link rel="shortcut icon" href="{esc_h}">\n  <link rel="apple-touch-icon" href="{esc_h}">'
+
+        # できるだけブラウザに伝わるように type も付ける（Safari対策）
+        low = h.lower().split("?", 1)[0]
+        icon_type = ""
+        if low.endswith(".png"):
+            icon_type = "image/png"
+        elif low.endswith(".ico"):
+            icon_type = "image/x-icon"
+        elif low.endswith(".svg"):
+            icon_type = "image/svg+xml"
+        elif low.endswith(".jpg") or low.endswith(".jpeg"):
+            icon_type = "image/jpeg"
+        elif low.endswith(".webp"):
+            icon_type = "image/webp"
+
+        type_attr = f' type="{icon_type}"' if icon_type else ""
+        return f'<link rel="icon"{type_attr} href="{esc_h}">\n  <link rel="shortcut icon" href="{esc_h}">\n  <link rel="apple-touch-icon" href="{esc_h}">'
 
 
     def _paras(text: str) -> str:
-        t = (text or "").strip()
+        # v0.9.11: 改行をそのまま反映（Windowsの\r\n も吸収）
+        t = (text or "")
+        t = t.replace("\r\n", "\n").replace("\r", "\n").strip()
         if not t:
             return ""
-        return "<p>" + _esc(t).replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>"
+
+        # 空行で段落分け。段落内の改行は <br> にする
+        parts = re.split(r"\n{2,}", t)
+        html_parts = []
+        for part in parts:
+            part = part.strip("\n")
+            if not part:
+                continue
+            html_parts.append("<p>" + _esc(part).replace("\n", "<br>") + "</p>")
+        return "".join(html_parts)
 
     # ページ共通: セクションヘッダー
     def _section_head(title_jp: str, subtitle_en: str) -> str:
@@ -8531,7 +8611,7 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
@@ -8857,12 +8937,12 @@ a:hover{text-decoration:none;}
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html))
 
     # --------------------
     # index.html
     # --------------------
-    favicon_tag = _favicon_head_tags(favicon_href)
+    favicon_tag = _favicon_head_tags(favicon_href_html)
 
     index_html = f"""<!doctype html>
 <html lang=\"ja\">
@@ -8878,7 +8958,7 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
