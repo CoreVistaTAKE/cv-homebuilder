@@ -7895,6 +7895,23 @@ a:hover{text-decoration:none;}
   white-space: nowrap;
 }
 
+/* v0.9.14: 小さい画面ではコピーライトを下へ回して、リンク列の横幅を最大化（左右欠け防止） */
+@media (max-width: 560px){
+  .pv-layout-260218 .pv-footer-inner{
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 10px;
+  }
+  .pv-layout-260218 .pv-footer-links{
+    width: 100%;
+  }
+  .pv-layout-260218 .pv-footer-copy{
+    width: 100%;
+    text-align: center;
+  }
+}
+
 /* v0.9.9: ヒーローのキャッチ/サブキャッチは「1行・全文表示」固定（…禁止）
    - 文字がはみ出す時は assets/site.js のfitが自動で文字サイズを下げます */
 .pv-layout-260218 .pv-hero-caption-title,
