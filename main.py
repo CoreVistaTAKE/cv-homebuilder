@@ -5413,7 +5413,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "assets/favicon.png") -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict) -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -5479,8 +5479,6 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{esc_company}｜送信結果</title>
   <link rel="stylesheet" href="assets/site.css">
-  <link rel="icon" href="{html.escape(favicon_href, quote=True)}">
-  <link rel="apple-touch-icon" href="{html.escape(favicon_href, quote=True)}">
 
 </head>
 <body>
@@ -5575,7 +5573,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "assets/favicon.png") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -5585,7 +5583,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -5875,9 +5873,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     address = str(step2.get("address") or "").strip()
     phone = str(step2.get("phone") or "").strip()
 
-    # favicon（未設定でも必ず出す：プレビューと同じ挙動に揃える）
     favicon_url = str(step2.get("favicon_url") or "").strip() or DEFAULT_FAVICON_DATA_URL
-    favicon_filename = str(step2.get("favicon_filename") or "").strip() or "favicon.png"
+    favicon_filename = str(step2.get("favicon_filename") or "").strip()
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
@@ -7594,6 +7591,51 @@ a:hover{text-decoration:none;}
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-links-primary,
+.pv-layout-260218 .pv-footer-links-secondary{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-links-primary{ flex: 1 1 auto; }
+.pv-layout-260218 .pv-footer-links-secondary{ flex: 0 1 auto; }
+
+/* 狭い画面では「お問い合わせ」「プライバシーポリシー」だけ2行目中央に */
+@media (max-width: 520px){
+  .pv-layout-260218 .pv-footer-links{
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .pv-layout-260218 .pv-footer-links-primary,
+  .pv-layout-260218 .pv-footer-links-secondary{
+    justify-content: center;
+  }
+  .pv-layout-260218 .pv-footer-link{
+    padding: 8px 12px;
+    font-size: 0.95rem;
+  }
+}
+
+
+/* ===== Mobile: News font tweak ===== */
+.pv-layout-260218.pv-mode-mobile .pv-news-item{
+  grid-template-columns: 94px 78px 1fr 20px;
+  gap: 8px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-date{
+  font-size: 0.86rem;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-title{
+  font-size: 0.95rem;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-cat{
+  font-size: 0.68rem;
+  height: 22px;
+  padding: 0 8px;
 }
 
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
@@ -7709,98 +7751,7 @@ a:hover{text-decoration:none;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 """
 
-    EXPORT_PATCH_CSS = r"""
-/* ===== CVHB Export Patch (Hero/Foot/Form/Favicon) ===== */
-
-/* 1) ヒーロー：必ず1行 + 省略「…」禁止（JSで自動縮小） */
-.pv-layout-260218 .pv-hero-caption-title,
-.pv-layout-260218 .pv-hero-caption-sub{
-  white-space:nowrap !important;
-  overflow:hidden !important;
-  text-overflow:clip !important;
-  max-width:100%;
-}
-
-/* 旧クラス（pv-catch-size-大/中/小）互換：エクスポートHTMLが古い場合でもサイズが効くように */
-.pv-layout-260218 .pv-hero-caption-title.pv-catch-size-大{ font-size: clamp(1.75rem, 5.2vw, 2.85rem); }
-.pv-layout-260218 .pv-hero-caption-title.pv-catch-size-中{ font-size: clamp(1.55rem, 4.8vw, 2.60rem); }
-.pv-layout-260218 .pv-hero-caption-title.pv-catch-size-小{ font-size: clamp(1.35rem, 4.2vw, 2.25rem); }
-
-.pv-layout-260218 .pv-hero-caption-sub.pv-sub-size-大{ font-size: clamp(1.02rem, 2.7vw, 1.25rem); }
-.pv-layout-260218 .pv-hero-caption-sub.pv-sub-size-中{ font-size: clamp(0.92rem, 2.4vw, 1.15rem); }
-.pv-layout-260218 .pv-hero-caption-sub.pv-sub-size-小{ font-size: clamp(0.84rem, 2.2vw, 1.05rem); }
-
-/* モバイルは余白を少しだけ詰めて、収まりを優先 */
-.pv-layout-260218.pv-mode-mobile .pv-hero-caption{
-  width: min(96%, 620px);
-  padding: 14px 14px;
-}
-
-/* 2) フッター：どのサイズでも1列（折り返し無し・スクロール無し・JSで自動縮小） */
-.pv-layout-260218 .pv-footer-inner{
-  overflow:hidden;
-}
-
-.pv-layout-260218 .pv-footer-links{
-  display:flex;
-  flex-wrap:nowrap !important;
-  justify-content:center;
-  align-items:center;
-  gap: 6px;
-  white-space:nowrap;
-  overflow:hidden;
-  font-size: 0.92rem; /* JSが最終調整 */
-  letter-spacing: -0.03em;
-}
-
-/* フッターは「収まり最優先」で、装飾を極力軽くする */
-.pv-layout-260218 .pv-footer-links .pv-footer-link{
-  padding: 0 2px;
-  border: none;
-  background: transparent;
-  border-radius: 0;
-  font-size: inherit;
-  white-space:nowrap;
-  opacity: 0.92;
-}
-
-.pv-layout-260218.pv-mode-mobile .pv-footer-inner{ padding: 14px 10px; }
-.pv-layout-260218.pv-mode-mobile .pv-footer-links{
-  gap: 5px;
-  font-size: 0.82rem;
-}
-
-@media (max-width: 420px){
-  .pv-layout-260218 .pv-footer-links{ gap: 4px; font-size: 0.78rem; }
-  .pv-layout-260218 .pv-footer-links .pv-footer-link{ padding: 0 1px; }
-}
-
-/* 3) お問い合わせフォーム：入力欄の枠を見やすく（カラー設定に合わせて濃いめ） */
-.pv-layout-260218 .pv-form-row input,
-.pv-layout-260218 .pv-form-row textarea{
-  border: 2px solid rgba(var(--pv-accent-rgb), 0.42);
-  background: rgba(255,255,255,0.88);
-  color: #0c1420;
-}
-
-.pv-layout-260218 .pv-form-row input::placeholder,
-.pv-layout-260218 .pv-form-row textarea::placeholder{
-  color: rgba(12,20,32,0.45);
-}
-
-.pv-layout-260218 .pv-form-row input:focus,
-.pv-layout-260218 .pv-form-row textarea:focus{
-  outline: none;
-  border-color: rgba(var(--pv-accent-rgb), 0.82);
-  box-shadow: 0 0 0 4px rgba(var(--pv-accent-rgb), 0.18);
-}
-
-/* 4) FAQ回答など：段落/改行が崩れにくいように */
-.pv-layout-260218 .pv-faq-atext p{ margin:0; }
-.pv-layout-260218 .pv-faq-atext br{ display:block; content:""; margin-top: 0.35em; }
-    """
-
-    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS + "\n" + EXPORT_PATCH_CSS
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS
     # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
     #   ただし重複許容（sizeより一致優先）
 
@@ -7869,7 +7820,10 @@ a:hover{text-decoration:none;}
     elif logo_url:
         logo_href = logo_url
 
-    # philosophy / services の画像（プレビューと同じキー）
+        # ヘッダーに表示する小アイコン（基本は favicon。logo があれば logo 優先）
+    brand_icon_href = logo_href or favicon_href
+
+# philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
     ph_img_url = str(ph.get("image_url") or "").strip()
     ph_img_href = ""
@@ -8025,79 +7979,6 @@ a:hover{text-decoration:none;}
     slider.__cvhbReinit = applyAxis;
   }
 
-
-// ---- Auto fit (Hero / Footer) ----
-function throttle(fn, wait){
-  var last = 0;
-  var timer = null;
-  return function(){
-    var now = Date.now();
-    var remain = wait - (now - last);
-    var ctx = this, args = arguments;
-    if(remain <= 0){
-      last = now;
-      fn.apply(ctx, args);
-    }else{
-      clearTimeout(timer);
-      timer = setTimeout(function(){
-        last = Date.now();
-        fn.apply(ctx, args);
-      }, remain);
-    }
-  };
-}
-
-function fitOneLine(el, opt){
-  if(!el) return;
-  var minPx = (opt && opt.minPx) ? opt.minPx : 6;
-
-  // いったんCSSのサイズに戻してから計測
-  el.style.fontSize = '';
-  el.style.whiteSpace = 'nowrap';
-  el.style.overflow = 'hidden';
-  el.style.textOverflow = 'clip';
-
-  var basePx = parseFloat(window.getComputedStyle(el).fontSize || '16');
-  if(!basePx || basePx < 1) basePx = 16;
-
-  var size = basePx;
-  el.style.fontSize = size + 'px';
-
-  var guard = 0;
-  while(guard < 240 && size > minPx && (el.scrollWidth > el.clientWidth + 0.5)){
-    size = size - 0.5;
-    el.style.fontSize = size + 'px';
-    guard++;
-  }
-}
-
-function fitFooter(){
-  var box = document.querySelector('.pv-footer-links');
-  if(!box) return;
-
-  box.style.fontSize = '';
-  box.style.whiteSpace = 'nowrap';
-
-  var basePx = parseFloat(window.getComputedStyle(box).fontSize || '14');
-  if(!basePx || basePx < 1) basePx = 14;
-
-  var minPx = 6;
-  var size = basePx;
-  box.style.fontSize = size + 'px';
-
-  var guard = 0;
-  while(guard < 240 && size > minPx && (box.scrollWidth > box.clientWidth + 0.5)){
-    size = size - 0.5;
-    box.style.fontSize = size + 'px';
-    guard++;
-  }
-}
-
-function runAutoFit(){
-  fitOneLine(document.querySelector('.pv-hero-caption-title'), {minPx: 6});
-  fitOneLine(document.querySelector('.pv-hero-caption-sub'), {minPx: 6});
-  fitFooter();
-}
   ready(function(){
     var root = document.getElementById('pv-root');
     if(!root) return;
@@ -8106,7 +7987,6 @@ function runAutoFit(){
       setMode(root);
       var slider = document.getElementById('pv-hero-slider');
       if(slider && slider.__cvhbReinit) slider.__cvhbReinit();
-      runAutoFit();
     }
 
     applyMode();
@@ -8118,11 +7998,6 @@ function runAutoFit(){
     initNav();
     initSmoothScroll();
     initHeroSlider(root);
-
-    // Auto-fit（初回 + 少し遅延して再計測：iOS対策）
-    runAutoFit();
-    setTimeout(runAutoFit, 250);
-    setTimeout(runAutoFit, 1000);
 
     var y = document.getElementById('pvYear');
     if(y) y.textContent = String(new Date().getFullYear());
@@ -8283,7 +8158,7 @@ function runAutoFit(){
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(brand_icon_href)}" alt="">' if brand_icon_href else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
@@ -8309,14 +8184,18 @@ function runAutoFit(){
         <div class=\"pv-footer-inner\">
           <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
           <div class=\"pv-footer-links\">
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
-            <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">私たちについて</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">業務内容</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
-            <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
+            <div class=\"pv-footer-links-primary\">
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
+              <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">私たちについて</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">業務内容</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
+            </div>
+            <div class=\"pv-footer-links-secondary\">
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
+              <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
+            </div>
           </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
@@ -8611,16 +8490,12 @@ function runAutoFit(){
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone))
 
     # --------------------
     # index.html
     # --------------------
-    favicon_tag = (
-        f'<link rel="icon" href="{_esc(favicon_href)}">\n  <link rel="apple-touch-icon" href="{_esc(favicon_href)}">'
-        if favicon_href
-        else ''
-    )
+    favicon_tag = f'<link rel="icon" href="{_esc(favicon_href)}">' if favicon_href else ''
 
     index_html = f"""<!doctype html>
 <html lang=\"ja\">
@@ -8636,7 +8511,7 @@ function runAutoFit(){
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(brand_icon_href)}" alt="">' if brand_icon_href else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
@@ -8671,14 +8546,18 @@ function runAutoFit(){
         <div class=\"pv-footer-inner\">
           <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
           <div class=\"pv-footer-links\">
-            <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
-            <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"#pv-about\">私たちについて</a>
-            <a class=\"pv-footer-link\" href=\"#pv-services\">業務内容</a>
-            <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
-            <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
-            <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
-            <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
+            <div class=\"pv-footer-links-primary\">
+              <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
+              <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
+              <a class=\"pv-footer-link\" href=\"#pv-about\">私たちについて</a>
+              <a class=\"pv-footer-link\" href=\"#pv-services\">業務内容</a>
+              <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
+              <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
+            </div>
+            <div class=\"pv-footer-links-secondary\">
+              <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
+              <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
+            </div>
           </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
