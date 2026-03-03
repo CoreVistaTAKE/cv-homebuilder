@@ -8652,6 +8652,11 @@ a:hover{text-decoration:none;}
 
         brand_href = sec_href("pv-top")
 
+        # ルート外（news配下など）では assets/ の相対パスがズレるので補正する
+        header_icon_src = header_icon_href
+        if root_prefix and header_icon_src and header_icon_src.startswith("assets/"):
+            header_icon_src = f"{root_prefix}{header_icon_src}"
+
         return f"""<!doctype html>
 <html lang=\"ja\">
 <head>
@@ -8666,7 +8671,7 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(header_icon_src)}" alt="">' if header_icon_src else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
@@ -8743,7 +8748,7 @@ a:hover{text-decoration:none;}
         title=f"{company_name}｜お知らせ一覧",
         css_href="../assets/site.css",
         js_href="../assets/site.js",
-        favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
+        favicon_href_=f"../{favicon_href_html}" if favicon_href_html and favicon_href_html.startswith("assets/") else favicon_href_html,
         body_inner=news_index_body,
         root_prefix="../",
     ).encode("utf-8")
@@ -8775,7 +8780,7 @@ a:hover{text-decoration:none;}
             title=f"{company_name}｜{title or 'お知らせ'}",
             css_href="../assets/site.css",
             js_href="../assets/site.js",
-            favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
+            favicon_href_=f"../{favicon_href_html}" if favicon_href_html and favicon_href_html.startswith("assets/") else favicon_href_html,
             body_inner=detail_body,
             root_prefix="../",
         ).encode("utf-8")
@@ -9012,7 +9017,7 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if header_icon_href else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
@@ -9085,7 +9090,7 @@ a:hover{text-decoration:none;}
         title=f"{company_name}｜プライバシーポリシー",
         css_href="assets/site.css",
         js_href="assets/site.js",
-        favicon_href_=favicon_href,
+        favicon_href_=favicon_href_html,
         body_inner=privacy_page_body,
         root_prefix="",
     )
