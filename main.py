@@ -5664,7 +5664,6 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
       <footer class="pv-footer">
         <div class="pv-footer-inner">
-          <div class="pv-footer-brand">{esc_company}</div>
           <div class="pv-footer-links">
             <a class="pv-footer-link" href="index.html#pv-top">トップ</a>
             <a class="pv-footer-link" href="news/index.html">お知らせ一覧</a>
@@ -5718,7 +5717,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href_html).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -7860,11 +7859,15 @@ a:hover{text-decoration:none;}
   max-width: 1280px;
   margin: 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .pv-layout-260218 .pv-footer-links{
   /* v0.9.9: 横スクロールは禁止 → JSで文字サイズを自動フィットして「必ず1行」にする */
+  flex: 1 1 auto;
+  min-width: 0;
+
   display: flex;
   flex-wrap: nowrap; /* どの画面幅でも「1行」 */
   justify-content: center;
@@ -7882,6 +7885,14 @@ a:hover{text-decoration:none;}
   overflow: visible;
   max-width: 100%;
   width: 100%;
+}
+.pv-layout-260218 .pv-footer-copy{
+  /* フッターに社名は出さない（コピーライト側のみ）。右端揃え */
+  flex: 0 0 auto;
+  margin: 0 !important;
+  max-width: none;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* v0.9.9: ヒーローのキャッチ/サブキャッチは「1行・全文表示」固定（…禁止）
@@ -8206,6 +8217,25 @@ a:hover{text-decoration:none;}
     }catch(_e){}
   }
 
+  // v0.9.12: ざっくり全角換算（ASCII / 半角ｶﾅ は 0.5）
+  function zenkakuUnits(str){
+    try{
+      var s = String(str || '').trim();
+      var u = 0;
+      for(var i=0;i<s.length;i++){
+        var ch = s.charAt(i);
+        if(/[\u0000-\u007F]/.test(ch) || /[\uFF61-\uFF9F]/.test(ch)){
+          u += 0.5;
+        }else{
+          u += 1;
+        }
+      }
+      return u;
+    }catch(_e){
+      return (String(str || '').length || 0);
+    }
+  }
+
   function fitHeroCaption(root){
     try{
       if(!root) return;
@@ -8230,8 +8260,30 @@ a:hover{text-decoration:none;}
       }
       if(!inner || inner <= 0) return;
 
-      // タイトルは最低9px、サブは最低8pxまで下げる（どの幅でも「全文表示」）
-      fitOneLine(title, inner, 5);
+      // v0.9.12:
+      // - キャッチコピーは「全角18文字まで」= 1行で全文表示（自動フィット）
+      // - 19文字以上は折り返し表示（ビルダーにも注意書きあり）
+      if(title){
+        try{
+          title.style.removeProperty('white-space');
+          title.style.removeProperty('overflow');
+          title.style.removeProperty('text-overflow');
+        }catch(_e){}
+
+        var units = zenkakuUnits(title.textContent || '');
+        if(units <= 18){
+          fitOneLine(title, inner, 5);
+        }else{
+          // CSS側の nowrap(!important) を上書きして、折り返し表示に戻す
+          try{
+            title.style.setProperty('white-space', 'normal', 'important');
+            title.style.setProperty('overflow', 'visible', 'important');
+            title.style.setProperty('text-overflow', 'clip', 'important');
+          }catch(_e){}
+        }
+      }
+
+      // サブキャッチは従来どおり1行フィット（短い想定）
       fitOneLine(sub, inner, 5);
     }catch(_e){}
   }
@@ -8250,7 +8302,10 @@ a:hover{text-decoration:none;}
       links.style.flexWrap = 'nowrap';
       links.style.overflow = 'visible';
 
-      var maxW = inner.clientWidth || inner.getBoundingClientRect().width || 0;
+      var maxW = links.clientWidth || links.getBoundingClientRect().width || 0;
+      if(!maxW || maxW <= 0){
+        maxW = inner.clientWidth || inner.getBoundingClientRect().width || 0;
+      }
       if(!maxW || maxW <= 0) return;
 
       // 最低6pxまで下げて必ず1行で収める
@@ -8635,7 +8690,6 @@ a:hover{text-decoration:none;}
       <main class=\"pv-main\">{body_inner}</main>
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
           <div class=\"pv-footer-links\">
             <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
             <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
@@ -8991,7 +9045,6 @@ a:hover{text-decoration:none;}
 
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
           <div class=\"pv-footer-links\">
             <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
             <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
@@ -11628,6 +11681,8 @@ def render_main(u: User) -> None:
                                                             "catch_copy",
                                                             hint="ヒーローの一番大きい文章です。スマホは画像の下、PCは画像に重ねて表示されます。",
                                                         )
+                                                        ui.label("※ 全角18文字まで：完成ページでは1行で表示されます（自動調整）。19文字以上：折り返して表示されます。").classes("cvhb-muted q-mb-sm")
+
 
                                                         # 文字サイズ（大/中/小）
                                                         def _on_catch_size(e):
