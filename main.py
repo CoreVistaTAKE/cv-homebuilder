@@ -2003,7 +2003,6 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-news-date{
   font-weight: 700;
   opacity: 0.7;
-  white-space: nowrap;
 }
 
 .pv-layout-260218 .pv-news-cat{
@@ -5874,7 +5873,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     address = str(step2.get("address") or "").strip()
     phone = str(step2.get("phone") or "").strip()
 
-    favicon_url = str(step2.get("favicon_url") or "").strip()
+    favicon_url = str(step2.get("favicon_url") or "").strip() or DEFAULT_FAVICON_DATA_URL
     favicon_filename = str(step2.get("favicon_filename") or "").strip()
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
@@ -6988,7 +6987,6 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218 .pv-news-date{
   font-weight: 700;
   opacity: 0.7;
-  white-space: nowrap;
 }
 
 .pv-layout-260218 .pv-news-cat{
@@ -7593,6 +7591,51 @@ a:hover{text-decoration:none;}
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-links-primary,
+.pv-layout-260218 .pv-footer-links-secondary{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-links-primary{ flex: 1 1 auto; }
+.pv-layout-260218 .pv-footer-links-secondary{ flex: 0 1 auto; }
+
+/* 狭い画面では「お問い合わせ」「プライバシーポリシー」だけ2行目中央に */
+@media (max-width: 520px){
+  .pv-layout-260218 .pv-footer-links{
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .pv-layout-260218 .pv-footer-links-primary,
+  .pv-layout-260218 .pv-footer-links-secondary{
+    justify-content: center;
+  }
+  .pv-layout-260218 .pv-footer-link{
+    padding: 8px 12px;
+    font-size: 0.95rem;
+  }
+}
+
+
+/* ===== Mobile: News font tweak ===== */
+.pv-layout-260218.pv-mode-mobile .pv-news-item{
+  grid-template-columns: 94px 78px 1fr 20px;
+  gap: 8px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-date{
+  font-size: 0.86rem;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-title{
+  font-size: 0.95rem;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-cat{
+  font-size: 0.68rem;
+  height: 22px;
+  padding: 0 8px;
 }
 
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
@@ -7708,8 +7751,9 @@ a:hover{text-decoration:none;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 """
 
-    site_css = PV_THEME_CSS + "\n" + EXPORT_BASE_CSS
-    # export: PV_THEME_CSS（レイアウト/共通） + EXPORT_BASE_CSS（公開用の上書き/補助）
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS
+    # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
+    #   ただし重複許容（sizeより一致優先）
 
     files: dict[str, bytes] = {}
 
@@ -7776,7 +7820,10 @@ a:hover{text-decoration:none;}
     elif logo_url:
         logo_href = logo_url
 
-    # philosophy / services の画像（プレビューと同じキー）
+        # ヘッダーに表示する小アイコン（基本は favicon。logo があれば logo 優先）
+    brand_icon_href = logo_href or favicon_href
+
+# philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
     ph_img_url = str(ph.get("image_url") or "").strip()
     ph_img_href = ""
@@ -8111,7 +8158,7 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(brand_icon_href)}" alt="">' if brand_icon_href else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
@@ -8137,14 +8184,18 @@ a:hover{text-decoration:none;}
         <div class=\"pv-footer-inner\">
           <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
           <div class=\"pv-footer-links\">
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
-            <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">私たちについて</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">業務内容</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
-            <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
+            <div class=\"pv-footer-links-primary\">
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
+              <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">私たちについて</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">業務内容</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
+            </div>
+            <div class=\"pv-footer-links-secondary\">
+              <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
+              <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
+            </div>
           </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
@@ -8460,7 +8511,7 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(logo_href)}" alt="">' if logo_href else ''}
+          {f'<img class="pv-favicon" src="{_esc(brand_icon_href)}" alt="">' if brand_icon_href else ''}
           <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
@@ -8495,14 +8546,18 @@ a:hover{text-decoration:none;}
         <div class=\"pv-footer-inner\">
           <div class=\"pv-footer-brand\">{_esc(company_name)}</div>
           <div class=\"pv-footer-links\">
-            <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
-            <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"#pv-about\">私たちについて</a>
-            <a class=\"pv-footer-link\" href=\"#pv-services\">業務内容</a>
-            <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
-            <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
-            <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
-            <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
+            <div class=\"pv-footer-links-primary\">
+              <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
+              <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
+              <a class=\"pv-footer-link\" href=\"#pv-about\">私たちについて</a>
+              <a class=\"pv-footer-link\" href=\"#pv-services\">業務内容</a>
+              <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
+              <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
+            </div>
+            <div class=\"pv-footer-links-secondary\">
+              <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
+              <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
+            </div>
           </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
