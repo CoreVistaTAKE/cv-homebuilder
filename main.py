@@ -5731,11 +5731,6 @@ def build_contact_section_html(
     esc_company = html.escape(company_name)
     esc_email = html.escape(to_email)
 
-    favicon_href = (favicon_href or "").strip()
-    favicon_tags = ""
-    if favicon_href:
-        esc_fav = html.escape(favicon_href)
-        favicon_tags = f'<link rel="icon" href="{esc_fav}">\n  <link rel="shortcut icon" href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
     esc_btn = html.escape(button_text)
 
     # 共通の注意文
