@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -833,6 +834,92 @@ if not _pv_route_added:
 
 
 # =========================
+
+
+# =========================
+# Preview: serve exported static site files (v0.9.17)
+#   - プレビューを「書き出しと同じHTML/CSS/JS」にするための仕組み
+#   - メモリ上に一時保存し、/pv_site/<key>/... で配信する
+# =========================
+
+_PV_SITE_CACHE: dict[str, dict[str, bytes]] = {}
+_PV_SITE_CACHE_ORDER: list[str] = []
+_PV_SITE_CACHE_MAX = 8
+
+def _pv_site_cache_put(files: dict[str, bytes]) -> str:
+    """生成した静的サイト一式を一時キャッシュし、参照キーを返す。"""
+    key = secrets.token_urlsafe(12)
+    try:
+        _PV_SITE_CACHE[key] = files
+        _PV_SITE_CACHE_ORDER.append(key)
+        # cap (古いものから捨てる)
+        while len(_PV_SITE_CACHE_ORDER) > _PV_SITE_CACHE_MAX:
+            old = _PV_SITE_CACHE_ORDER.pop(0)
+            _PV_SITE_CACHE.pop(old, None)
+    except Exception:
+        # 事故防止: ここで落ちるとプレビューが全滅するので最小限の復旧をする
+        try:
+            _PV_SITE_CACHE.clear()
+            _PV_SITE_CACHE_ORDER.clear()
+        except Exception:
+            pass
+        _PV_SITE_CACHE[key] = files
+        _PV_SITE_CACHE_ORDER.append(key)
+    return key
+
+def _pv_site_guess_media_type(path: str) -> str:
+    p = (path or "").lower()
+    if p.endswith(".html"):
+        return "text/html"
+    if p.endswith(".css"):
+        return "text/css"
+    if p.endswith(".js"):
+        return "application/javascript"
+    if p.endswith(".json"):
+        return "application/json"
+    if p.endswith(".xml"):
+        return "application/xml"
+    if p.endswith(".txt"):
+        return "text/plain"
+    try:
+        mt, _ = mimetypes.guess_type(path)
+        return mt or "application/octet-stream"
+    except Exception:
+        return "application/octet-stream"
+
+@app.get("/pv_site/{key}/{path:path}")
+def pv_site_file(key: str, path: str):
+    """プレビュー用：書き出しと同じファイルを返す（メモリキャッシュから）。"""
+    try:
+        files = _PV_SITE_CACHE.get(str(key) or "")
+        if not files:
+            return Response(status_code=404, content=b"not found", media_type="text/plain")
+        safe_path = str(path or "").lstrip("/")
+        if not safe_path:
+            safe_path = "index.html"
+        # path traversal guard
+        parts = [p for p in safe_path.split("/") if p]
+        if any(p == ".." for p in parts):
+            return Response(status_code=404, content=b"not found", media_type="text/plain")
+        content = files.get(safe_path)
+        if content is None:
+            return Response(status_code=404, content=b"not found", media_type="text/plain")
+        mt = _pv_site_guess_media_type(safe_path)
+        headers = {
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        }
+        return Response(content=content, media_type=mt, headers=headers)
+    except Exception:
+        # preview should not crash the whole app
+        return Response(status_code=500, content=b"preview error", media_type="text/plain")
+
+# route registration guard (idempotent)
+try:
+    app._cvhb_pv_site_route_added = True
+except Exception:
+    pass
+
 # Export ZIP download cache (v0.7.0)
 # =========================
 
@@ -7959,7 +8046,105 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
-    """
+    
+
+/* =========================
+   v0.9.17 UI/UX
+   - Hero: slide → crossfade
+   - Hero: catch/subcatch box delayed entrance
+   - Sections: scroll reveal (float up)
+   ========================= */
+
+/* Hero crossfade (JS on) */
+.pv-layout-260218 .pv-hero-track{
+  position: relative;
+  display: block;
+  height: 100%;
+  transition: none;
+}
+
+.pv-layout-260218 .pv-hero-slide{
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  flex: none;
+  opacity: 0;
+  transition: opacity 900ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* no-JS fallback: 1枚目だけ見せる */
+.pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
+  position: relative;
+  opacity: 1;
+}
+
+/* JS: active だけ見せる */
+.pv-layout-260218 .pv-hero-slider.is-js .pv-hero-slide.is-active{
+  opacity: 1;
+}
+
+/* Catch/Subcatch delayed (JS on only) */
+.pv-layout-260218.pv-js .pv-hero-caption{
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero-caption{
+  transform: translateX(-50%) translateY(10px);
+}
+
+.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero-caption{
+  transform: translateY(10px);
+}
+
+.pv-layout-260218.pv-js .pv-hero.is-caption-in .pv-hero-caption{
+  opacity: 1;
+  transition:
+    opacity 650ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms,
+    transform 650ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms;
+}
+
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero.is-caption-in .pv-hero-caption{
+  transform: translateX(-50%) translateY(0);
+}
+
+.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero.is-caption-in .pv-hero-caption{
+  transform: translateY(0);
+}
+
+/* Scroll reveal */
+.pv-layout-260218.pv-js .pv-reveal{
+  opacity: 0;
+  transform: translate3d(0, 18px, 0);
+  transition:
+    opacity 700ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 700ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.pv-layout-260218.pv-js .pv-reveal.is-in{
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+/* reduce motion */
+@media (prefers-reduced-motion: reduce){
+  .pv-layout-260218 .pv-hero-slide{
+    transition: none !important;
+  }
+  .pv-layout-260218.pv-js .pv-hero-caption{
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .pv-layout-260218.pv-js .pv-reveal{
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+"""
 
     EXPORT_BASE_CSS = r"""
 /* ===== CVHB Export Base ===== */
@@ -8320,9 +8505,8 @@ a:hover{text-decoration:none;}
     brand_logo_href = logo_href or ""
     header_icon_href = favicon_href_html or logo_href or ""
 
-    # favicon が「ロゴの代用品」の場合は、ヘッダーで同じ画像が二重に見えないようにする
-    if favicon_from_logo and brand_logo_href:
-        header_icon_href = ""
+    # v0.9.17: ヘッダーは「ファビコン + 社名ロゴ」を両方出す（同じ画像でも表示優先）
+    #   - favicon未設定時にロゴを流用していても、小アイコンは消さない
 
     # philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
@@ -8440,6 +8624,7 @@ a:hover{text-decoration:none;}
   function fitHeroCaption(root){
     try{
       if(!root) return;
+    try{ root.classList.add('pv-js'); }catch(_e){}
       var cap = root.querySelector('.pv-hero-caption');
       if(!cap) return;
 
@@ -8565,59 +8750,149 @@ a:hover{text-decoration:none;}
   function initHeroSlider(root){
     var slider = document.getElementById('pv-hero-slider');
     if(!slider) return;
+
     var track = slider.querySelector('.pv-hero-track');
     if(!track) return;
 
-    var slides = Array.prototype.slice.call(track.children || []);
-    if(slides.length <= 1) return;
+    var slides = track.querySelectorAll('.pv-hero-slide');
+    if(!slides || slides.length <= 0) return;
+
+    // JS有効フラグ（CSS側のフォールバック制御に使う）
+    try{ slider.classList.add('is-js'); }catch(_e){}
 
     var dotsBox = document.getElementById('pv-hero-slider-dots');
-    var axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
+    var dots = dotsBox ? dotsBox.querySelectorAll('button') : [];
+
     var idx = 0;
+    var interval = 4500;
+    var timer = null;
 
-    function applyAxis(){
-      axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
-      track.style.flexDirection = axis === 'y' ? 'column' : 'row';
-      slides.forEach(function(sl){ sl.style.flex = '0 0 100%'; });
-      update();
-    }
+    // reduced motion
+    var reduce = false;
+    try{
+      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }catch(_e){}
 
-    function update(){
-      track.style.transform = (axis === 'y')
-        ? ('translate3d(0,' + (-idx * 100) + '%,0)')
-        : ('translate3d(' + (-idx * 100) + '%,0,0)');
-      if(dotsBox){
-        dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(d, i){
-          d.classList.toggle('is-active', i === idx);
-        });
+    function setActive(n){
+      var len = slides.length;
+      if(len <= 0) return;
+      n = (n + len) % len;
+      idx = n;
+
+      for(var i=0;i<len;i++){
+        var s = slides[i];
+        if(!s) continue;
+        if(i === idx){
+          s.classList.add('is-active');
+          s.setAttribute('aria-hidden','false');
+        }else{
+          s.classList.remove('is-active');
+          s.setAttribute('aria-hidden','true');
+        }
+      }
+      for(var j=0;j<dots.length;j++){
+        var d = dots[j];
+        if(!d) continue;
+        if(j === idx){
+          d.classList.add('is-active');
+          d.setAttribute('aria-current','true');
+        }else{
+          d.classList.remove('is-active');
+          d.removeAttribute('aria-current');
+        }
       }
     }
 
-    function set(i){
-      idx = (i + slides.length) % slides.length;
-      update();
+    function stop(){
+      if(timer){
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+    function start(){
+      stop();
+      if(reduce) return;
+      timer = setInterval(function(){
+        setActive(idx + 1);
+      }, interval);
     }
 
-    if(dotsBox){
-      dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(btn){
-        btn.addEventListener('click', function(){
-          var i = parseInt(btn.getAttribute('data-i') || '0', 10);
-          if(!isNaN(i)) set(i);
+    // Dot click
+    for(var k=0;k<dots.length;k++){
+      (function(i){
+        dots[i].addEventListener('click', function(){
+          setActive(i);
+          start();
         });
-      });
+      })(k);
     }
 
-    applyAxis();
+    // pause while hover / focus (PC)
+    slider.addEventListener('mouseenter', stop);
+    slider.addEventListener('mouseleave', start);
+    slider.addEventListener('focusin', stop);
+    slider.addEventListener('focusout', start);
 
-    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10);
-    if(intervalMs > 0){
-      var timer = setInterval(function(){ set(idx + 1); }, intervalMs);
-      slider.addEventListener('mouseenter', function(){ clearInterval(timer); });
-      slider.addEventListener('mouseleave', function(){ timer = setInterval(function(){ set(idx + 1); }, intervalMs); });
-    }
+    // 初期表示
+    setActive(0);
+    start();
 
-    slider.__cvhbReinit = applyAxis;
+    // キャッチ/サブキャッチ枠：画像より少し遅れて表示
+    try{
+      var hero = slider.closest('.pv-hero');
+      if(hero){
+        hero.classList.remove('is-caption-in');
+        var delay = reduce ? 0 : 180;
+        setTimeout(function(){
+          hero.classList.add('is-caption-in');
+        }, delay);
+      }
+    }catch(_e){}
+
+    // Mode切替時に呼ばれる用（旧実装との互換）
+    slider.__cvhbReinit = function(){
+      setActive(idx);
+    };
   }
+
+  function initScrollReveal(root){
+    if(!root) return;
+
+    // reduced motion: 何もしない（そのまま表示）
+    var reduce = false;
+    try{
+      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }catch(_e){}
+
+    var targets = root.querySelectorAll('section.pv-section-260218');
+    if(!targets || targets.length <= 0) return;
+
+    for(var i=0;i<targets.length;i++){
+      targets[i].classList.add('pv-reveal');
+    }
+
+    if(reduce || !('IntersectionObserver' in window)){
+      for(var j=0;j<targets.length;j++){
+        targets[j].classList.add('is-in');
+      }
+      return;
+    }
+
+    var io = new IntersectionObserver(function(entries){
+      for(var i=0;i<entries.length;i++){
+        var e = entries[i];
+        if(e.isIntersecting){
+          e.target.classList.add('is-in');
+          io.unobserve(e.target);
+        }
+      }
+    }, { threshold: 0.12, rootMargin: '0px 0px -10% 0px' });
+
+    for(var k=0;k<targets.length;k++){
+      io.observe(targets[k]);
+    }
+  }
+
 
   ready(function(){
     var root = document.getElementById('pv-root');
@@ -8652,6 +8927,7 @@ a:hover{text-decoration:none;}
     initNav();
     initSmoothScroll();
     initHeroSlider(root);
+    initScrollReveal(root);
 
     // フォント読み込み後にもう一度フィット（iPhone等で幅が変わることがある）
     try{
@@ -13471,8 +13747,30 @@ def render_main(u: User) -> None:
                                             ui.label(pre).classes("cvhb-muted q-pa-md")
                                             return
 
-                                        # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
-                                        render_preview(p, mode=mode, root_id="pv-root")
+                                        # 右プレビュー本体：
+                                        #   ✅ 書き出しZIPと「同じHTML/CSS/JS」を生成して、そのまま表示する
+                                        #   - UI/UXの差分が出ない（ここが単一ソース）
+                                        #   - iframe なので、ビルダー側のCSS/JSと干渉しない
+                                        try:
+                                            pv_files = _normalize_static_site_files(build_static_site_files(copy.deepcopy(p)))
+                                            pv_key = _pv_site_cache_put(pv_files)
+                                            pv_src = f"/pv_site/{pv_key}/index.html"
+                                            ui.html(
+                                                f'''
+<div id="pv-root" style="width:{design_w}px; height:2400px;">
+  <iframe
+    src="{pv_src}"
+    style="width:{design_w}px; height:2400px; border:0; display:block;"
+    loading="eager"
+    referrerpolicy="no-referrer"
+    sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+  ></iframe>
+</div>
+'''
+                                            )
+                                        except Exception:
+                                            ui.label("プレビュー生成で内部エラー（書き出しHTMLの生成に失敗）").classes("text-negative q-pa-md")
+                                            return
 
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
