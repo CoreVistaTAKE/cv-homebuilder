@@ -1664,6 +1664,17 @@ def inject_global_styles() -> None:
   line-height: 1.7;
 }
 
+/* v0.9.15: 入力した改行 / 連続スペースを自然に表示（プレビュー/書き出し共通） */
+.pv-layout-260218 .pv-bodytext,
+.pv-layout-260218 .pv-muted,
+.pv-layout-260218 .pv-faq-a,
+.pv-layout-260218 p{
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+
 .pv-layout-260218 .pv-bullets{
   margin: 10px 0 0;
   padding-left: 18px;
@@ -6789,6 +6800,17 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   line-height: 1.7;
 }
 
+/* v0.9.15: 入力した改行 / 連続スペースを自然に表示（プレビュー/書き出し共通） */
+.pv-layout-260218 .pv-bodytext,
+.pv-layout-260218 .pv-muted,
+.pv-layout-260218 .pv-faq-a,
+.pv-layout-260218 p{
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+
 .pv-layout-260218 .pv-bullets{
   margin: 10px 0 0;
   padding-left: 18px;
@@ -10233,12 +10255,16 @@ INAPP_HELP_FAQ = [
         "q": "ConoHa WINGで公開する流れ（超ざっくり）",
         "a_md": """※これは **管理者向け** の内容です（利用者は読まなくてOK）。
 
+**最短手順（迷ったらこの順番）**
+
 1. このビルダーで **ZIPを書き出す**
-2. ZIPをPCで **展開** する（中に index.html がある状態）
+2. ZIPをPCで **展開** する（中に **index.html** がある状態）
 3. ConoHa WING の **ファイルマネージャー** を開く
-4. **public_html → ドメイン名** のフォルダへ、展開した中身をアップロード
+4. **public_html → ドメイン名** のフォルダへ、展開した **中身** をアップロード
 5. ConoHa の **動作確認URL** で表示チェック → OKなら本番ドメインで確認
 6. **無料SSL** をONにする（https化）
+
+ポイント：**フォルダごと** ではなく **中身** をアップロードします。
 
 詳しい手順は、公開マニュアル（ConoHa WING版）を見てください。""",
     },
@@ -12894,13 +12920,21 @@ def render_main(u: User) -> None:
 
                                                 ui.markdown(
                                                     """**最短手順（迷ったらこの順番）**
-1. 上の「ZIPを書き出す」で ZIP を作って、パソコンにダウンロードする
-2. ZIPを右クリック → 「すべて展開」で展開する（中に **index.html** が見える状態にする）
-3. ConoHa WING → **WING** → **サイト管理** → **ファイルマネージャー** を開く
-4. 左の **public_html** → **あなたのドメイン名のフォルダ** を開く
-5. 展開したフォルダの **中身（index.html など）** を全部ドラッグ＆ドロップでアップロードする
-6. ConoHaの **動作確認URL**（テスト用URL）で表示確認 → OKなら本番ドメインで確認する
-7. 最後に ConoHa の **無料独自SSL** をONにして、httpsで開けるようにする
+
+1. **ZIPを書き出す**（上のボタン）
+   - PCにダウンロードする
+2. **ZIPを展開する**
+   - ZIPを右クリック → 「すべて展開」
+   - 中に **index.html** が見える状態にする
+3. ConoHa WINGで **ファイルマネージャー** を開く
+   - **WING** → **サイト管理** → **ファイルマネージャー**
+4. 左で **public_html → あなたのドメイン名のフォルダ** を開く
+5. 展開したフォルダの **中身（index.html など）** を全部アップロード
+   - **フォルダごと** ではなく **中身だけ**
+6. ConoHaの **動作確認URL**（テスト用URL）で表示確認
+   - OKなら本番ドメインでも確認する
+7. 最後に ConoHa の **無料独自SSL** をONにする
+   - httpsで開けるようにする
 """
                                                 ).classes("q-mt-sm")
 
@@ -12915,160 +12949,98 @@ def render_main(u: User) -> None:
                                             # -----------------
                                             # 3) 公開（SFTP / 上級者向け）
                                             # -----------------
-                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
-                                                ui.label("上級者向け：SFTPで自動公開").classes("text-subtitle1")
-                                                ui.label("※ ここは管理者（admin）のみ。ConoHaのファイルマネージャーで公開する場合は、上の手順を使ってください。").classes("cvhb-muted")
+                                            with ui.expansion("上級者向け：SFTPで自動公開（クリックで開く）").props("dense").classes("w-full"):
+                                                with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                                    ui.label("※ ここは管理者（admin）のみ。ConoHaのファイルマネージャーで公開する場合は、上の手順を使ってください。").classes("cvhb-muted")
 
-                                                data = p.get("data") if isinstance(p, dict) else {}
-                                                publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
+                                                    data = p.get("data") if isinstance(p, dict) else {}
+                                                    publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
 
-                                                def _set_publish(key: str, value):
-                                                    publish[key] = value
+                                                    def _set_publish(key: str, value):
+                                                        publish[key] = value
 
-                                                ui.input("SFTPホスト", value=str(publish.get("sftp_host") or ""), on_change=lambda e: _set_publish("sftp_host", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
-                                                ui.input("ポート（通常22）", value=str(publish.get("sftp_port") or 22), on_change=lambda e: _set_publish("sftp_port", e.value or "22")).props("outlined dense").classes("w-full q-mt-sm")
-                                                ui.input("SFTPユーザー名", value=str(publish.get("sftp_user") or ""), on_change=lambda e: _set_publish("sftp_user", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
-                                                ui.input("公開ディレクトリ（例: /public_html）", value=str(publish.get("sftp_dir") or ""), on_change=lambda e: _set_publish("sftp_dir", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
-                                                ui.input("メモ（任意）", value=str(publish.get("sftp_note") or ""), on_change=lambda e: _set_publish("sftp_note", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                    ui.input("SFTPホスト", value=str(publish.get("sftp_host") or ""), on_change=lambda e: _set_publish("sftp_host", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                    ui.input("ポート（通常22）", value=str(publish.get("sftp_port") or 22), on_change=lambda e: _set_publish("sftp_port", e.value or "22")).props("outlined dense").classes("w-full q-mt-sm")
+                                                    ui.input("SFTPユーザー名", value=str(publish.get("sftp_user") or ""), on_change=lambda e: _set_publish("sftp_user", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                    ui.input("公開ディレクトリ（例: /public_html）", value=str(publish.get("sftp_dir") or ""), on_change=lambda e: _set_publish("sftp_dir", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                    ui.input("メモ（任意）", value=str(publish.get("sftp_note") or ""), on_change=lambda e: _set_publish("sftp_note", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
 
-                                                def _on_pw(e):
-                                                    publish_ui_state["password"] = e.value or ""
+                                                    def _on_pw(e):
+                                                        publish_ui_state["password"] = e.value or ""
 
-                                                ui.input("SFTPパスワード（保存されません）", value=publish_ui_state.get("password", ""), on_change=_on_pw).props("outlined dense type=password").classes("w-full q-mt-sm")
-                                                pub_confirm = ui.checkbox("公開する（上書きアップロード）").classes("q-mt-sm")
-                                                cleanup_confirm = ui.checkbox("危険：リモートの不要ファイルも削除する（通常OFF）").classes("q-mt-xs")
-                                                ui.label("※ ONにすると、公開ディレクトリ内の古いファイルが消える可能性があります。").classes("text-negative text-caption q-mt-xs")
-                                                ui.textarea("不要ファイル削除：除外リスト（任意 / 1行1つ / ワイルドカード可）", value=str(publish.get("cleanup_exclude") or ""), on_change=lambda e: _set_publish("cleanup_exclude", e.value or "")).props("outlined autogrow").classes("w-full q-mt-sm")
-                                                ui.label("例: robots.txt / ads.txt / humans.txt / *.xml").classes("cvhb-muted text-caption q-mt-xs")
+                                                    ui.input("SFTPパスワード（保存されません）", value=publish_ui_state.get("password", ""), on_change=_on_pw).props("outlined dense type=password").classes("w-full q-mt-sm")
+                                                    pub_confirm = ui.checkbox("公開する（上書きアップロード）").classes("q-mt-sm")
+                                                    cleanup_confirm = ui.checkbox("危険：リモートの不要ファイルも削除する（通常OFF）").classes("q-mt-xs")
+                                                    ui.label("※ ONにすると、公開ディレクトリ内の古いファイルが消える可能性があります。").classes("text-negative text-caption q-mt-xs")
+                                                    ui.textarea("不要ファイル削除：除外リスト（任意 / 1行1つ / ワイルドカード可）", value=str(publish.get("cleanup_exclude") or ""), on_change=lambda e: _set_publish("cleanup_exclude", e.value or "")).props("outlined autogrow").classes("w-full q-mt-sm")
+                                                    ui.label("例: robots.txt / ads.txt / humans.txt / *.xml").classes("cvhb-muted text-caption q-mt-xs")
 
-                                                async def _run_publish(delete_extra: bool):
-                                                    # 念のため毎回チェック（画面がズレても事故らない）
-                                                    if not can_publish(u):
-                                                        ui.notify("公開は admin のみ実行できます", type="negative")
-                                                        return
-                                                    a2 = get_approval(p)
-                                                    status2 = str(a2.get("status") or "draft")
-                                                    if status2 != "approved":
-                                                        ui.notify("承認OKになってから公開してください", type="warning")
-                                                        return
-                                                    if not pub_confirm.value:
-                                                        ui.notify("『公開する』チェックをONにしてください", type="warning")
-                                                        return
-                                                    try:
-                                                        ui.notify("公開（アップロード）中...", type="info")
-                                                                                                                # 直近の公開試行を記録（成功/失敗どちらも）
-                                                        excludes = parse_cleanup_exclude_list(publish.get("cleanup_exclude"))
-                                                        ok, msg, detail = await asyncio.to_thread(
-                                                            publish_site_via_sftp,
-                                                            p,
-                                                            u,
-                                                            publish_ui_state["password"],
-                                                            delete_extra=delete_extra,
-                                                        )
-
-                                                        wf2 = get_workflow(p)
-                                                        wf2["last_publish_try_at"] = now_jst_iso()
-                                                        wf2["last_publish_try_by"] = u.username
-                                                        wf2["last_publish_try_ok"] = bool(ok)
-                                                        wf2["last_publish_try_message"] = msg
-                                                        wf2["last_publish_try_delete_extra"] = bool(delete_extra)
-                                                        wf2["last_publish_try_exclude"] = len(excludes)
-
+                                                    async def _run_publish(delete_extra: bool):
+                                                        # 念のため毎回チェック（画面がズレても事故らない）
+                                                        if not can_publish(u):
+                                                            ui.notify("公開は admin のみ実行できます", type="negative")
+                                                            return
+                                                        a2 = get_approval(p)
+                                                        status2 = str(a2.get("status") or "draft")
+                                                        if status2 != "approved":
+                                                            ui.notify("承認OKになってから公開してください", type="warning")
+                                                            return
+                                                        if not pub_confirm.value:
+                                                            ui.notify("『公開する』チェックをONにしてください", type="warning")
+                                                            return
                                                         try:
-                                                            wf2["last_publish_try_total"] = int(detail.get("total") or 0)
-                                                            wf2["last_publish_try_success"] = int(detail.get("success") or 0)
-                                                            wf2["last_publish_try_failed"] = int(detail.get("failed") or 0)
-                                                            wf2["last_publish_try_failed_files"] = list(detail.get("failed_files") or [])[:80]
-                                                            wf2["last_publish_try_cleanup_warn"] = str(detail.get("cleanup_warn") or "")
-                                                            wf2["last_publish_try_cleanup_skipped"] = bool(detail.get("cleanup_skipped"))
-                                                        except Exception:
-                                                            pass
-
-                                                        if ok:
-                                                            wf2["last_publish_at"] = now_jst_iso()
-                                                            wf2["last_publish_by"] = u.username
-                                                            wf2["last_publish_target"] = f"{publish.get('sftp_host', '')}:{publish.get('sftp_dir', '')}"
-                                                        else:
-                                                            wf2["last_publish_fail_at"] = now_jst_iso()
-
-                                                        # 成功/失敗どちらでも保存（次の再試行導線に使う）
-                                                        try:
-                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
-                                                            set_current_project(p, u)
-                                                        except Exception:
-                                                            pass
-
-                                                        ui.notify(msg, type="positive" if ok else "negative")
-                                                        publish_panel.refresh()
-                                                    except Exception as e:
-                                                        ui.notify(f"公開に失敗しました: {sanitize_error_text(e)}", type="negative")
-
-                                                # ダイアログ側から呼べるように保持
-                                                publish_actions["run"] = _run_publish
-
-                                                async def _do_publish():
-                                                    if not can_publish(u):
-                                                        ui.notify("公開は admin のみ実行できます", type="negative")
-                                                        return
-                                                    if status != "approved":
-                                                        ui.notify("承認OKになってから公開してください", type="warning")
-                                                        return
-                                                    if not pub_confirm.value:
-                                                        ui.notify("『公開する』チェックをONにしてください", type="warning")
-                                                        return
-
-                                                    if not cleanup_confirm.value:
-                                                        await _run_publish(False)
-                                                        return
-
-                                                    # ここから危険モード：段階確認ダイアログ
-                                                    cleanup_state["loading"] = True
-                                                    cleanup_state["ok"] = False
-                                                    cleanup_state["message"] = ""
-                                                    cleanup_state["extra"] = []
-                                                    try:
-                                                        cleanup_target_label.text = f"対象: {_mask_text_keep_ends(str(publish.get('sftp_host') or ''))}{_mask_remote_dir(str(publish.get('sftp_dir') or ''))}"
-                                                    except Exception:
-                                                        pass
-
-                                                    # 最終確認チェックをリセット
-                                                    try:
-                                                        cleanup_confirm_cb.value = False
-                                                    except Exception:
-                                                        pass
-
-                                                    cleanup_dialog.open()
-                                                    cleanup_body.refresh()
-
-                                                    try:
-                                                        def _calc_preview():
-                                                            files2 = build_static_site_files(p)
-                                                            keep2 = set(str(k or '').lstrip('/') for k in files2.keys() if k)
-                                                            return compute_remote_extra_files_for_cleanup(
-                                                                host=str(publish.get("sftp_host") or ""),
-                                                                port=int(publish.get("sftp_port", 22) or 22),
-                                                                user=str(publish.get("sftp_user") or ""),
-                                                                password=publish_ui_state.get("password", ""),
-                                                                remote_dir=str(publish.get("sftp_dir") or ""),
-                                                                keep_files=keep2,
-                                                                exclude_patterns=parse_cleanup_exclude_list(publish.get("cleanup_exclude")),
+                                                            ui.notify("公開（アップロード）中...", type="info")
+                                                                                                                    # 直近の公開試行を記録（成功/失敗どちらも）
+                                                            excludes = parse_cleanup_exclude_list(publish.get("cleanup_exclude"))
+                                                            ok, msg, detail = await asyncio.to_thread(
+                                                                publish_site_via_sftp,
+                                                                p,
+                                                                u,
+                                                                publish_ui_state["password"],
+                                                                delete_extra=delete_extra,
                                                             )
-                                                        ok2, msg2, extra2 = await asyncio.to_thread(_calc_preview)
-                                                        cleanup_state["loading"] = False
-                                                        cleanup_state["ok"] = ok2
-                                                        cleanup_state["message"] = msg2
-                                                        cleanup_state["extra"] = extra2
-                                                        cleanup_body.refresh()
-                                                    except Exception as e:
-                                                        cleanup_state["loading"] = False
-                                                        cleanup_state["ok"] = False
-                                                        cleanup_state["message"] = f"確認に失敗しました: {sanitize_error_text(e)}"
-                                                        cleanup_state["extra"] = []
-                                                        cleanup_body.refresh()
 
-                                                if can_publish(u):
-                                                    async def _do_backup_and_publish():
-                                                        # _do_publish と同じ安全チェック（事故防止）
+                                                            wf2 = get_workflow(p)
+                                                            wf2["last_publish_try_at"] = now_jst_iso()
+                                                            wf2["last_publish_try_by"] = u.username
+                                                            wf2["last_publish_try_ok"] = bool(ok)
+                                                            wf2["last_publish_try_message"] = msg
+                                                            wf2["last_publish_try_delete_extra"] = bool(delete_extra)
+                                                            wf2["last_publish_try_exclude"] = len(excludes)
+
+                                                            try:
+                                                                wf2["last_publish_try_total"] = int(detail.get("total") or 0)
+                                                                wf2["last_publish_try_success"] = int(detail.get("success") or 0)
+                                                                wf2["last_publish_try_failed"] = int(detail.get("failed") or 0)
+                                                                wf2["last_publish_try_failed_files"] = list(detail.get("failed_files") or [])[:80]
+                                                                wf2["last_publish_try_cleanup_warn"] = str(detail.get("cleanup_warn") or "")
+                                                                wf2["last_publish_try_cleanup_skipped"] = bool(detail.get("cleanup_skipped"))
+                                                            except Exception:
+                                                                pass
+
+                                                            if ok:
+                                                                wf2["last_publish_at"] = now_jst_iso()
+                                                                wf2["last_publish_by"] = u.username
+                                                                wf2["last_publish_target"] = f"{publish.get('sftp_host', '')}:{publish.get('sftp_dir', '')}"
+                                                            else:
+                                                                wf2["last_publish_fail_at"] = now_jst_iso()
+
+                                                            # 成功/失敗どちらでも保存（次の再試行導線に使う）
+                                                            try:
+                                                                await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                                set_current_project(p, u)
+                                                            except Exception:
+                                                                pass
+
+                                                            ui.notify(msg, type="positive" if ok else "negative")
+                                                            publish_panel.refresh()
+                                                        except Exception as e:
+                                                            ui.notify(f"公開に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                    # ダイアログ側から呼べるように保持
+                                                    publish_actions["run"] = _run_publish
+
+                                                    async def _do_publish():
                                                         if not can_publish(u):
                                                             ui.notify("公開は admin のみ実行できます", type="negative")
                                                             return
@@ -13079,71 +13051,133 @@ def render_main(u: User) -> None:
                                                             ui.notify("『公開する』チェックをONにしてください", type="warning")
                                                             return
 
-                                                        try:
-                                                            ui.notify("① ZIPバックアップを案件内に保存中...", type="info")
-                                                            zip_bytes, filename = await asyncio.to_thread(build_site_zip_bytes, p)
-                                                            remote_path = await asyncio.to_thread(save_site_zip_backup_to_project, p, u, zip_bytes, filename)
-
-                                                            # workflow更新（保存）
-                                                            wf2 = get_workflow(p)
-                                                            wf2["last_backup_zip_at"] = now_jst_iso()
-                                                            wf2["last_backup_zip_by"] = u.username
-                                                            try:
-                                                                wf2["last_backup_zip_file"] = Path(str(remote_path or "")).name
-                                                            except Exception:
-                                                                wf2["last_backup_zip_file"] = ""
-
-                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
-                                                            set_current_project(p, u)
-
-                                                            ui.notify("② 公開を開始します...", type="info")
-                                                        except Exception as e:
-                                                            ui.notify(f"バックアップ保存に失敗しました: {sanitize_error_text(e)}", type="negative")
+                                                        if not cleanup_confirm.value:
+                                                            await _run_publish(False)
                                                             return
 
-                                                        # 公開（危険削除モードならダイアログへ）
-                                                        await _do_publish()
+                                                        # ここから危険モード：段階確認ダイアログ
+                                                        cleanup_state["loading"] = True
+                                                        cleanup_state["ok"] = False
+                                                        cleanup_state["message"] = ""
+                                                        cleanup_state["extra"] = []
+                                                        try:
+                                                            cleanup_target_label.text = f"対象: {_mask_text_keep_ends(str(publish.get('sftp_host') or ''))}{_mask_remote_dir(str(publish.get('sftp_dir') or ''))}"
+                                                        except Exception:
+                                                            pass
 
-                                                    with ui.row().classes("q-gutter-sm q-mt-sm"):
-                                                        ui.button("バックアップして公開（推奨）", on_click=_do_backup_and_publish).props("color=positive unelevated")
-                                                        ui.button("公開だけする", on_click=_do_publish).props("color=positive outline")
-                                                    if wf.get("last_publish_at"):
-                                                        ui.label(f"最終公開: {fmt_jst(wf.get('last_publish_at'))} / {wf.get('last_publish_by') or ''}").classes("cvhb-muted q-mt-sm")
+                                                        # 最終確認チェックをリセット
+                                                        try:
+                                                            cleanup_confirm_cb.value = False
+                                                        except Exception:
+                                                            pass
 
-                                                    if wf.get("last_publish_try_at"):
-                                                        try_ok = wf.get("last_publish_try_ok")
-                                                        try_msg = str(wf.get("last_publish_try_message") or "")
-                                                        if len(try_msg) > 140:
-                                                            try_msg = try_msg[:140] + "..."
+                                                        cleanup_dialog.open()
+                                                        cleanup_body.refresh()
 
-                                                        # 件数表示（部分成功もわかるように）
-                                                        try_total = int(wf.get("last_publish_try_total") or 0)
-                                                        try_success = int(wf.get("last_publish_try_success") or 0)
-                                                        try_failed = int(wf.get("last_publish_try_failed") or 0)
+                                                        try:
+                                                            def _calc_preview():
+                                                                files2 = build_static_site_files(p)
+                                                                keep2 = set(str(k or '').lstrip('/') for k in files2.keys() if k)
+                                                                return compute_remote_extra_files_for_cleanup(
+                                                                    host=str(publish.get("sftp_host") or ""),
+                                                                    port=int(publish.get("sftp_port", 22) or 22),
+                                                                    user=str(publish.get("sftp_user") or ""),
+                                                                    password=publish_ui_state.get("password", ""),
+                                                                    remote_dir=str(publish.get("sftp_dir") or ""),
+                                                                    keep_files=keep2,
+                                                                    exclude_patterns=parse_cleanup_exclude_list(publish.get("cleanup_exclude")),
+                                                                )
+                                                            ok2, msg2, extra2 = await asyncio.to_thread(_calc_preview)
+                                                            cleanup_state["loading"] = False
+                                                            cleanup_state["ok"] = ok2
+                                                            cleanup_state["message"] = msg2
+                                                            cleanup_state["extra"] = extra2
+                                                            cleanup_body.refresh()
+                                                        except Exception as e:
+                                                            cleanup_state["loading"] = False
+                                                            cleanup_state["ok"] = False
+                                                            cleanup_state["message"] = f"確認に失敗しました: {sanitize_error_text(e)}"
+                                                            cleanup_state["extra"] = []
+                                                            cleanup_body.refresh()
 
-                                                        if try_ok:
-                                                            status_label = "成功"
-                                                        else:
-                                                            status_label = "一部失敗" if (try_success > 0 and try_failed > 0) else "失敗"
+                                                    if can_publish(u):
+                                                        async def _do_backup_and_publish():
+                                                            # _do_publish と同じ安全チェック（事故防止）
+                                                            if not can_publish(u):
+                                                                ui.notify("公開は admin のみ実行できます", type="negative")
+                                                                return
+                                                            if status != "approved":
+                                                                ui.notify("承認OKになってから公開してください", type="warning")
+                                                                return
+                                                            if not pub_confirm.value:
+                                                                ui.notify("『公開する』チェックをONにしてください", type="warning")
+                                                                return
 
-                                                        ui.label(
-                                                            f"直近の公開試行: {fmt_jst(wf.get('last_publish_try_at'))} / {status_label}（成功{try_success}/失敗{try_failed}/合計{try_total}） / {try_msg}"
-                                                        ).classes("cvhb-muted text-caption q-mt-xs")
+                                                            try:
+                                                                ui.notify("① ZIPバックアップを案件内に保存中...", type="info")
+                                                                zip_bytes, filename = await asyncio.to_thread(build_site_zip_bytes, p)
+                                                                remote_path = await asyncio.to_thread(save_site_zip_backup_to_project, p, u, zip_bytes, filename)
 
-                                                        cw = str(wf.get("last_publish_try_cleanup_warn") or "").strip()
-                                                        if cw:
-                                                            ui.label(f"補足: {cw}").classes("cvhb-muted text-caption q-mt-xs")
+                                                                # workflow更新（保存）
+                                                                wf2 = get_workflow(p)
+                                                                wf2["last_backup_zip_at"] = now_jst_iso()
+                                                                wf2["last_backup_zip_by"] = u.username
+                                                                try:
+                                                                    wf2["last_backup_zip_file"] = Path(str(remote_path or "")).name
+                                                                except Exception:
+                                                                    wf2["last_backup_zip_file"] = ""
 
-                                                        if try_failed > 0:
-                                                            failed_list = wf.get("last_publish_try_failed_files") or []
-                                                            with ui.expansion("失敗したファイル一覧（先頭30件）").props("dense").classes("q-mt-xs"):
-                                                                for fp in failed_list[:30]:
-                                                                    ui.label(str(fp)).classes("cvhb-muted text-caption")
+                                                                await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                                set_current_project(p, u)
 
-                                                        if try_ok is False:
-                                                            ui.button("再試行する（全部）", on_click=_do_publish).props("dense outline color=primary no-caps").classes("q-mt-sm")
-                                                else:
-                                                    ui.label("公開は admin のみ実行できます。").classes("cvhb-muted q-mt-sm")
+                                                                ui.notify("② 公開を開始します...", type="info")
+                                                            except Exception as e:
+                                                                ui.notify(f"バックアップ保存に失敗しました: {sanitize_error_text(e)}", type="negative")
+                                                                return
+
+                                                            # 公開（危険削除モードならダイアログへ）
+                                                            await _do_publish()
+
+                                                        with ui.row().classes("q-gutter-sm q-mt-sm"):
+                                                            ui.button("バックアップして公開（推奨）", on_click=_do_backup_and_publish).props("color=positive unelevated")
+                                                            ui.button("公開だけする", on_click=_do_publish).props("color=positive outline")
+                                                        if wf.get("last_publish_at"):
+                                                            ui.label(f"最終公開: {fmt_jst(wf.get('last_publish_at'))} / {wf.get('last_publish_by') or ''}").classes("cvhb-muted q-mt-sm")
+
+                                                        if wf.get("last_publish_try_at"):
+                                                            try_ok = wf.get("last_publish_try_ok")
+                                                            try_msg = str(wf.get("last_publish_try_message") or "")
+                                                            if len(try_msg) > 140:
+                                                                try_msg = try_msg[:140] + "..."
+
+                                                            # 件数表示（部分成功もわかるように）
+                                                            try_total = int(wf.get("last_publish_try_total") or 0)
+                                                            try_success = int(wf.get("last_publish_try_success") or 0)
+                                                            try_failed = int(wf.get("last_publish_try_failed") or 0)
+
+                                                            if try_ok:
+                                                                status_label = "成功"
+                                                            else:
+                                                                status_label = "一部失敗" if (try_success > 0 and try_failed > 0) else "失敗"
+
+                                                            ui.label(
+                                                                f"直近の公開試行: {fmt_jst(wf.get('last_publish_try_at'))} / {status_label}（成功{try_success}/失敗{try_failed}/合計{try_total}） / {try_msg}"
+                                                            ).classes("cvhb-muted text-caption q-mt-xs")
+
+                                                            cw = str(wf.get("last_publish_try_cleanup_warn") or "").strip()
+                                                            if cw:
+                                                                ui.label(f"補足: {cw}").classes("cvhb-muted text-caption q-mt-xs")
+
+                                                            if try_failed > 0:
+                                                                failed_list = wf.get("last_publish_try_failed_files") or []
+                                                                with ui.expansion("失敗したファイル一覧（先頭30件）").props("dense").classes("q-mt-xs"):
+                                                                    for fp in failed_list[:30]:
+                                                                        ui.label(str(fp)).classes("cvhb-muted text-caption")
+
+                                                            if try_ok is False:
+                                                                ui.button("再試行する（全部）", on_click=_do_publish).props("dense outline color=primary no-caps").classes("q-mt-sm")
+                                                    else:
+                                                        ui.label("公開は admin のみ実行できます。").classes("cvhb-muted q-mt-sm")
 
                                         publish_panel()
                                         publish_ref["refresh"] = publish_panel.refresh
