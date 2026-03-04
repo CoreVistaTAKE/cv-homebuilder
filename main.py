@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import copy
 import hashlib
 import json
 import os
@@ -328,115 +327,6 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
         return data, mime
 
 
-
-def _maybe_fit_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False) -> tuple[bytes, str]:
-    """画像を max_w×max_h の枠に「収まるようにリサイズ」して返す（contain方式）。
-
-    目的:
-    - ロゴなど「切りたくない」画像向け
-    - 縦長/横長でもトリミングせず、枠内に収める（contain）
-    - 事故防止: Pillow が無い/失敗した場合は元の bytes を返す
-
-    仕様:
-    - EXIF の回転を補正してから処理する
-    - 拡大はしない（大きい画像だけ縮小）
-    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG
-      ただし force_png=True の場合は常に PNG を返す
-    """
-    try:
-        if not data:
-            return data, mime
-        if max_w <= 0 or max_h <= 0:
-            return data, mime
-        if not str(mime or "").startswith("image/"):
-            return data, mime
-
-        # Pillow が入っている場合だけ加工する（依存が無い環境でも落ちない）
-        try:
-            from PIL import Image, ImageOps  # type: ignore
-            from io import BytesIO
-        except Exception:
-            return data, mime
-
-        im = Image.open(BytesIO(data))
-        try:
-            im.load()
-        except Exception:
-            pass
-
-        # EXIF の回転を補正（スマホ写真が横倒しになる事故を防ぐ）
-        try:
-            im = ImageOps.exif_transpose(im)
-        except Exception:
-            pass
-
-        w, h = getattr(im, "size", (0, 0))
-        if not w or not h:
-            return data, mime
-
-        target_w = int(max_w)
-        target_h = int(max_h)
-        if target_w <= 0 or target_h <= 0:
-            return data, mime
-
-        # contain: 枠内に収まる縮小率（拡大はしない）
-        scale = min(target_w / float(w), target_h / float(h), 1.0)
-        new_w = max(1, int(round(w * scale)))
-        new_h = max(1, int(round(h * scale)))
-
-        if new_w != w or new_h != h:
-            try:
-                im = im.resize((new_w, new_h), Image.LANCZOS)
-            except Exception:
-                try:
-                    im = im.resize((new_w, new_h))
-                except Exception:
-                    pass
-
-        from io import BytesIO  # local import（PILがあるときだけ到達）
-        out = BytesIO()
-
-        # force_png のときは常に PNG
-        if force_png:
-            out_mime = "image/png"
-            try:
-                im.save(out, format="PNG", optimize=True)
-            except Exception:
-                return data, mime
-            out_bytes = out.getvalue()
-            return (out_bytes, out_mime) if out_bytes else (data, mime)
-
-        # 透過がある場合は PNG、それ以外は JPEG（軽量化）
-        has_alpha = (
-            im.mode in ("RGBA", "LA")
-            or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
-        )
-
-        if has_alpha:
-            out_mime = "image/png"
-            try:
-                im.save(out, format="PNG", optimize=True)
-            except Exception:
-                return data, mime
-        else:
-            out_mime = "image/jpeg"
-            if im.mode != "RGB":
-                try:
-                    im = im.convert("RGB")
-                except Exception:
-                    pass
-            try:
-                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
-            except Exception:
-                return data, mime
-
-        out_bytes = out.getvalue()
-        return (out_bytes, out_mime) if out_bytes else (data, mime)
-    except Exception:
-        return data, mime
-
-
-
 def _upload_debug_summary(obj) -> str:
     """Heroku logs 向けの安全な要約（生bytes/base64は絶対に出さない）"""
     try:
@@ -683,15 +573,13 @@ async def _read_upload_bytes(content, *, _depth: int = 0, _seen: Optional[set[in
 
 
 async def _upload_event_to_data_url(
-    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False, fit: str = "cover"
+    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False
 ) -> tuple[str, str]:
     """Upload event -> data URL（v0.6.9995 と同じ流れに戻す）.
 
     - event の型ゆれ（object/dict/list）を吸収
     - content から bytes を確保（sync/async 両対応）
-    - bytes を max_w×max_h に加工（fit方式）
-    - cover: センタークロップ（既存と同じ）
-    - contain: 枠内に収める縮小（ロゴ向け / トリミング無し）
+    - bytes を max_w×max_h に中心トリミング＋リサイズ（cover方式）
     - data URL 化して返す
 
     NOTE:
@@ -741,17 +629,12 @@ async def _upload_event_to_data_url(
 
     mime = mime or _guess_mime(fname, default="image/png")
 
-    fit = (fit or "cover").strip().lower()
-    if fit not in ("cover", "contain"):
-        fit = "cover"
-
-    # Resize (fit)
+    # Resize/crop (cover)
     if max_w and max_h:
         try:
-            fn = _maybe_resize_image_bytes if fit == "cover" else _maybe_fit_image_bytes
             # PIL が重い時でも UI 全体が固まらないようにスレッドへ退避
             data, mime = await asyncio.to_thread(
-                fn, data, mime, max_w=max_w, max_h=max_h, force_png=force_png
+                _maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h, force_png=force_png
             )
         except Exception:
             traceback.print_exc()
@@ -834,92 +717,6 @@ if not _pv_route_added:
 
 
 # =========================
-
-
-# =========================
-# Preview: serve exported static site files (v0.9.17)
-#   - プレビューを「書き出しと同じHTML/CSS/JS」にするための仕組み
-#   - メモリ上に一時保存し、/pv_site/<key>/... で配信する
-# =========================
-
-_PV_SITE_CACHE: dict[str, dict[str, bytes]] = {}
-_PV_SITE_CACHE_ORDER: list[str] = []
-_PV_SITE_CACHE_MAX = 8
-
-def _pv_site_cache_put(files: dict[str, bytes]) -> str:
-    """生成した静的サイト一式を一時キャッシュし、参照キーを返す。"""
-    key = secrets.token_urlsafe(12)
-    try:
-        _PV_SITE_CACHE[key] = files
-        _PV_SITE_CACHE_ORDER.append(key)
-        # cap (古いものから捨てる)
-        while len(_PV_SITE_CACHE_ORDER) > _PV_SITE_CACHE_MAX:
-            old = _PV_SITE_CACHE_ORDER.pop(0)
-            _PV_SITE_CACHE.pop(old, None)
-    except Exception:
-        # 事故防止: ここで落ちるとプレビューが全滅するので最小限の復旧をする
-        try:
-            _PV_SITE_CACHE.clear()
-            _PV_SITE_CACHE_ORDER.clear()
-        except Exception:
-            pass
-        _PV_SITE_CACHE[key] = files
-        _PV_SITE_CACHE_ORDER.append(key)
-    return key
-
-def _pv_site_guess_media_type(path: str) -> str:
-    p = (path or "").lower()
-    if p.endswith(".html"):
-        return "text/html"
-    if p.endswith(".css"):
-        return "text/css"
-    if p.endswith(".js"):
-        return "application/javascript"
-    if p.endswith(".json"):
-        return "application/json"
-    if p.endswith(".xml"):
-        return "application/xml"
-    if p.endswith(".txt"):
-        return "text/plain"
-    try:
-        mt, _ = mimetypes.guess_type(path)
-        return mt or "application/octet-stream"
-    except Exception:
-        return "application/octet-stream"
-
-@app.get("/pv_site/{key}/{path:path}")
-def pv_site_file(key: str, path: str):
-    """プレビュー用：書き出しと同じファイルを返す（メモリキャッシュから）。"""
-    try:
-        files = _PV_SITE_CACHE.get(str(key) or "")
-        if not files:
-            return Response(status_code=404, content=b"not found", media_type="text/plain")
-        safe_path = str(path or "").lstrip("/")
-        if not safe_path:
-            safe_path = "index.html"
-        # path traversal guard
-        parts = [p for p in safe_path.split("/") if p]
-        if any(p == ".." for p in parts):
-            return Response(status_code=404, content=b"not found", media_type="text/plain")
-        content = files.get(safe_path)
-        if content is None:
-            return Response(status_code=404, content=b"not found", media_type="text/plain")
-        mt = _pv_site_guess_media_type(safe_path)
-        headers = {
-            "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff",
-        }
-        return Response(content=content, media_type=mt, headers=headers)
-    except Exception:
-        # preview should not crash the whole app
-        return Response(status_code=500, content=b"preview error", media_type="text/plain")
-
-# route registration guard (idempotent)
-try:
-    app._cvhb_pv_site_route_added = True
-except Exception:
-    pass
-
 # Export ZIP download cache (v0.7.0)
 # =========================
 
@@ -1065,6 +862,99 @@ if not _export_route_added:
         app._cvhb_export_route_added = True
     except Exception:
         pass
+
+
+# =========================
+# Preview Site cache (exported HTML/CSS/JS)
+#   - プレビューを「書き出し(完成形HP)」と完全一致させるための仕組み
+#   - iframe から /pv_site/{key}/... を読み込む
+# =========================
+
+_PREVIEW_SITE_CACHE: dict = {}
+_PREVIEW_SITE_CACHE_MAX = 12
+_PREVIEW_SITE_CACHE_TTL_SEC = 60 * 20  # 20分
+
+def _preview_site_cache_cleanup() -> None:
+    """古いプレビューサイトキャッシュを掃除する（落ちてもアプリ全体は落とさない）"""
+    try:
+        now_ts = float(datetime.now(timezone.utc).timestamp())
+        expired = []
+        for k, v in list(_PREVIEW_SITE_CACHE.items()):
+            ts = float((v or {}).get("created_ts") or 0.0)
+            if (now_ts - ts) > float(_PREVIEW_SITE_CACHE_TTL_SEC):
+                expired.append(k)
+        for k in expired:
+            _PREVIEW_SITE_CACHE.pop(k, None)
+
+        # 念のため上限も守る
+        if len(_PREVIEW_SITE_CACHE) > int(_PREVIEW_SITE_CACHE_MAX):
+            items = sorted(
+                _PREVIEW_SITE_CACHE.items(),
+                key=lambda kv: float((kv[1] or {}).get("created_ts") or 0.0),
+            )
+            while len(items) > int(_PREVIEW_SITE_CACHE_MAX):
+                k, _ = items.pop(0)
+                _PREVIEW_SITE_CACHE.pop(k, None)
+    except Exception:
+        pass
+
+def _preview_site_cache_put(user_id: int, files: dict) -> str:
+    """files(パス→bytes) をキャッシュして、参照キーを返す"""
+    _preview_site_cache_cleanup()
+    key = secrets.token_urlsafe(12)
+    _PREVIEW_SITE_CACHE[key] = {
+        "user_id": int(user_id),
+        "created_ts": float(datetime.now(timezone.utc).timestamp()),
+        "files": files,
+    }
+    _preview_site_cache_cleanup()
+    return key
+
+# /pv_site は、書き出しHTMLをそのままプレビューに見せるための簡易ファイルサーバー
+_pvsite_route_added = False
+try:
+    _pvsite_route_added = bool(getattr(app, "_cvhb_pvsite_route_added", False))
+except Exception:
+    _pvsite_route_added = False
+
+if not _pvsite_route_added:
+    @app.get("/pv_site/{key}/{path:path}")
+    def _pv_site_endpoint(key: str, path: str):
+        try:
+            user = current_user()
+            item = _PREVIEW_SITE_CACHE.get(str(key))
+            if not user or not item or int(item.get("user_id") or -1) != int(getattr(user, "id", -2)):
+                return Response(status_code=404)
+
+            safe_path = str(path or "").lstrip("/")
+            if not safe_path:
+                safe_path = "index.html"
+            # 事故防止：パストラバーサル禁止
+            if ".." in safe_path or safe_path.startswith("\\") or safe_path.startswith("/"):
+                return Response(status_code=404)
+
+            files = item.get("files") or {}
+            content = files.get(safe_path)
+            if content is None:
+                return Response(status_code=404)
+
+            mime = mimetypes.guess_type(safe_path)[0] or "application/octet-stream"
+            if mime.startswith("text/") and "charset" not in mime:
+                mime = mime + "; charset=utf-8"
+
+            return Response(
+                content=content,
+                media_type=mime,
+                headers={"Cache-Control": "no-store"},
+            )
+        except Exception:
+            return Response(status_code=404)
+
+    try:
+        app._cvhb_pvsite_route_added = True
+    except Exception:
+        pass
+
 
 def _preview_preflight_error() -> Optional[str]:
     """プレビュー描画前に、必要な定義が揃っているかチェックして事故を減らす。"""
@@ -1688,14 +1578,6 @@ def inject_global_styles() -> None:
   white-space: nowrap;
 }
 
-.pv-layout-260218 .pv-brand-logo{
-  height: 28px;
-  width: auto;
-  max-width: min(260px, 56vw);
-  object-fit: contain;
-  display: block;
-}
-
 .pv-layout-260218 .pv-menu-btn{
   opacity: 0.92;
 }
@@ -1874,17 +1756,6 @@ def inject_global_styles() -> None:
   opacity: 0.86;
   line-height: 1.7;
 }
-
-/* v0.9.15: 入力した改行 / 連続スペースを自然に表示（プレビュー/書き出し共通） */
-.pv-layout-260218 .pv-bodytext,
-.pv-layout-260218 .pv-muted,
-.pv-layout-260218 .pv-faq-a,
-.pv-layout-260218 p{
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
 
 .pv-layout-260218 .pv-bullets{
   margin: 10px 0 0;
@@ -4472,8 +4343,6 @@ def normalize_project(p: dict) -> dict:
     step2.setdefault("company_name", "")
     step2.setdefault("favicon_url", "")
     step2.setdefault("favicon_filename", "")
-    step2.setdefault("logo_url", "")
-    step2.setdefault("logo_filename", "")
     step2.setdefault("catch_copy", "")
     step2.setdefault("catch_size", "中")
     step2.setdefault("sub_catch_size", "中")
@@ -4775,7 +4644,7 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
         "updated_by": created_by.username if created_by else "",
         "data": {
             "step1": {"industry": "会社サイト（企業）", "primary_color": "blue", "welfare_domain": "", "welfare_mode": "", "template_id": "corp_v1"},
-            "step2": {"company_name": "", "favicon_url": "", "favicon_filename": "", "logo_url": "", "logo_filename": "", "catch_copy": "", "catch_size": "中", "sub_catch_size": "中", "phone": "", "address": "", "email": ""},
+            "step2": {"company_name": "", "favicon_url": "", "favicon_filename": "", "catch_copy": "", "catch_size": "中", "sub_catch_size": "中", "phone": "", "address": "", "email": ""},
             "blocks": {},
         },
     }
@@ -5304,9 +5173,6 @@ def collect_project_images(p: dict) -> list[dict]:
         # favicon
         _add("favicon", str(step2.get("favicon_url") or ""), str(step2.get("favicon_filename") or ""))
 
-        # logo（ヘッダーの会社ロゴ）
-        _add("logo", str(step2.get("logo_url") or ""), str(step2.get("logo_filename") or ""))
-
         hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
         urls = hero.get("hero_image_urls")
         names = hero.get("hero_upload_names")
@@ -5377,15 +5243,6 @@ def remove_data_url_from_project(p: dict, target_data_url: str) -> int:
         if str(step2.get("favicon_url") or "") == target:
             step2["favicon_url"] = ""
             step2["favicon_filename"] = ""
-            cleared += 1
-    except Exception:
-        pass
-
-    # logo（会社ロゴ）
-    try:
-        if str(step2.get("logo_url") or "") == target:
-            step2["logo_url"] = ""
-            step2["logo_filename"] = ""
             cleared += 1
     except Exception:
         pass
@@ -5758,7 +5615,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", brand_logo_href: str = "") -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -5787,13 +5644,6 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     esc_company = html.escape(company_name)
     esc_email = html.escape(to_email)
-
-    # v0.9.16: 会社ロゴ（任意）
-    _brand_logo_href = (brand_logo_href or "").strip()
-    brand_title_html = f'<span class="pv-brand-name">{esc_company}</span>'
-    if _brand_logo_href:
-        esc_logo = html.escape(_brand_logo_href, quote=True)
-        brand_title_html = f'<img class="pv-brand-logo" src="{esc_logo}" alt="{esc_company}">'
 
     favicon_href = (favicon_href or "").strip()
     favicon_tags = ""
@@ -5864,7 +5714,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
       <div class="row pv-topbar-inner items-center justify-between">
         <a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">
           {header_icon_html}
-          {brand_title_html}
+          <span class="pv-brand-name">{esc_company}</span>
         </a>
 
         <nav class="row pv-desktop-nav items-center no-wrap" aria-label="グローバルナビ">
@@ -5950,7 +5800,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", brand_logo_href: str = "") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -5960,7 +5810,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, brand_logo_href=brand_logo_href).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -6252,16 +6102,13 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     address = str(step2.get("address") or "").strip()
     phone = str(step2.get("phone") or "").strip()
 
-    orig_favicon_url = str(step2.get("favicon_url") or "").strip()
-    favicon_url = orig_favicon_url
+    favicon_url = str(step2.get("favicon_url") or "").strip()
     favicon_filename = str(step2.get("favicon_filename") or "").strip()
 
     # v0.9.8: favicon未設定なら「ロゴ」をfaviconとして使う（管理者が迷わない）
     logo_url = str(step2.get("logo_url") or "").strip()
-    favicon_from_logo = False
     if (not favicon_url) and logo_url:
         favicon_url = logo_url
-        favicon_from_logo = True
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
@@ -6856,14 +6703,6 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   white-space: nowrap;
 }
 
-.pv-layout-260218 .pv-brand-logo{
-  height: 28px;
-  width: auto;
-  max-width: min(260px, 56vw);
-  object-fit: contain;
-  display: block;
-}
-
 .pv-layout-260218 .pv-menu-btn{
   opacity: 0.92;
 }
@@ -7042,17 +6881,6 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   opacity: 0.86;
   line-height: 1.7;
 }
-
-/* v0.9.15: 入力した改行 / 連続スペースを自然に表示（プレビュー/書き出し共通） */
-.pv-layout-260218 .pv-bodytext,
-.pv-layout-260218 .pv-muted,
-.pv-layout-260218 .pv-faq-a,
-.pv-layout-260218 p{
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
 
 .pv-layout-260218 .pv-bullets{
   margin: 10px 0 0;
@@ -8046,105 +7874,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
 /* ====== Preview tabs icon spacing ====== */
 .cvhb-preview-tabs .q-tab__icon { margin-right: 6px; }
-    
-
-/* =========================
-   v0.9.17 UI/UX
-   - Hero: slide → crossfade
-   - Hero: catch/subcatch box delayed entrance
-   - Sections: scroll reveal (float up)
-   ========================= */
-
-/* Hero crossfade (JS on) */
-.pv-layout-260218 .pv-hero-track{
-  position: relative;
-  display: block;
-  height: 100%;
-  transition: none;
-}
-
-.pv-layout-260218 .pv-hero-slide{
-  position: absolute;
-  inset: 0;
-  height: 100%;
-  flex: none;
-  opacity: 0;
-  transition: opacity 900ms cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-/* no-JS fallback: 1枚目だけ見せる */
-.pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
-  position: relative;
-  opacity: 1;
-}
-
-/* JS: active だけ見せる */
-.pv-layout-260218 .pv-hero-slider.is-js .pv-hero-slide.is-active{
-  opacity: 1;
-}
-
-/* Catch/Subcatch delayed (JS on only) */
-.pv-layout-260218.pv-js .pv-hero-caption{
-  opacity: 0;
-  will-change: opacity, transform;
-}
-
-.pv-layout-260218.pv-js.pv-mode-pc .pv-hero-caption{
-  transform: translateX(-50%) translateY(10px);
-}
-
-.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero-caption{
-  transform: translateY(10px);
-}
-
-.pv-layout-260218.pv-js .pv-hero.is-caption-in .pv-hero-caption{
-  opacity: 1;
-  transition:
-    opacity 650ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms,
-    transform 650ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms;
-}
-
-.pv-layout-260218.pv-js.pv-mode-pc .pv-hero.is-caption-in .pv-hero-caption{
-  transform: translateX(-50%) translateY(0);
-}
-
-.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero.is-caption-in .pv-hero-caption{
-  transform: translateY(0);
-}
-
-/* Scroll reveal */
-.pv-layout-260218.pv-js .pv-reveal{
-  opacity: 0;
-  transform: translate3d(0, 18px, 0);
-  transition:
-    opacity 700ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    transform 700ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  will-change: opacity, transform;
-}
-
-.pv-layout-260218.pv-js .pv-reveal.is-in{
-  opacity: 1;
-  transform: translate3d(0, 0, 0);
-}
-
-/* reduce motion */
-@media (prefers-reduced-motion: reduce){
-  .pv-layout-260218 .pv-hero-slide{
-    transition: none !important;
-  }
-  .pv-layout-260218.pv-js .pv-hero-caption{
-    opacity: 1 !important;
-    transform: none !important;
-    transition: none !important;
-  }
-  .pv-layout-260218.pv-js .pv-reveal{
-    opacity: 1 !important;
-    transform: none !important;
-    transition: none !important;
-  }
-}
-
-"""
+    """
 
     EXPORT_BASE_CSS = r"""
 /* ===== CVHB Export Base ===== */
@@ -8256,23 +7986,6 @@ a:hover{text-decoration:none;}
   max-width: none;
   text-align: right;
   white-space: nowrap;
-}
-
-/* v0.9.14: 小さい画面ではコピーライトを下へ回して、リンク列の横幅を最大化（左右欠け防止） */
-@media (max-width: 560px){
-  .pv-layout-260218 .pv-footer-inner{
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-    gap: 10px;
-  }
-  .pv-layout-260218 .pv-footer-links{
-    width: 100%;
-  }
-  .pv-layout-260218 .pv-footer-copy{
-    width: 100%;
-    text-align: center;
-  }
 }
 
 /* v0.9.9: ヒーローのキャッチ/サブキャッチは「1行・全文表示」固定（…禁止）
@@ -8424,6 +8137,132 @@ a:hover{text-decoration:none;}
 .pv-thanks-actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:16px;}
 .pv-thanks-mail{margin-top:18px; padding-top:14px; border-top:1px solid rgba(255,255,255,.20);}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
+
+/* =========================
+   Depth Background (v0.9.18)
+   5 layers / parallax / 9 color modes
+   ========================= */
+
+:root{
+  --pv-depth-c1-rgb: 15,118,255;
+  --pv-depth-c2-rgb: 56,189,248;
+  --pv-depth-c3-rgb: 167,139,250;
+
+  --pv-depth-base-1-rgb: 10,14,28;
+  --pv-depth-base-2-rgb: 3,6,15;
+
+  --pv-depth-particle-rgb: 255,255,255;
+  --pv-depth-line-rgb: 255,255,255;
+}
+
+.pv-depth-bg{
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.pv-depth-layer{
+  position: absolute;
+  inset: -12%;
+  will-change: transform;
+}
+
+.pv-depth-l1{
+  background:
+    radial-gradient(1200px 900px at 10% 10%, rgba(var(--pv-depth-c2-rgb),0.25), rgba(0,0,0,0) 60%),
+    radial-gradient( 900px 700px at 85% 20%, rgba(var(--pv-depth-c3-rgb),0.20), rgba(0,0,0,0) 55%),
+    radial-gradient(1100px 800px at 40% 80%, rgba(var(--pv-depth-c1-rgb),0.22), rgba(0,0,0,0) 60%),
+    linear-gradient(180deg, rgb(var(--pv-depth-base-1-rgb)) 0%, rgb(var(--pv-depth-base-2-rgb)) 100%);
+  filter: saturate(1.05);
+  animation: pvDepthGradient 18s ease-in-out infinite alternate;
+}
+
+@keyframes pvDepthGradient{
+  0%   { filter: saturate(1.00) hue-rotate(0deg); transform: scale(1.00); }
+  100% { filter: saturate(1.10) hue-rotate(6deg); transform: scale(1.03); }
+}
+
+#pv-depth-canvas{
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.35;
+}
+
+.pv-depth-l3{
+  inset: -8%;
+  filter: blur(28px);
+  opacity: 0.55;
+}
+
+.pv-depth-l3 .pv-depth-orb{
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--pv-depth-c3-rgb),0.28), rgba(0,0,0,0) 62%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+  animation: pvOrbFloat 14s ease-in-out infinite alternate;
+}
+
+.pv-depth-l3 .pv-depth-orb.o1{ left: 8%;  top: 12%;  animation-duration: 16s; }
+.pv-depth-l3 .pv-depth-orb.o2{ right: 10%; top: 22%; width: 420px; height: 420px; animation-duration: 18s; }
+.pv-depth-l3 .pv-depth-orb.o3{ left: 30%; bottom: 10%; width: 580px; height: 580px; animation-duration: 20s; }
+
+@keyframes pvOrbFloat{
+  0%   { transform: translate3d(0,0,0) scale(1.00); }
+  100% { transform: translate3d(18px,-22px,0) scale(1.05); }
+}
+
+.pv-depth-l4{
+  inset: -20%;
+  opacity: 0.18;
+  background-image:
+    repeating-linear-gradient( 65deg, rgba(var(--pv-depth-line-rgb),0.20) 0 1px, rgba(0,0,0,0) 1px 24px),
+    repeating-linear-gradient(-20deg, rgba(var(--pv-depth-line-rgb),0.14) 0 1px, rgba(0,0,0,0) 1px 34px);
+  mask-image: radial-gradient(circle at 40% 40%, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0.0) 75%);
+  animation: pvLinesMove 20s linear infinite;
+}
+
+@keyframes pvLinesMove{
+  0%   { background-position: 0 0, 0 0; }
+  100% { background-position: 240px -320px, -320px 240px; }
+}
+
+.pv-depth-l5{
+  inset: 0;
+  opacity: 0.55;
+  background-image:
+    radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0.55) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.32'/%3E%3C/svg%3E");
+  background-size: cover, 160px 160px;
+  mix-blend-mode: overlay;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .pv-depth-l1,
+  .pv-depth-l3 .pv-depth-orb,
+  .pv-depth-l4{
+    animation: none !important;
+  }
+}
+
+/* 背景を見せるために、シェル/スクロールの「塗り」を透明にする */
+.pv-layout-260218.pv-shell,
+.pv-layout-260218 .pv-scroll{
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* 念のため：背景より手前に出す */
+#pv-root{
+  position: relative;
+  z-index: 1;
+}
+
 """
 
     site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS
@@ -8500,13 +8339,8 @@ a:hover{text-decoration:none;}
     elif logo_url:
         logo_href = logo_url
 
-    # v0.9.16: 会社ロゴは「会社名の代わり」に表示する（ロゴが無い場合は会社名テキスト）
-    # - 小さい正方形アイコンは favicon を優先（faviconが無い場合のみロゴを代用）
-    brand_logo_href = logo_href or ""
-    header_icon_href = favicon_href_html or logo_href or ""
-
-    # v0.9.17: ヘッダーは「ファビコン + 社名ロゴ」を両方出す（同じ画像でも表示優先）
-    #   - favicon未設定時にロゴを流用していても、小アイコンは消さない
+    # v0.9.11: ヘッダー左の小アイコンは「ロゴ優先」。ロゴが無い場合は favicon を使う（現場で迷わない）
+    header_icon_href = logo_href or favicon_href_html or ""
 
     # philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
@@ -8624,7 +8458,6 @@ a:hover{text-decoration:none;}
   function fitHeroCaption(root){
     try{
       if(!root) return;
-    try{ root.classList.add('pv-js'); }catch(_e){}
       var cap = root.querySelector('.pv-hero-caption');
       if(!cap) return;
 
@@ -8750,148 +8583,365 @@ a:hover{text-decoration:none;}
   function initHeroSlider(root){
     var slider = document.getElementById('pv-hero-slider');
     if(!slider) return;
-
     var track = slider.querySelector('.pv-hero-track');
     if(!track) return;
 
-    var slides = track.querySelectorAll('.pv-hero-slide');
-    if(!slides || slides.length <= 0) return;
-
-    // JS有効フラグ（CSS側のフォールバック制御に使う）
-    try{ slider.classList.add('is-js'); }catch(_e){}
+    var slides = Array.prototype.slice.call(track.children || []);
+    if(slides.length <= 1) return;
 
     var dotsBox = document.getElementById('pv-hero-slider-dots');
-    var dots = dotsBox ? dotsBox.querySelectorAll('button') : [];
-
+    var axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
     var idx = 0;
-    var interval = 4500;
-    var timer = null;
 
-    // reduced motion
-    var reduce = false;
-    try{
-      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    }catch(_e){}
-
-    function setActive(n){
-      var len = slides.length;
-      if(len <= 0) return;
-      n = (n + len) % len;
-      idx = n;
-
-      for(var i=0;i<len;i++){
-        var s = slides[i];
-        if(!s) continue;
-        if(i === idx){
-          s.classList.add('is-active');
-          s.setAttribute('aria-hidden','false');
-        }else{
-          s.classList.remove('is-active');
-          s.setAttribute('aria-hidden','true');
-        }
-      }
-      for(var j=0;j<dots.length;j++){
-        var d = dots[j];
-        if(!d) continue;
-        if(j === idx){
-          d.classList.add('is-active');
-          d.setAttribute('aria-current','true');
-        }else{
-          d.classList.remove('is-active');
-          d.removeAttribute('aria-current');
-        }
-      }
+    function applyAxis(){
+      axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
+      track.style.flexDirection = axis === 'y' ? 'column' : 'row';
+      slides.forEach(function(sl){ sl.style.flex = '0 0 100%'; });
+      update();
     }
 
-    function stop(){
-      if(timer){
-        clearInterval(timer);
-        timer = null;
-      }
-    }
-    function start(){
-      stop();
-      if(reduce) return;
-      timer = setInterval(function(){
-        setActive(idx + 1);
-      }, interval);
-    }
-
-    // Dot click
-    for(var k=0;k<dots.length;k++){
-      (function(i){
-        dots[i].addEventListener('click', function(){
-          setActive(i);
-          start();
+    function update(){
+      track.style.transform = (axis === 'y')
+        ? ('translate3d(0,' + (-idx * 100) + '%,0)')
+        : ('translate3d(' + (-idx * 100) + '%,0,0)');
+      if(dotsBox){
+        dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(d, i){
+          d.classList.toggle('is-active', i === idx);
         });
-      })(k);
+      }
     }
 
-    // pause while hover / focus (PC)
-    slider.addEventListener('mouseenter', stop);
-    slider.addEventListener('mouseleave', start);
-    slider.addEventListener('focusin', stop);
-    slider.addEventListener('focusout', start);
+    function set(i){
+      idx = (i + slides.length) % slides.length;
+      update();
+    }
 
-    // 初期表示
-    setActive(0);
-    start();
+    if(dotsBox){
+      dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var i = parseInt(btn.getAttribute('data-i') || '0', 10);
+          if(!isNaN(i)) set(i);
+        });
+      });
+    }
 
-    // キャッチ/サブキャッチ枠：画像より少し遅れて表示
-    try{
-      var hero = slider.closest('.pv-hero');
-      if(hero){
-        hero.classList.remove('is-caption-in');
-        var delay = reduce ? 0 : 180;
-        setTimeout(function(){
-          hero.classList.add('is-caption-in');
-        }, delay);
-      }
-    }catch(_e){}
+    applyAxis();
 
-    // Mode切替時に呼ばれる用（旧実装との互換）
-    slider.__cvhbReinit = function(){
-      setActive(idx);
-    };
+    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10);
+    if(intervalMs > 0){
+      var timer = setInterval(function(){ set(idx + 1); }, intervalMs);
+      slider.addEventListener('mouseenter', function(){ clearInterval(timer); });
+      slider.addEventListener('mouseleave', function(){ timer = setInterval(function(){ set(idx + 1); }, intervalMs); });
+    }
+
+    slider.__cvhbReinit = applyAxis;
   }
 
-  function initScrollReveal(root){
-    if(!root) return;
 
-    // reduced motion: 何もしない（そのまま表示）
-    var reduce = false;
-    try{
-      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    }catch(_e){}
+  // ===== Depth Background (5-layer / 9-color mode / parallax) =====
+  // ※ 生成HTML/CSS/JS（書き出し）と同じ挙動にするため、site.js 側で背景DOMを自動挿入する
+  var DepthBg = (function(){
+    var started = false;
+    var bg = null;
+    var layers = {};
+    var canvas = null;
+    var ctx = null;
+    var dpr = 1;
 
-    var targets = root.querySelectorAll('section.pv-section-260218');
-    if(!targets || targets.length <= 0) return;
+    var tMouseX = 0, tMouseY = 0;
+    var mouseX = 0, mouseY = 0;
+    var tScroll = 0, scrollY = 0;
+    var w = 1, h = 1;
 
-    for(var i=0;i<targets.length;i++){
-      targets[i].classList.add('pv-reveal');
+    var particles = [];
+    var lastTs = 0;
+    var lastDraw = 0;
+
+    var current = null;
+    var target = null;
+    var tweenStart = 0;
+    var tweenMs = 900;
+
+    // 9色モード（青/赤/緑/オレンジ/紫/灰/黒/白/黄）
+    // ※ "ink" は粒子/ラインの色（白系 or 黒系）で、読みやすさを安定させる
+    var MODES = {
+      blue:   { c1:[ 15,118,255], c2:[ 56,189,248], c3:[167,139,250], ink:[255,255,255], b1:[ 10, 14, 28], b2:[  3,  6, 15] },
+      red:    { c1:[239, 68, 68], c2:[251,113,133], c3:[244, 63, 94], ink:[255,255,255], b1:[ 10, 14, 28], b2:[  3,  6, 15] },
+      green:  { c1:[ 34,197, 94], c2:[ 45,212,191], c3:[132,204, 22], ink:[255,255,255], b1:[ 10, 14, 28], b2:[  3,  6, 15] },
+      orange: { c1:[249,115, 22], c2:[251,191, 36], c3:[245,158, 11], ink:[255,255,255], b1:[ 10, 14, 28], b2:[  3,  6, 15] },
+      purple: { c1:[168, 85,247], c2:[ 99,102,241], c3:[236, 72,153], ink:[255,255,255], b1:[ 10, 14, 28], b2:[  3,  6, 15] },
+      gray:   { c1:[ 71, 85,105], c2:[148,163,184], c3:[ 30, 41, 59], ink:[255,255,255], b1:[ 11, 18, 32], b2:[  3,  6, 15] },
+      black:  { c1:[  2,  6, 23], c2:[ 15, 23, 42], c3:[  0,  0,  0], ink:[255,255,255], b1:[  2,  6, 23], b2:[  0,  0,  0] },
+      white:  { c1:[255,255,255], c2:[226,232,240], c3:[203,213,225], ink:[ 15, 23, 42], b1:[255,255,255], b2:[226,232,240] },
+      yellow: { c1:[250,204, 21], c2:[253,224, 71], c3:[234,179,  8], ink:[ 15, 23, 42], b1:[255,251,235], b2:[254,243,199] },
+    };
+
+    function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+    function lerp(a, b, t){ return a + (b - a) * t; }
+    function easeInOut(t){
+      // ゆる→速→ゆる（プロっぽい気持ちよさ）
+      return (t < 0.5) ? (2 * t * t) : (1 - Math.pow(-2 * t + 2, 2) / 2);
+    }
+    function mix3(ca, cb, t){
+      return [
+        Math.round(lerp(ca[0], cb[0], t)),
+        Math.round(lerp(ca[1], cb[1], t)),
+        Math.round(lerp(ca[2], cb[2], t)),
+      ];
+    }
+    function cssRgb(c){ return c[0] + ',' + c[1] + ',' + c[2]; }
+
+    function guessModeFromRoot(root){
+      try{
+        var key = getComputedStyle(root).getPropertyValue('--pv-primary-key').trim();
+        if(key && MODES[key]){ return key; }
+      }catch(e){}
+      return 'blue';
     }
 
-    if(reduce || !('IntersectionObserver' in window)){
-      for(var j=0;j<targets.length;j++){
-        targets[j].classList.add('is-in');
+    function ensureDom(){
+      if(bg){ return; }
+
+      bg = document.createElement('div');
+      bg.id = 'pv-depth-bg';
+      bg.className = 'pv-depth-bg';
+
+      // 5層（1:動的グラデ / 2:粒子 / 3:光の玉 / 4:ライン / 5:ノイズ&ビネット）
+      bg.innerHTML = ''
+        + '<div class="pv-depth-layer pv-depth-l1"></div>'
+        + '<canvas class="pv-depth-layer pv-depth-l2" id="pv-depth-canvas"></canvas>'
+        + '<div class="pv-depth-layer pv-depth-l3">'
+        +   '<div class="pv-depth-orb o1"></div>'
+        +   '<div class="pv-depth-orb o2"></div>'
+        +   '<div class="pv-depth-orb o3"></div>'
+        + '</div>'
+        + '<div class="pv-depth-layer pv-depth-l4"></div>'
+        + '<div class="pv-depth-layer pv-depth-l5"></div>';
+
+      try{
+        document.body.insertBefore(bg, document.body.firstChild);
+      }catch(e){
+        document.body.appendChild(bg);
       }
-      return;
+
+      layers.l1 = bg.querySelector('.pv-depth-l1');
+      canvas = bg.querySelector('#pv-depth-canvas');
+      layers.l3 = bg.querySelector('.pv-depth-l3');
+      layers.l4 = bg.querySelector('.pv-depth-l4');
+      layers.l5 = bg.querySelector('.pv-depth-l5');
+
+      try{
+        ctx = canvas.getContext('2d', { alpha: true });
+      }catch(e){
+        ctx = canvas.getContext('2d');
+      }
     }
 
-    var io = new IntersectionObserver(function(entries){
-      for(var i=0;i<entries.length;i++){
-        var e = entries[i];
-        if(e.isIntersecting){
-          e.target.classList.add('is-in');
-          io.unobserve(e.target);
+    function makeParticles(n){
+      var arr = [];
+      for(var i=0;i<n;i++){
+        arr.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          r: Math.random() * 1.6 + 0.6,
+          vx: (Math.random() * 0.18 + 0.04) * (Math.random() < 0.5 ? -1 : 1),
+          vy: (Math.random() * 0.12 + 0.02) * (Math.random() < 0.5 ? -1 : 1),
+          a: Math.random() * 0.35 + 0.08,
+        });
+      }
+      return arr;
+    }
+
+    function resize(){
+      w = window.innerWidth || 1;
+      h = window.innerHeight || 1;
+
+      dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+      if(canvas){
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        if(ctx){
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
       }
-    }, { threshold: 0.12, rootMargin: '0px 0px -10% 0px' });
 
-    for(var k=0;k<targets.length;k++){
-      io.observe(targets[k]);
+      // 画面サイズに応じて粒子数を調整（軽くする）
+      var want = Math.round(clamp((w * h) / 22000, 28, 90));
+      if(particles.length !== want){
+        particles = makeParticles(want);
+      }
     }
-  }
+
+    function setCssVars(p){
+      var el = document.documentElement;
+
+      el.style.setProperty('--pv-depth-c1-rgb', cssRgb(p.c1));
+      el.style.setProperty('--pv-depth-c2-rgb', cssRgb(p.c2));
+      el.style.setProperty('--pv-depth-c3-rgb', cssRgb(p.c3));
+      el.style.setProperty('--pv-depth-base-1-rgb', cssRgb(p.b1 || [10,14,28]));
+      el.style.setProperty('--pv-depth-base-2-rgb', cssRgb(p.b2 || [3,6,15]));
+
+
+      // 粒子/ラインは背景とケンカしないよう、少しだけ "ink" に寄せる
+      el.style.setProperty('--pv-depth-particle-rgb', cssRgb(mix3(p.c2, p.ink, 0.55)));
+      el.style.setProperty('--pv-depth-line-rgb', cssRgb(mix3(p.c1, p.ink, 0.35)));
+    }
+
+    function setMode(next, instant){
+      if(!MODES[next]){ next = 'blue'; }
+      target = MODES[next];
+
+      if(!current || instant){
+        current = {
+          c1: target.c1.slice(),
+          c2: target.c2.slice(),
+          c3: target.c3.slice(),
+          ink: target.ink.slice(),
+            b1: target.b1.slice(),
+            b2: target.b2.slice(),
+        };
+        tweenStart = 0;
+        setCssVars(current);
+        return;
+      }
+      tweenStart = performance.now();
+    }
+
+    function drawParticles(dt){
+      if(!ctx){ return; }
+
+      // 30fps くらいに抑える（CPU/GPUに優しい）
+      var now = performance.now();
+      if(now - lastDraw < 33){ return; }
+      lastDraw = now;
+
+      ctx.clearRect(0, 0, w, h);
+
+      var rgb = getComputedStyle(document.documentElement).getPropertyValue('--pv-depth-particle-rgb').trim() || '255,255,255';
+      ctx.fillStyle = 'rgba(' + rgb + ', 0.9)';
+
+      for(var i=0;i<particles.length;i++){
+        var p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        if(p.x < -10) p.x = w + 10;
+        if(p.x > w + 10) p.x = -10;
+        if(p.y < -10) p.y = h + 10;
+        if(p.y > h + 10) p.y = -10;
+
+        ctx.globalAlpha = p.a;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function applyTransforms(ts){
+      var t = ts / 1000;
+
+      mouseX += (tMouseX - mouseX) * 0.06;
+      mouseY += (tMouseY - mouseY) * 0.06;
+      scrollY += (tScroll - scrollY) * 0.06;
+
+      var floatY = Math.sin(t * 0.6) * 8; // ふわっと浮上
+
+      var px = mouseX * 20;
+      var py = mouseY * 16;
+
+      // 層ごとに速度を変える（パララックス）
+      if(layers.l1) layers.l1.style.transform = 'translate3d(' + (px * 0.12) + 'px,' + (py * 0.10 - scrollY * 0.03 + floatY * 0.30) + 'px,0)';
+      if(canvas)    canvas.style.transform    = 'translate3d(' + (px * 0.20) + 'px,' + (py * 0.18 - scrollY * 0.05 + floatY * 0.50) + 'px,0)';
+      if(layers.l3) layers.l3.style.transform = 'translate3d(' + (px * 0.35) + 'px,' + (py * 0.28 - scrollY * 0.08 + floatY * 0.75) + 'px,0)';
+      if(layers.l4) layers.l4.style.transform = 'translate3d(' + (px * 0.55) + 'px,' + (py * 0.45 - scrollY * 0.12 + floatY * 1.00) + 'px,0)';
+      if(layers.l5) layers.l5.style.transform = 'translate3d(0px,' + (floatY * 0.15) + 'px,0)';
+    }
+
+    function step(ts){
+      if(!started){ return; }
+      if(!lastTs) lastTs = ts;
+
+      var dt = Math.min(48, Math.max(8, ts - lastTs)); // ms
+      lastTs = ts;
+
+      // 色のなめらかな切り替え（JSで補間するのでブラウザ差が出にくい）
+      if(target && tweenStart){
+        var t = clamp((ts - tweenStart) / tweenMs, 0, 1);
+        var e = easeInOut(t);
+
+        var mixed = {
+          c1: mix3(current.c1, target.c1, e),
+          c2: mix3(current.c2, target.c2, e),
+          c3: mix3(current.c3, target.c3, e),
+          ink: mix3(current.ink, target.ink, e),
+          b1: mix3(current.b1, target.b1, e),
+          b2: mix3(current.b2, target.b2, e),
+        };
+        setCssVars(mixed);
+
+        if(t >= 1){
+          current = {
+            c1: target.c1.slice(),
+            c2: target.c2.slice(),
+            c3: target.c3.slice(),
+            ink: target.ink.slice(),
+            b1: target.b1.slice(),
+            b2: target.b2.slice(),
+          };
+          tweenStart = 0;
+          setCssVars(current);
+        }
+      }
+
+      applyTransforms(ts);
+      drawParticles(dt);
+
+      requestAnimationFrame(step);
+    }
+
+    function init(root){
+      if(started){ return; }
+      ensureDom();
+      resize();
+
+      // root を前面に（背景が被らないように）
+      try{
+        if(root){
+          root.style.position = 'relative';
+          root.style.zIndex = '1';
+        }
+      }catch(e){}
+
+      // 初期モード
+      setMode(guessModeFromRoot(root || document.documentElement), true);
+
+      window.addEventListener('pointermove', function(ev){
+        var cx = (ev.clientX / (window.innerWidth || 1)) * 2 - 1;
+        var cy = (ev.clientY / (window.innerHeight || 1)) * 2 - 1;
+        tMouseX = clamp(cx, -1, 1);
+        tMouseY = clamp(cy, -1, 1);
+      }, { passive: true });
+
+      window.addEventListener('scroll', function(){
+        tScroll = (window.scrollY || 0);
+      }, { passive: true });
+
+      window.addEventListener('resize', function(){
+        resize();
+      }, { passive: true });
+
+      started = true;
+      requestAnimationFrame(step);
+    }
+
+    return { init: init, setMode: setMode };
+  })();
+  // 外から色を切り替えたい時用（例：console で cvhbDepthBg.setMode('red')）
+  try{ window.cvhbDepthBg = DepthBg; }catch(e){}
 
 
   ready(function(){
@@ -8907,6 +8957,9 @@ a:hover{text-decoration:none;}
     }
 
     applyMode();
+    // depth background
+    DepthBg.init(root);
+
     window.addEventListener('resize', function(){
       clearTimeout(window.__cvhbModeTimer);
       window.__cvhbModeTimer = setTimeout(applyMode, 150);
@@ -8927,7 +8980,6 @@ a:hover{text-decoration:none;}
     initNav();
     initSmoothScroll();
     initHeroSlider(root);
-    initScrollReveal(root);
 
     // フォント読み込み後にもう一度フィット（iPhone等で幅が変わることがある）
     try{
@@ -9129,15 +9181,6 @@ a:hover{text-decoration:none;}
 
         brand_href = sec_href("pv-top")
 
-        # ルート外（news配下など）では assets/ の相対パスがズレるので補正する
-        header_icon_src = header_icon_href
-        if root_prefix and header_icon_src and header_icon_src.startswith("assets/"):
-            header_icon_src = f"{root_prefix}{header_icon_src}"
-
-        brand_logo_src = brand_logo_href
-        if root_prefix and brand_logo_src and brand_logo_src.startswith("assets/"):
-            brand_logo_src = f"{root_prefix}{brand_logo_src}"
-
         return f"""<!doctype html>
 <html lang=\"ja\">
 <head>
@@ -9152,8 +9195,8 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_src)}" alt="">' if header_icon_src else ''}
-          {f'<img class="pv-brand-logo" src="{_esc(brand_logo_src)}" alt="{_esc(company_name)}">' if brand_logo_src else f'<span class="pv-brand-name">{_esc(company_name)}</span>'}
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
+          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
@@ -9229,7 +9272,7 @@ a:hover{text-decoration:none;}
         title=f"{company_name}｜お知らせ一覧",
         css_href="../assets/site.css",
         js_href="../assets/site.js",
-        favicon_href_=f"../{favicon_href_html}" if favicon_href_html and favicon_href_html.startswith("assets/") else favicon_href_html,
+        favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
         body_inner=news_index_body,
         root_prefix="../",
     ).encode("utf-8")
@@ -9261,7 +9304,7 @@ a:hover{text-decoration:none;}
             title=f"{company_name}｜{title or 'お知らせ'}",
             css_href="../assets/site.css",
             js_href="../assets/site.js",
-            favicon_href_=f"../{favicon_href_html}" if favicon_href_html and favicon_href_html.startswith("assets/") else favicon_href_html,
+            favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
             body_inner=detail_body,
             root_prefix="../",
         ).encode("utf-8")
@@ -9477,7 +9520,7 @@ a:hover{text-decoration:none;}
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, brand_logo_href=brand_logo_href))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html))
 
     # --------------------
     # index.html
@@ -9498,8 +9541,8 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if header_icon_href else ''}
-          {f'<img class="pv-brand-logo" src="{_esc(brand_logo_href)}" alt="{_esc(company_name)}">' if brand_logo_href else f'<span class="pv-brand-name">{_esc(company_name)}</span>'}
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
+          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
         </a>
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
@@ -9571,7 +9614,7 @@ a:hover{text-decoration:none;}
         title=f"{company_name}｜プライバシーポリシー",
         css_href="assets/site.css",
         js_href="assets/site.js",
-        favicon_href_=favicon_href_html,
+        favicon_href_=favicon_href,
         body_inner=privacy_page_body,
         root_prefix="",
     )
@@ -10697,16 +10740,12 @@ INAPP_HELP_FAQ = [
         "q": "ConoHa WINGで公開する流れ（超ざっくり）",
         "a_md": """※これは **管理者向け** の内容です（利用者は読まなくてOK）。
 
-**最短手順（迷ったらこの順番）**
-
 1. このビルダーで **ZIPを書き出す**
-2. ZIPをPCで **展開** する（中に **index.html** がある状態）
+2. ZIPをPCで **展開** する（中に index.html がある状態）
 3. ConoHa WING の **ファイルマネージャー** を開く
-4. **public_html → ドメイン名** のフォルダへ、展開した **中身** をアップロード
+4. **public_html → ドメイン名** のフォルダへ、展開した中身をアップロード
 5. ConoHa の **動作確認URL** で表示チェック → OKなら本番ドメインで確認
 6. **無料SSL** をONにする（https化）
-
-ポイント：**フォルダごと** ではなく **中身** をアップロードします。
 
 詳しい手順は、公開マニュアル（ConoHa WING版）を見てください。""",
     },
@@ -11107,6 +11146,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-accent: {accent};"
         f"--pv-accent-2: {accent2};"
         f"--pv-primary: {accent};"
+        f"--pv-primary-key: {primary};"
         f"--pv-primary-weak: {primary_weak};"
         f"--pv-text: {text};"
         f"--pv-muted: {muted};"
@@ -11182,7 +11222,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     # -------- content --------
     company_name = _clean(step2.get("company_name"), "会社名")
     favicon_url = _clean(step2.get("favicon_url")) or DEFAULT_FAVICON_DATA_URL
-    logo_url = _clean(step2.get("logo_url"))
     catch_copy = _clean(step2.get("catch_copy"))
     catch_size = _clean(step2.get("catch_size"), "中")
     sub_catch_size = _clean(step2.get("sub_catch_size"), "中")
@@ -11270,10 +11309,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                 with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
                     if favicon_url:
                         ui.image(pv_img_src(favicon_url)).classes("pv-favicon")
-                    if logo_url:
-                        ui.image(pv_img_src(logo_url)).classes("pv-brand-logo")
-                    else:
-                        ui.label(company_name).classes("pv-brand-name")
+                    ui.label(company_name).classes("pv-brand-name")
 
                 if mode == "pc":
                     # desktop nav (PC only)
@@ -12124,51 +12160,6 @@ def render_main(u: User) -> None:
                                                 ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                             favicon_editor()
-                                            # 会社ロゴ（任意）: ヘッダー左上で「会社名の代わり」に表示
-                                            ui.label("会社ロゴ（任意）").classes("text-body1 q-mt-md")
-                                            ui.label("ヘッダー左上の会社名の代わりに表示します（推奨: 背景透明PNG）。").classes("cvhb-muted")
-
-                                            async def _on_upload_logo(e):
-                                                try:
-                                                    data_url, fname = await _upload_event_to_data_url(e, max_w=640, max_h=240, force_png=True, fit="contain")
-                                                    if not data_url:
-                                                        return
-                                                    step2["logo_url"] = data_url
-                                                    step2["logo_filename"] = _short_name(fname)
-                                                    update_and_refresh()
-                                                    logo_editor.refresh()
-                                                except Exception as ex:
-                                                    try:
-                                                        print(f"[UPLOAD:logo] {type(ex).__name__}: {ex}", flush=True)
-                                                    except Exception:
-                                                        pass
-
-                                            def _clear_logo():
-                                                try:
-                                                    step2["logo_url"] = ""
-                                                    step2["logo_filename"] = ""
-                                                except Exception:
-                                                    pass
-                                                update_and_refresh()
-                                                logo_editor.refresh()
-
-                                            @ui.refreshable
-                                            def logo_editor():
-                                                cur = str(step2.get("logo_url") or "").strip()
-                                                name = str(step2.get("logo_filename") or "").strip()
-                                                with ui.row().classes("items-center q-gutter-sm"):
-                                                    if cur:
-                                                        ui.image(pv_img_src(cur)).style("width:180px;height:40px;object-fit:contain;border-radius:10px;border:1px solid rgba(0,0,0,0.10);background:rgba(255,255,255,0.80);padding:4px;")
-                                                    else:
-                                                        with ui.element("div").style("width:180px;height:40px;border-radius:10px;border:1px dashed rgba(0,0,0,0.20);display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.55);"):
-                                                            ui.label("ロゴ未設定").classes("cvhb-muted")
-                                                    ui.upload(on_upload=_on_upload_logo, auto_upload=True).props("accept=image/*")
-                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated dense no-caps")
-                                                    ui.button("クリア", on_click=_clear_logo).props("outline dense")
-                                                ui.label(f"現在: {'未設定' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
-
-                                            logo_editor()
-
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
                                             bind_step2_input("住所（地図リンクは自動生成）", "address", hint="住所を入力すると、プレビューの「地図を開く」が使えるようになります。")
@@ -13411,21 +13402,13 @@ def render_main(u: User) -> None:
 
                                                 ui.markdown(
                                                     """**最短手順（迷ったらこの順番）**
-
-1. **ZIPを書き出す**（上のボタン）
-   - PCにダウンロードする
-2. **ZIPを展開する**
-   - ZIPを右クリック → 「すべて展開」
-   - 中に **index.html** が見える状態にする
-3. ConoHa WINGで **ファイルマネージャー** を開く
-   - **WING** → **サイト管理** → **ファイルマネージャー**
-4. 左で **public_html → あなたのドメイン名のフォルダ** を開く
-5. 展開したフォルダの **中身（index.html など）** を全部アップロード
-   - **フォルダごと** ではなく **中身だけ**
-6. ConoHaの **動作確認URL**（テスト用URL）で表示確認
-   - OKなら本番ドメインでも確認する
-7. 最後に ConoHa の **無料独自SSL** をONにする
-   - httpsで開けるようにする
+1. 上の「ZIPを書き出す」で ZIP を作って、パソコンにダウンロードする
+2. ZIPを右クリック → 「すべて展開」で展開する（中に **index.html** が見える状態にする）
+3. ConoHa WING → **WING** → **サイト管理** → **ファイルマネージャー** を開く
+4. 左の **public_html** → **あなたのドメイン名のフォルダ** を開く
+5. 展開したフォルダの **中身（index.html など）** を全部ドラッグ＆ドロップでアップロードする
+6. ConoHaの **動作確認URL**（テスト用URL）で表示確認 → OKなら本番ドメインで確認する
+7. 最後に ConoHa の **無料独自SSL** をONにして、httpsで開けるようにする
 """
                                                 ).classes("q-mt-sm")
 
@@ -13440,98 +13423,160 @@ def render_main(u: User) -> None:
                                             # -----------------
                                             # 3) 公開（SFTP / 上級者向け）
                                             # -----------------
-                                            with ui.expansion("上級者向け：SFTPで自動公開（クリックで開く）").props("dense").classes("w-full"):
-                                                with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
-                                                    ui.label("※ ここは管理者（admin）のみ。ConoHaのファイルマネージャーで公開する場合は、上の手順を使ってください。").classes("cvhb-muted")
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                                ui.label("上級者向け：SFTPで自動公開").classes("text-subtitle1")
+                                                ui.label("※ ここは管理者（admin）のみ。ConoHaのファイルマネージャーで公開する場合は、上の手順を使ってください。").classes("cvhb-muted")
 
-                                                    data = p.get("data") if isinstance(p, dict) else {}
-                                                    publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
+                                                data = p.get("data") if isinstance(p, dict) else {}
+                                                publish = data.get("publish") if isinstance(data, dict) and isinstance(data.get("publish"), dict) else {}
 
-                                                    def _set_publish(key: str, value):
-                                                        publish[key] = value
+                                                def _set_publish(key: str, value):
+                                                    publish[key] = value
 
-                                                    ui.input("SFTPホスト", value=str(publish.get("sftp_host") or ""), on_change=lambda e: _set_publish("sftp_host", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
-                                                    ui.input("ポート（通常22）", value=str(publish.get("sftp_port") or 22), on_change=lambda e: _set_publish("sftp_port", e.value or "22")).props("outlined dense").classes("w-full q-mt-sm")
-                                                    ui.input("SFTPユーザー名", value=str(publish.get("sftp_user") or ""), on_change=lambda e: _set_publish("sftp_user", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
-                                                    ui.input("公開ディレクトリ（例: /public_html）", value=str(publish.get("sftp_dir") or ""), on_change=lambda e: _set_publish("sftp_dir", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
-                                                    ui.input("メモ（任意）", value=str(publish.get("sftp_note") or ""), on_change=lambda e: _set_publish("sftp_note", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("SFTPホスト", value=str(publish.get("sftp_host") or ""), on_change=lambda e: _set_publish("sftp_host", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("ポート（通常22）", value=str(publish.get("sftp_port") or 22), on_change=lambda e: _set_publish("sftp_port", e.value or "22")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("SFTPユーザー名", value=str(publish.get("sftp_user") or ""), on_change=lambda e: _set_publish("sftp_user", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("公開ディレクトリ（例: /public_html）", value=str(publish.get("sftp_dir") or ""), on_change=lambda e: _set_publish("sftp_dir", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
+                                                ui.input("メモ（任意）", value=str(publish.get("sftp_note") or ""), on_change=lambda e: _set_publish("sftp_note", e.value or "")).props("outlined dense").classes("w-full q-mt-sm")
 
-                                                    def _on_pw(e):
-                                                        publish_ui_state["password"] = e.value or ""
+                                                def _on_pw(e):
+                                                    publish_ui_state["password"] = e.value or ""
 
-                                                    ui.input("SFTPパスワード（保存されません）", value=publish_ui_state.get("password", ""), on_change=_on_pw).props("outlined dense type=password").classes("w-full q-mt-sm")
-                                                    pub_confirm = ui.checkbox("公開する（上書きアップロード）").classes("q-mt-sm")
-                                                    cleanup_confirm = ui.checkbox("危険：リモートの不要ファイルも削除する（通常OFF）").classes("q-mt-xs")
-                                                    ui.label("※ ONにすると、公開ディレクトリ内の古いファイルが消える可能性があります。").classes("text-negative text-caption q-mt-xs")
-                                                    ui.textarea("不要ファイル削除：除外リスト（任意 / 1行1つ / ワイルドカード可）", value=str(publish.get("cleanup_exclude") or ""), on_change=lambda e: _set_publish("cleanup_exclude", e.value or "")).props("outlined autogrow").classes("w-full q-mt-sm")
-                                                    ui.label("例: robots.txt / ads.txt / humans.txt / *.xml").classes("cvhb-muted text-caption q-mt-xs")
+                                                ui.input("SFTPパスワード（保存されません）", value=publish_ui_state.get("password", ""), on_change=_on_pw).props("outlined dense type=password").classes("w-full q-mt-sm")
+                                                pub_confirm = ui.checkbox("公開する（上書きアップロード）").classes("q-mt-sm")
+                                                cleanup_confirm = ui.checkbox("危険：リモートの不要ファイルも削除する（通常OFF）").classes("q-mt-xs")
+                                                ui.label("※ ONにすると、公開ディレクトリ内の古いファイルが消える可能性があります。").classes("text-negative text-caption q-mt-xs")
+                                                ui.textarea("不要ファイル削除：除外リスト（任意 / 1行1つ / ワイルドカード可）", value=str(publish.get("cleanup_exclude") or ""), on_change=lambda e: _set_publish("cleanup_exclude", e.value or "")).props("outlined autogrow").classes("w-full q-mt-sm")
+                                                ui.label("例: robots.txt / ads.txt / humans.txt / *.xml").classes("cvhb-muted text-caption q-mt-xs")
 
-                                                    async def _run_publish(delete_extra: bool):
-                                                        # 念のため毎回チェック（画面がズレても事故らない）
-                                                        if not can_publish(u):
-                                                            ui.notify("公開は admin のみ実行できます", type="negative")
-                                                            return
-                                                        a2 = get_approval(p)
-                                                        status2 = str(a2.get("status") or "draft")
-                                                        if status2 != "approved":
-                                                            ui.notify("承認OKになってから公開してください", type="warning")
-                                                            return
-                                                        if not pub_confirm.value:
-                                                            ui.notify("『公開する』チェックをONにしてください", type="warning")
-                                                            return
+                                                async def _run_publish(delete_extra: bool):
+                                                    # 念のため毎回チェック（画面がズレても事故らない）
+                                                    if not can_publish(u):
+                                                        ui.notify("公開は admin のみ実行できます", type="negative")
+                                                        return
+                                                    a2 = get_approval(p)
+                                                    status2 = str(a2.get("status") or "draft")
+                                                    if status2 != "approved":
+                                                        ui.notify("承認OKになってから公開してください", type="warning")
+                                                        return
+                                                    if not pub_confirm.value:
+                                                        ui.notify("『公開する』チェックをONにしてください", type="warning")
+                                                        return
+                                                    try:
+                                                        ui.notify("公開（アップロード）中...", type="info")
+                                                                                                                # 直近の公開試行を記録（成功/失敗どちらも）
+                                                        excludes = parse_cleanup_exclude_list(publish.get("cleanup_exclude"))
+                                                        ok, msg, detail = await asyncio.to_thread(
+                                                            publish_site_via_sftp,
+                                                            p,
+                                                            u,
+                                                            publish_ui_state["password"],
+                                                            delete_extra=delete_extra,
+                                                        )
+
+                                                        wf2 = get_workflow(p)
+                                                        wf2["last_publish_try_at"] = now_jst_iso()
+                                                        wf2["last_publish_try_by"] = u.username
+                                                        wf2["last_publish_try_ok"] = bool(ok)
+                                                        wf2["last_publish_try_message"] = msg
+                                                        wf2["last_publish_try_delete_extra"] = bool(delete_extra)
+                                                        wf2["last_publish_try_exclude"] = len(excludes)
+
                                                         try:
-                                                            ui.notify("公開（アップロード）中...", type="info")
-                                                                                                                    # 直近の公開試行を記録（成功/失敗どちらも）
-                                                            excludes = parse_cleanup_exclude_list(publish.get("cleanup_exclude"))
-                                                            ok, msg, detail = await asyncio.to_thread(
-                                                                publish_site_via_sftp,
-                                                                p,
-                                                                u,
-                                                                publish_ui_state["password"],
-                                                                delete_extra=delete_extra,
+                                                            wf2["last_publish_try_total"] = int(detail.get("total") or 0)
+                                                            wf2["last_publish_try_success"] = int(detail.get("success") or 0)
+                                                            wf2["last_publish_try_failed"] = int(detail.get("failed") or 0)
+                                                            wf2["last_publish_try_failed_files"] = list(detail.get("failed_files") or [])[:80]
+                                                            wf2["last_publish_try_cleanup_warn"] = str(detail.get("cleanup_warn") or "")
+                                                            wf2["last_publish_try_cleanup_skipped"] = bool(detail.get("cleanup_skipped"))
+                                                        except Exception:
+                                                            pass
+
+                                                        if ok:
+                                                            wf2["last_publish_at"] = now_jst_iso()
+                                                            wf2["last_publish_by"] = u.username
+                                                            wf2["last_publish_target"] = f"{publish.get('sftp_host', '')}:{publish.get('sftp_dir', '')}"
+                                                        else:
+                                                            wf2["last_publish_fail_at"] = now_jst_iso()
+
+                                                        # 成功/失敗どちらでも保存（次の再試行導線に使う）
+                                                        try:
+                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                            set_current_project(p, u)
+                                                        except Exception:
+                                                            pass
+
+                                                        ui.notify(msg, type="positive" if ok else "negative")
+                                                        publish_panel.refresh()
+                                                    except Exception as e:
+                                                        ui.notify(f"公開に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                                                # ダイアログ側から呼べるように保持
+                                                publish_actions["run"] = _run_publish
+
+                                                async def _do_publish():
+                                                    if not can_publish(u):
+                                                        ui.notify("公開は admin のみ実行できます", type="negative")
+                                                        return
+                                                    if status != "approved":
+                                                        ui.notify("承認OKになってから公開してください", type="warning")
+                                                        return
+                                                    if not pub_confirm.value:
+                                                        ui.notify("『公開する』チェックをONにしてください", type="warning")
+                                                        return
+
+                                                    if not cleanup_confirm.value:
+                                                        await _run_publish(False)
+                                                        return
+
+                                                    # ここから危険モード：段階確認ダイアログ
+                                                    cleanup_state["loading"] = True
+                                                    cleanup_state["ok"] = False
+                                                    cleanup_state["message"] = ""
+                                                    cleanup_state["extra"] = []
+                                                    try:
+                                                        cleanup_target_label.text = f"対象: {_mask_text_keep_ends(str(publish.get('sftp_host') or ''))}{_mask_remote_dir(str(publish.get('sftp_dir') or ''))}"
+                                                    except Exception:
+                                                        pass
+
+                                                    # 最終確認チェックをリセット
+                                                    try:
+                                                        cleanup_confirm_cb.value = False
+                                                    except Exception:
+                                                        pass
+
+                                                    cleanup_dialog.open()
+                                                    cleanup_body.refresh()
+
+                                                    try:
+                                                        def _calc_preview():
+                                                            files2 = build_static_site_files(p)
+                                                            keep2 = set(str(k or '').lstrip('/') for k in files2.keys() if k)
+                                                            return compute_remote_extra_files_for_cleanup(
+                                                                host=str(publish.get("sftp_host") or ""),
+                                                                port=int(publish.get("sftp_port", 22) or 22),
+                                                                user=str(publish.get("sftp_user") or ""),
+                                                                password=publish_ui_state.get("password", ""),
+                                                                remote_dir=str(publish.get("sftp_dir") or ""),
+                                                                keep_files=keep2,
+                                                                exclude_patterns=parse_cleanup_exclude_list(publish.get("cleanup_exclude")),
                                                             )
+                                                        ok2, msg2, extra2 = await asyncio.to_thread(_calc_preview)
+                                                        cleanup_state["loading"] = False
+                                                        cleanup_state["ok"] = ok2
+                                                        cleanup_state["message"] = msg2
+                                                        cleanup_state["extra"] = extra2
+                                                        cleanup_body.refresh()
+                                                    except Exception as e:
+                                                        cleanup_state["loading"] = False
+                                                        cleanup_state["ok"] = False
+                                                        cleanup_state["message"] = f"確認に失敗しました: {sanitize_error_text(e)}"
+                                                        cleanup_state["extra"] = []
+                                                        cleanup_body.refresh()
 
-                                                            wf2 = get_workflow(p)
-                                                            wf2["last_publish_try_at"] = now_jst_iso()
-                                                            wf2["last_publish_try_by"] = u.username
-                                                            wf2["last_publish_try_ok"] = bool(ok)
-                                                            wf2["last_publish_try_message"] = msg
-                                                            wf2["last_publish_try_delete_extra"] = bool(delete_extra)
-                                                            wf2["last_publish_try_exclude"] = len(excludes)
-
-                                                            try:
-                                                                wf2["last_publish_try_total"] = int(detail.get("total") or 0)
-                                                                wf2["last_publish_try_success"] = int(detail.get("success") or 0)
-                                                                wf2["last_publish_try_failed"] = int(detail.get("failed") or 0)
-                                                                wf2["last_publish_try_failed_files"] = list(detail.get("failed_files") or [])[:80]
-                                                                wf2["last_publish_try_cleanup_warn"] = str(detail.get("cleanup_warn") or "")
-                                                                wf2["last_publish_try_cleanup_skipped"] = bool(detail.get("cleanup_skipped"))
-                                                            except Exception:
-                                                                pass
-
-                                                            if ok:
-                                                                wf2["last_publish_at"] = now_jst_iso()
-                                                                wf2["last_publish_by"] = u.username
-                                                                wf2["last_publish_target"] = f"{publish.get('sftp_host', '')}:{publish.get('sftp_dir', '')}"
-                                                            else:
-                                                                wf2["last_publish_fail_at"] = now_jst_iso()
-
-                                                            # 成功/失敗どちらでも保存（次の再試行導線に使う）
-                                                            try:
-                                                                await asyncio.to_thread(save_project_to_sftp, p, u)
-                                                                set_current_project(p, u)
-                                                            except Exception:
-                                                                pass
-
-                                                            ui.notify(msg, type="positive" if ok else "negative")
-                                                            publish_panel.refresh()
-                                                        except Exception as e:
-                                                            ui.notify(f"公開に失敗しました: {sanitize_error_text(e)}", type="negative")
-
-                                                    # ダイアログ側から呼べるように保持
-                                                    publish_actions["run"] = _run_publish
-
-                                                    async def _do_publish():
+                                                if can_publish(u):
+                                                    async def _do_backup_and_publish():
+                                                        # _do_publish と同じ安全チェック（事故防止）
                                                         if not can_publish(u):
                                                             ui.notify("公開は admin のみ実行できます", type="negative")
                                                             return
@@ -13542,133 +13587,71 @@ def render_main(u: User) -> None:
                                                             ui.notify("『公開する』チェックをONにしてください", type="warning")
                                                             return
 
-                                                        if not cleanup_confirm.value:
-                                                            await _run_publish(False)
+                                                        try:
+                                                            ui.notify("① ZIPバックアップを案件内に保存中...", type="info")
+                                                            zip_bytes, filename = await asyncio.to_thread(build_site_zip_bytes, p)
+                                                            remote_path = await asyncio.to_thread(save_site_zip_backup_to_project, p, u, zip_bytes, filename)
+
+                                                            # workflow更新（保存）
+                                                            wf2 = get_workflow(p)
+                                                            wf2["last_backup_zip_at"] = now_jst_iso()
+                                                            wf2["last_backup_zip_by"] = u.username
+                                                            try:
+                                                                wf2["last_backup_zip_file"] = Path(str(remote_path or "")).name
+                                                            except Exception:
+                                                                wf2["last_backup_zip_file"] = ""
+
+                                                            await asyncio.to_thread(save_project_to_sftp, p, u)
+                                                            set_current_project(p, u)
+
+                                                            ui.notify("② 公開を開始します...", type="info")
+                                                        except Exception as e:
+                                                            ui.notify(f"バックアップ保存に失敗しました: {sanitize_error_text(e)}", type="negative")
                                                             return
 
-                                                        # ここから危険モード：段階確認ダイアログ
-                                                        cleanup_state["loading"] = True
-                                                        cleanup_state["ok"] = False
-                                                        cleanup_state["message"] = ""
-                                                        cleanup_state["extra"] = []
-                                                        try:
-                                                            cleanup_target_label.text = f"対象: {_mask_text_keep_ends(str(publish.get('sftp_host') or ''))}{_mask_remote_dir(str(publish.get('sftp_dir') or ''))}"
-                                                        except Exception:
-                                                            pass
+                                                        # 公開（危険削除モードならダイアログへ）
+                                                        await _do_publish()
 
-                                                        # 最終確認チェックをリセット
-                                                        try:
-                                                            cleanup_confirm_cb.value = False
-                                                        except Exception:
-                                                            pass
+                                                    with ui.row().classes("q-gutter-sm q-mt-sm"):
+                                                        ui.button("バックアップして公開（推奨）", on_click=_do_backup_and_publish).props("color=positive unelevated")
+                                                        ui.button("公開だけする", on_click=_do_publish).props("color=positive outline")
+                                                    if wf.get("last_publish_at"):
+                                                        ui.label(f"最終公開: {fmt_jst(wf.get('last_publish_at'))} / {wf.get('last_publish_by') or ''}").classes("cvhb-muted q-mt-sm")
 
-                                                        cleanup_dialog.open()
-                                                        cleanup_body.refresh()
+                                                    if wf.get("last_publish_try_at"):
+                                                        try_ok = wf.get("last_publish_try_ok")
+                                                        try_msg = str(wf.get("last_publish_try_message") or "")
+                                                        if len(try_msg) > 140:
+                                                            try_msg = try_msg[:140] + "..."
 
-                                                        try:
-                                                            def _calc_preview():
-                                                                files2 = build_static_site_files(p)
-                                                                keep2 = set(str(k or '').lstrip('/') for k in files2.keys() if k)
-                                                                return compute_remote_extra_files_for_cleanup(
-                                                                    host=str(publish.get("sftp_host") or ""),
-                                                                    port=int(publish.get("sftp_port", 22) or 22),
-                                                                    user=str(publish.get("sftp_user") or ""),
-                                                                    password=publish_ui_state.get("password", ""),
-                                                                    remote_dir=str(publish.get("sftp_dir") or ""),
-                                                                    keep_files=keep2,
-                                                                    exclude_patterns=parse_cleanup_exclude_list(publish.get("cleanup_exclude")),
-                                                                )
-                                                            ok2, msg2, extra2 = await asyncio.to_thread(_calc_preview)
-                                                            cleanup_state["loading"] = False
-                                                            cleanup_state["ok"] = ok2
-                                                            cleanup_state["message"] = msg2
-                                                            cleanup_state["extra"] = extra2
-                                                            cleanup_body.refresh()
-                                                        except Exception as e:
-                                                            cleanup_state["loading"] = False
-                                                            cleanup_state["ok"] = False
-                                                            cleanup_state["message"] = f"確認に失敗しました: {sanitize_error_text(e)}"
-                                                            cleanup_state["extra"] = []
-                                                            cleanup_body.refresh()
+                                                        # 件数表示（部分成功もわかるように）
+                                                        try_total = int(wf.get("last_publish_try_total") or 0)
+                                                        try_success = int(wf.get("last_publish_try_success") or 0)
+                                                        try_failed = int(wf.get("last_publish_try_failed") or 0)
 
-                                                    if can_publish(u):
-                                                        async def _do_backup_and_publish():
-                                                            # _do_publish と同じ安全チェック（事故防止）
-                                                            if not can_publish(u):
-                                                                ui.notify("公開は admin のみ実行できます", type="negative")
-                                                                return
-                                                            if status != "approved":
-                                                                ui.notify("承認OKになってから公開してください", type="warning")
-                                                                return
-                                                            if not pub_confirm.value:
-                                                                ui.notify("『公開する』チェックをONにしてください", type="warning")
-                                                                return
+                                                        if try_ok:
+                                                            status_label = "成功"
+                                                        else:
+                                                            status_label = "一部失敗" if (try_success > 0 and try_failed > 0) else "失敗"
 
-                                                            try:
-                                                                ui.notify("① ZIPバックアップを案件内に保存中...", type="info")
-                                                                zip_bytes, filename = await asyncio.to_thread(build_site_zip_bytes, p)
-                                                                remote_path = await asyncio.to_thread(save_site_zip_backup_to_project, p, u, zip_bytes, filename)
+                                                        ui.label(
+                                                            f"直近の公開試行: {fmt_jst(wf.get('last_publish_try_at'))} / {status_label}（成功{try_success}/失敗{try_failed}/合計{try_total}） / {try_msg}"
+                                                        ).classes("cvhb-muted text-caption q-mt-xs")
 
-                                                                # workflow更新（保存）
-                                                                wf2 = get_workflow(p)
-                                                                wf2["last_backup_zip_at"] = now_jst_iso()
-                                                                wf2["last_backup_zip_by"] = u.username
-                                                                try:
-                                                                    wf2["last_backup_zip_file"] = Path(str(remote_path or "")).name
-                                                                except Exception:
-                                                                    wf2["last_backup_zip_file"] = ""
+                                                        cw = str(wf.get("last_publish_try_cleanup_warn") or "").strip()
+                                                        if cw:
+                                                            ui.label(f"補足: {cw}").classes("cvhb-muted text-caption q-mt-xs")
 
-                                                                await asyncio.to_thread(save_project_to_sftp, p, u)
-                                                                set_current_project(p, u)
+                                                        if try_failed > 0:
+                                                            failed_list = wf.get("last_publish_try_failed_files") or []
+                                                            with ui.expansion("失敗したファイル一覧（先頭30件）").props("dense").classes("q-mt-xs"):
+                                                                for fp in failed_list[:30]:
+                                                                    ui.label(str(fp)).classes("cvhb-muted text-caption")
 
-                                                                ui.notify("② 公開を開始します...", type="info")
-                                                            except Exception as e:
-                                                                ui.notify(f"バックアップ保存に失敗しました: {sanitize_error_text(e)}", type="negative")
-                                                                return
-
-                                                            # 公開（危険削除モードならダイアログへ）
-                                                            await _do_publish()
-
-                                                        with ui.row().classes("q-gutter-sm q-mt-sm"):
-                                                            ui.button("バックアップして公開（推奨）", on_click=_do_backup_and_publish).props("color=positive unelevated")
-                                                            ui.button("公開だけする", on_click=_do_publish).props("color=positive outline")
-                                                        if wf.get("last_publish_at"):
-                                                            ui.label(f"最終公開: {fmt_jst(wf.get('last_publish_at'))} / {wf.get('last_publish_by') or ''}").classes("cvhb-muted q-mt-sm")
-
-                                                        if wf.get("last_publish_try_at"):
-                                                            try_ok = wf.get("last_publish_try_ok")
-                                                            try_msg = str(wf.get("last_publish_try_message") or "")
-                                                            if len(try_msg) > 140:
-                                                                try_msg = try_msg[:140] + "..."
-
-                                                            # 件数表示（部分成功もわかるように）
-                                                            try_total = int(wf.get("last_publish_try_total") or 0)
-                                                            try_success = int(wf.get("last_publish_try_success") or 0)
-                                                            try_failed = int(wf.get("last_publish_try_failed") or 0)
-
-                                                            if try_ok:
-                                                                status_label = "成功"
-                                                            else:
-                                                                status_label = "一部失敗" if (try_success > 0 and try_failed > 0) else "失敗"
-
-                                                            ui.label(
-                                                                f"直近の公開試行: {fmt_jst(wf.get('last_publish_try_at'))} / {status_label}（成功{try_success}/失敗{try_failed}/合計{try_total}） / {try_msg}"
-                                                            ).classes("cvhb-muted text-caption q-mt-xs")
-
-                                                            cw = str(wf.get("last_publish_try_cleanup_warn") or "").strip()
-                                                            if cw:
-                                                                ui.label(f"補足: {cw}").classes("cvhb-muted text-caption q-mt-xs")
-
-                                                            if try_failed > 0:
-                                                                failed_list = wf.get("last_publish_try_failed_files") or []
-                                                                with ui.expansion("失敗したファイル一覧（先頭30件）").props("dense").classes("q-mt-xs"):
-                                                                    for fp in failed_list[:30]:
-                                                                        ui.label(str(fp)).classes("cvhb-muted text-caption")
-
-                                                            if try_ok is False:
-                                                                ui.button("再試行する（全部）", on_click=_do_publish).props("dense outline color=primary no-caps").classes("q-mt-sm")
-                                                    else:
-                                                        ui.label("公開は admin のみ実行できます。").classes("cvhb-muted q-mt-sm")
+                                                        if try_ok is False:
+                                                            ui.button("再試行する（全部）", on_click=_do_publish).props("dense outline color=primary no-caps").classes("q-mt-sm")
+                                                else:
+                                                    ui.label("公開は admin のみ実行できます。").classes("cvhb-muted q-mt-sm")
 
                                         publish_panel()
                                         publish_ref["refresh"] = publish_panel.refresh
@@ -13747,30 +13730,22 @@ def render_main(u: User) -> None:
                                             ui.label(pre).classes("cvhb-muted q-pa-md")
                                             return
 
-                                        # 右プレビュー本体：
-                                        #   ✅ 書き出しZIPと「同じHTML/CSS/JS」を生成して、そのまま表示する
-                                        #   - UI/UXの差分が出ない（ここが単一ソース）
-                                        #   - iframe なので、ビルダー側のCSS/JSと干渉しない
-                                        try:
-                                            pv_files = _normalize_static_site_files(build_static_site_files(copy.deepcopy(p)))
-                                            pv_key = _pv_site_cache_put(pv_files)
-                                            pv_src = f"/pv_site/{pv_key}/index.html"
-                                            ui.html(
-                                                f'''
-<div id="pv-root" style="width:{design_w}px; height:2400px;">
-  <iframe
-    src="{pv_src}"
-    style="width:{design_w}px; height:2400px; border:0; display:block;"
-    loading="eager"
-    referrerpolicy="no-referrer"
-    sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-  ></iframe>
-</div>
-'''
-                                            )
-                                        except Exception:
-                                            ui.label("プレビュー生成で内部エラー（書き出しHTMLの生成に失敗）").classes("text-negative q-pa-md")
+                                        # 右プレビュー本体：書き出し(完成形HP)と同じファイルをそのまま表示（iframe）
+                                        user = current_user()
+                                        if not user:
+                                            ui.label("ログインが必要です").classes("text-negative q-pa-md")
                                             return
+                                        try:
+                                            files_raw = build_static_site_files(p)
+                                            files = _normalize_static_site_files(files_raw)
+                                            pv_key = _preview_site_cache_put(int(user.id), files)
+                                            ui.element("iframe").props(
+                                                f'id="pv-root" src="/pv_site/{pv_key}/index.html"'
+                                            ).style("width: 100%; height: 100%; border: 0; background: transparent;")
+                                        except Exception:
+                                            # フォールバック：旧プレビュー（NiceGUI描画）
+                                            render_preview(p, mode=mode, root_id="pv-root")
+
 
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
