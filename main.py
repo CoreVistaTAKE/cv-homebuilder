@@ -318,6 +318,16 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
         )
 
+        # RGBA/LA でも「完全に不透明」なら JPEG へ（スマホ写真PNGが重くなる対策）
+        if has_alpha and im.mode in ("RGBA", "LA"):
+            try:
+                a = im.getchannel("A")
+                mn, mx = a.getextrema()  # type: ignore
+                if mn == 255 and mx == 255:
+                    has_alpha = False
+            except Exception:
+                pass
+
         if has_alpha:
             out_mime = "image/png"
             try:
@@ -332,7 +342,12 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
                 except Exception:
                     pass
             try:
-                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
+                im.save(out, format="JPEG", quality=82, optimize=True, progressive=True, subsampling=2)
+            except TypeError:
+                try:
+                    im.save(out, format="JPEG", quality=82, optimize=True, progressive=True)
+                except Exception:
+                    return data, mime
             except Exception:
                 return data, mime
 
@@ -422,6 +437,16 @@ def _maybe_resize_image_bytes_contain(data: bytes, mime: str, *, max_w: int, max
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
         )
 
+        # RGBA/LA でも「完全に不透明」なら JPEG へ（スマホ写真PNGが重くなる対策）
+        if has_alpha and im.mode in ("RGBA", "LA"):
+            try:
+                a = im.getchannel("A")
+                mn, mx = a.getextrema()  # type: ignore
+                if mn == 255 and mx == 255:
+                    has_alpha = False
+            except Exception:
+                pass
+
         if has_alpha:
             out_mime = "image/png"
             try:
@@ -436,7 +461,12 @@ def _maybe_resize_image_bytes_contain(data: bytes, mime: str, *, max_w: int, max
                 except Exception:
                     pass
             try:
-                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
+                im.save(out, format="JPEG", quality=82, optimize=True, progressive=True, subsampling=2)
+            except TypeError:
+                try:
+                    im.save(out, format="JPEG", quality=82, optimize=True, progressive=True)
+                except Exception:
+                    return data, mime
             except Exception:
                 return data, mime
 
@@ -444,6 +474,90 @@ def _maybe_resize_image_bytes_contain(data: bytes, mime: str, *, max_w: int, max
         return (out_bytes, out_mime) if out_bytes else (data, mime)
     except Exception:
         return data, mime
+
+
+def _maybe_reencode_image_bytes(data: bytes, mime: str, *, jpeg_quality: int = 82) -> tuple[bytes, str]:
+    """画像bytesを「リサイズせずに」軽量化する（再エンコードのみ）.
+
+    目的:
+    - PNG で保存された写真が重くなりがちなケースを救う（透過が無ければ JPEG へ）
+    - 既存プロジェクトの data URL 画像も、書き出し時に軽量化できるようにする
+
+    仕様:
+    - Pillow(PIL) が無い環境では元データを返す（安全優先）
+    - 画像は EXIF の回転を補正してから処理する
+    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG
+    """
+    try:
+        if not data:
+            return data, mime
+        if not str(mime or "").startswith("image/"):
+            return data, mime
+
+        try:
+            from PIL import Image, ImageOps  # type: ignore
+            from io import BytesIO
+        except Exception:
+            return data, mime
+
+        im = Image.open(BytesIO(data))
+        try:
+            im.load()
+        except Exception:
+            pass
+
+        try:
+            im = ImageOps.exif_transpose(im)
+        except Exception:
+            pass
+
+        has_alpha = (
+            im.mode in ("RGBA", "LA")
+            or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
+        )
+
+        # RGBA/LA でも「完全に不透明」なら透過なし扱い（=JPEGでOK）
+        if has_alpha and im.mode in ("RGBA", "LA"):
+            try:
+                a = im.getchannel("A")
+                mn, mx = a.getextrema()  # type: ignore
+                if mn == 255 and mx == 255:
+                    has_alpha = False
+            except Exception:
+                pass
+
+        from io import BytesIO  # local import（PILがあるときだけ到達）
+        out = BytesIO()
+
+        if has_alpha:
+            out_mime = "image/png"
+            try:
+                im.save(out, format="PNG", optimize=True)
+            except Exception:
+                return data, mime
+        else:
+            out_mime = "image/jpeg"
+            if im.mode != "RGB":
+                try:
+                    im = im.convert("RGB")
+                except Exception:
+                    pass
+            q = int(jpeg_quality) if jpeg_quality else 82
+            try:
+                im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling=2)
+            except TypeError:
+                try:
+                    im.save(out, format="JPEG", quality=q, optimize=True, progressive=True)
+                except Exception:
+                    return data, mime
+            except Exception:
+                return data, mime
+
+        out_bytes = out.getvalue()
+        return (out_bytes, out_mime) if out_bytes else (data, mime)
+    except Exception:
+        return data, mime
+
 
 
 def _upload_debug_summary(obj) -> str:
@@ -8306,26 +8420,26 @@ html,body{
 
 /* Layer2: radial gradient */
 .pv-depth-l2{
-  opacity: var(--pv-depth-l2-opacity, 0.78);
+  opacity: var(--pv-depth-l2-opacity, 0.88);
   background:
     radial-gradient(900px 720px at 18% 18%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.34) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.16) 34%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.44) 0%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.22) 34%,
       transparent 64%),
     radial-gradient(980px 820px at 82% 16%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.26) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.12) 36%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.36) 0%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.18) 36%,
       transparent 66%),
     radial-gradient(980px 820px at 70% 88%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.22) 0%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.10) 38%,
+      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.32) 0%,
+      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.16) 38%,
       transparent 70%);
 }
 
 /* Layer3: organic blob */
 .pv-depth-l3{
-  opacity: var(--pv-depth-l3-opacity, 0.33);
-  filter: blur(22px);
+  opacity: var(--pv-depth-l3-opacity, 0.42);
+  filter: blur(16px);
   transform: translateZ(0);
 }
 .pv-depth-blob{
@@ -8335,8 +8449,8 @@ html,body{
   border-radius: 42% 58% 62% 38% / 46% 52% 48% 54%;
   background:
     radial-gradient(circle at 35% 35%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.40) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.14) 52%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.58) 0%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.22) 52%,
       transparent 72%);
   will-change: transform;
 }
@@ -8353,8 +8467,8 @@ html,body{
   border-radius: 55% 45% 40% 60% / 50% 55% 45% 50%;
   background:
     radial-gradient(circle at 58% 40%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.36) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.12) 54%,
+      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.52) 0%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.18) 54%,
       transparent 74%);
   animation: pvBlobFloatB 18s ease-in-out infinite;
 }
@@ -8369,7 +8483,7 @@ html,body{
 
 /* Layer4: geometric line */
 .pv-depth-l4{
-  opacity: var(--pv-depth-l4-opacity, 0.12);
+  opacity: var(--pv-depth-l4-opacity, 0.18);
   background-image:
     repeating-linear-gradient(  35deg,
       rgba(var(--pv-depth-line-rgb, 15,23,42), 0.22) 0 1px,
@@ -8385,21 +8499,21 @@ html,body{
 
 /* Layer5: light orb */
 .pv-depth-l5{
-  opacity: var(--pv-depth-l5-opacity, 0.46);
+  opacity: var(--pv-depth-l5-opacity, 0.58);
 }
 .pv-depth-orb{
   position: absolute;
   width: 40vmax;
   height: 40vmax;
   border-radius: 999px;
-  filter: blur(10px);
+  filter: blur(8px);
   transform: translateZ(0);
   mix-blend-mode: screen;
   will-change: transform;
   background:
     radial-gradient(circle at 32% 30%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.42) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.20) 38%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.56) 0%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.26) 38%,
       transparent 64%);
 }
 .pv-depth-orb.orb-a{
@@ -8414,8 +8528,8 @@ html,body{
   height: 46vmax;
   background:
     radial-gradient(circle at 60% 42%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.34) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.16) 42%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.48) 0%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.22) 42%,
       transparent 66%);
   animation: pvOrbMoveB 14s ease-in-out infinite;
 }
@@ -8588,6 +8702,11 @@ html,body{
         u = str(url).strip()
         if _is_data_url(u):
             mime, bts = _data_url_meta(u)
+            if bts:
+                try:
+                    bts, mime = _maybe_reencode_image_bytes(bts, mime, jpeg_quality=82)
+                except Exception:
+                    pass
             ext = _mime_to_ext(mime).lstrip(".").lower()
             if not ext or ext == "bin":
                 ext = "jpg"
@@ -8631,6 +8750,11 @@ html,body{
     ph_img_href = ""
     if ph_img_url and _is_data_url(ph_img_url):
         mime, bts = _data_url_meta(ph_img_url)
+        if bts:
+            try:
+                bts, mime = _maybe_reencode_image_bytes(bts, mime, jpeg_quality=82)
+            except Exception:
+                pass
         ext = _mime_to_ext(mime).lstrip(".").lower()
         if not ext or ext == "bin":
             ext = "jpg"
@@ -8649,6 +8773,11 @@ html,body{
     svc_img_href = ""
     if svc_img_url and _is_data_url(svc_img_url):
         mime, bts = _data_url_meta(svc_img_url)
+        if bts:
+            try:
+                bts, mime = _maybe_reencode_image_bytes(bts, mime, jpeg_quality=82)
+            except Exception:
+                pass
         ext = _mime_to_ext(mime).lstrip(".").lower()
         if not ext or ext == "bin":
             ext = "jpg"
@@ -9052,7 +9181,7 @@ var DepthBg = (function(){
   var _tweenDur = 650;
 
   // perf throttle
-  var _fps = 24;
+  var _fps = 15;
   var _frameMs = 1000 / _fps;
   var _lastFrame = 0;
 
@@ -9063,14 +9192,14 @@ var DepthBg = (function(){
 
   // 2〜3色（＋薄いベース）で上品に：各テーマは「明るめ」寄せ
   var MODES = {
-    blue:   { b1:[236,247,255], b2:[250,253,255], c1:[37,99,235],  c2:[56,189,248], c3:[167,139,250], ink:[15,23,42] },
-    red:    { b1:[255,242,246], b2:[255,250,252], c1:[239,68,68],  c2:[251,113,133], c3:[244,63,94],  ink:[15,23,42] },
-    green:  { b1:[240,255,247], b2:[250,255,252], c1:[34,197,94],  c2:[45,212,191], c3:[132,204,22], ink:[15,23,42] },
-    orange: { b1:[255,248,238], b2:[255,253,248], c1:[249,115,22], c2:[251,191,36], c3:[245,158,11], ink:[15,23,42] },
-    purple: { b1:[248,244,255], b2:[253,250,255], c1:[168,85,247], c2:[99,102,241], c3:[236,72,153], ink:[15,23,42] },
-    gray:   { b1:[243,246,250], b2:[250,252,255], c1:[100,116,139], c2:[148,163,184], c3:[71,85,105], ink:[15,23,42] },
-    white:  { b1:[255,255,255], b2:[244,248,252], c1:[59,130,246], c2:[34,197,94],  c3:[234,179,8],  ink:[15,23,42] },
-    yellow: { b1:[255,252,235], b2:[255,248,210], c1:[234,179,8],  c2:[250,204,21], c3:[249,115,22], ink:[15,23,42] },
+    blue:   { b1:[220,240,255], b2:[245,250,255], c1:[37,99,235],  c2:[56,189,248], c3:[167,139,250], ink:[15,23,42] },
+    red:    { b1:[255,228,235], b2:[255,246,250], c1:[239,68,68],  c2:[251,113,133], c3:[244,63,94],  ink:[15,23,42] },
+    green:  { b1:[224,255,240], b2:[246,255,250], c1:[34,197,94],  c2:[45,212,191], c3:[132,204,22], ink:[15,23,42] },
+    orange: { b1:[255,235,214], b2:[255,248,240], c1:[249,115,22], c2:[251,191,36], c3:[245,158,11], ink:[15,23,42] },
+    purple: { b1:[238,232,255], b2:[250,246,255], c1:[168,85,247], c2:[99,102,241], c3:[236,72,153], ink:[15,23,42] },
+    gray:   { b1:[232,238,246], b2:[248,250,253], c1:[100,116,139], c2:[148,163,184], c3:[71,85,105], ink:[15,23,42] },
+    white:  { b1:[255,255,255], b2:[238,244,252], c1:[59,130,246], c2:[34,197,94],  c3:[234,179,8],  ink:[15,23,42] },
+    yellow: { b1:[255,248,214], b2:[255,244,188], c1:[234,179,8],  c2:[250,204,21], c3:[249,115,22], ink:[15,23,42] },
     black:  { b1:[9,10,18],     b2:[0,0,0],       c1:[56,189,248],  c2:[167,139,250], c3:[34,197,94],  ink:[255,255,255], dark:true }
   };
 
@@ -9125,11 +9254,11 @@ var DepthBg = (function(){
 
       // opacity（文章の読みやすさ優先）
       var dark = !!p.dark;
-      el.style.setProperty('--pv-depth-l2-opacity', dark ? 0.58 : 0.78);
-      el.style.setProperty('--pv-depth-l3-opacity', dark ? 0.30 : 0.33);
-      el.style.setProperty('--pv-depth-l4-opacity', dark ? 0.10 : 0.12);
-      el.style.setProperty('--pv-depth-l5-opacity', dark ? 0.44 : 0.46);
-      el.style.setProperty('--pv-depth-vignette',   dark ? 0.22 : 0.16);
+      el.style.setProperty('--pv-depth-l2-opacity', dark ? 0.62 : 0.90);
+      el.style.setProperty('--pv-depth-l3-opacity', dark ? 0.34 : 0.44);
+      el.style.setProperty('--pv-depth-l4-opacity', dark ? 0.12 : 0.18);
+      el.style.setProperty('--pv-depth-l5-opacity', dark ? 0.50 : 0.62);
+      el.style.setProperty('--pv-depth-vignette',   dark ? 0.26 : 0.18);
     }catch(e){}
   }
 
@@ -9215,7 +9344,7 @@ var DepthBg = (function(){
     var driftX = Math.sin(t*0.35) * 6 + Math.cos(t*0.21) * 4;
     var driftY = Math.cos(t*0.33) * 6 + Math.sin(t*0.18) * 4;
 
-    var amp = 48; // 視差の強さ（重くしない範囲）
+    var amp = 56; // 視差の強さ（重くしない範囲）
     var px = _x * amp;
     var py = _y * amp;
 
