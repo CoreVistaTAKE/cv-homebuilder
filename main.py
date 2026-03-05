@@ -2354,6 +2354,7 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-services-lead{
   margin-top: 6px;
+  font-size: 1.05rem;
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.75;
@@ -5748,7 +5749,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
-    is_dark = primary_key not in ("white", "yellow")
+    is_dark = (primary_key == "black")
 
     def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
         h = (hex_str or "").strip().lstrip("#")
@@ -6238,7 +6239,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
-    is_dark = primary_key not in ("white", "yellow")
+    is_dark = (primary_key == "black")
 
     def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
         h = (hex_str or "").strip().lstrip("#")
@@ -8265,8 +8266,18 @@ a:hover{text-decoration:none;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 
 /* =========================
-   Depth Background (v0.9.18)
+   Depth Background (v0.9.23)
    5 layers / parallax / 9 color modes
+
+   ✅ レイヤーの役割を固定（指示どおり）
+   Layer1  ベースカラー
+   Layer2  radial gradient
+   Layer3  organic blob
+   Layer4  geometric line
+   Layer5  light orb
+
+   色：2〜3色（c1/c2/c3）
+   動き：3種類（マウス/スクロール/ゆっくりフロート）
    ========================= */
 
 :root{
@@ -8274,11 +8285,12 @@ a:hover{text-decoration:none;}
   --pv-depth-c2-rgb: 56,189,248;
   --pv-depth-c3-rgb: 167,139,250;
 
-  --pv-depth-base-1-rgb: 10,14,28;
-  --pv-depth-base-2-rgb: 3,6,15;
+  /* light default（暗くなりすぎない） */
+  --pv-depth-base-1-rgb: 235,246,255;
+  --pv-depth-base-2-rgb: 214,232,255;
 
-  --pv-depth-particle-rgb: 255,255,255;
-  --pv-depth-line-rgb: 255,255,255;
+  --pv-depth-ink-rgb: 15,23,42;
+  --pv-depth-line-rgb: 15,23,42;
 }
 
 .pv-depth-bg{
@@ -8293,64 +8305,66 @@ a:hover{text-decoration:none;}
   position: absolute;
   inset: -12%;
   will-change: transform;
+  transform: translate3d(0,0,0);
 }
 
+/* Layer1: ベースカラー */
 .pv-depth-l1{
-  background:
-    radial-gradient(1200px 900px at 10% 10%, rgba(var(--pv-depth-c2-rgb),0.35), rgba(0,0,0,0) 60%),
-    radial-gradient( 900px 700px at 85% 20%, rgba(var(--pv-depth-c3-rgb),0.30), rgba(0,0,0,0) 55%),
-    radial-gradient(1100px 800px at 40% 80%, rgba(var(--pv-depth-c1-rgb),0.32), rgba(0,0,0,0) 60%),
-    linear-gradient(180deg, rgb(var(--pv-depth-base-1-rgb)) 0%, rgb(var(--pv-depth-base-2-rgb)) 100%);
-  filter: saturate(1.15);
-  animation: pvDepthGradient 18s ease-in-out infinite alternate;
-}
-
-@keyframes pvDepthGradient{
-  0%   { filter: saturate(1.00) hue-rotate(0deg); transform: scale(1.00); }
-  100% { filter: saturate(1.10) hue-rotate(6deg); transform: scale(1.03); }
-}
-
-#pv-depth-canvas{
   inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0.35;
+  background: linear-gradient(180deg,
+    rgb(var(--pv-depth-base-1-rgb)) 0%,
+    rgb(var(--pv-depth-base-2-rgb)) 100%);
 }
 
+/* Layer2: radial gradient（メリハリ） */
+.pv-depth-l2{
+  background:
+    radial-gradient(1200px 900px at 10% 10%, rgba(var(--pv-depth-c1-rgb),0.26), rgba(0,0,0,0) 62%),
+    radial-gradient(1000px 760px at 90% 18%, rgba(var(--pv-depth-c2-rgb),0.22), rgba(0,0,0,0) 60%),
+    radial-gradient(1100px 840px at 52% 92%, rgba(var(--pv-depth-c3-rgb),0.18), rgba(0,0,0,0) 64%);
+  opacity: 0.95;
+  filter: saturate(1.05);
+}
+
+/* Layer3: organic blob（ぼかした有機形） */
 .pv-depth-l3{
-  inset: -8%;
-  filter: blur(28px);
+  inset: -10%;
+  filter: blur(26px);
   opacity: 0.55;
+  background:
+    radial-gradient(640px 520px at 22% 35%, rgba(var(--pv-depth-c2-rgb),0.26), rgba(0,0,0,0) 66%),
+    radial-gradient(760px 600px at 72% 62%, rgba(var(--pv-depth-c1-rgb),0.22), rgba(0,0,0,0) 68%),
+    radial-gradient(820px 640px at 48% 48%, rgba(var(--pv-depth-c3-rgb),0.18), rgba(0,0,0,0) 72%);
+  /* light時は "影" を少し作る */
+  mix-blend-mode: multiply;
 }
 
-.pv-depth-l3 .pv-depth-orb{
-  position: absolute;
-  width: 520px;
-  height: 520px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, rgba(var(--pv-depth-c3-rgb),0.28), rgba(0,0,0,0) 62%);
+/* dark（黒テーマ）だけ、blob を "光" 寄りに */
+.pv-depth-bg.pv-depth-dark .pv-depth-l3{
   mix-blend-mode: screen;
-  opacity: 0.9;
-  animation: pvOrbFloat 14s ease-in-out infinite alternate;
+  opacity: 0.52;
 }
 
-.pv-depth-l3 .pv-depth-orb.o1{ left: 8%;  top: 12%;  animation-duration: 16s; }
-.pv-depth-l3 .pv-depth-orb.o2{ right: 10%; top: 22%; width: 420px; height: 420px; animation-duration: 18s; }
-.pv-depth-l3 .pv-depth-orb.o3{ left: 30%; bottom: 10%; width: 580px; height: 580px; animation-duration: 20s; }
-
-@keyframes pvOrbFloat{
-  0%   { transform: translate3d(0,0,0) scale(1.00); }
-  100% { transform: translate3d(18px,-22px,0) scale(1.05); }
-}
-
+/* Layer4: geometric line（柄） */
 .pv-depth-l4{
   inset: -20%;
   opacity: 0.18;
   background-image:
-    repeating-linear-gradient( 65deg, rgba(var(--pv-depth-line-rgb),0.20) 0 1px, rgba(0,0,0,0) 1px 24px),
-    repeating-linear-gradient(-20deg, rgba(var(--pv-depth-line-rgb),0.14) 0 1px, rgba(0,0,0,0) 1px 34px);
-  mask-image: radial-gradient(circle at 40% 40%, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0.0) 75%);
-  animation: pvLinesMove 20s linear infinite;
+    repeating-linear-gradient( 65deg,
+      rgba(var(--pv-depth-line-rgb),0.16) 0 1px,
+      rgba(0,0,0,0) 1px 26px),
+    repeating-linear-gradient(-20deg,
+      rgba(var(--pv-depth-line-rgb),0.10) 0 1px,
+      rgba(0,0,0,0) 1px 38px);
+  mask-image: radial-gradient(circle at 40% 40%,
+    rgba(0,0,0,0.85) 0%,
+    rgba(0,0,0,0.22) 55%,
+    rgba(0,0,0,0.0) 78%);
+  animation: pvLinesMove 22s linear infinite;
+}
+
+.pv-depth-bg.pv-depth-dark .pv-depth-l4{
+  opacity: 0.22;
 }
 
 @keyframes pvLinesMove{
@@ -8358,27 +8372,74 @@ a:hover{text-decoration:none;}
   100% { background-position: 240px -320px, -320px 240px; }
 }
 
+/* Layer5: light orb（光の玉） */
 .pv-depth-l5{
-  inset: 0;
-  opacity: 0.38;
-  background-image:
-    radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0.55) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.32'/%3E%3C/svg%3E");
-  background-size: cover, 160px 160px;
-  mix-blend-mode: normal;
+  inset: -6%;
+  opacity: 0.95;
+}
+
+.pv-depth-l5 .pv-depth-orb{
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+  animation: pvOrbFloat 14s ease-in-out infinite alternate;
+}
+
+.pv-depth-l5 .pv-depth-orb.o1{
+  left: 6%;
+  top: 10%;
+  width: 520px;
+  height: 520px;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--pv-depth-c1-rgb),0.22), rgba(0,0,0,0) 62%);
+  animation-duration: 17s;
+}
+
+.pv-depth-l5 .pv-depth-orb.o2{
+  right: 8%;
+  top: 18%;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--pv-depth-c2-rgb),0.20), rgba(0,0,0,0) 62%);
+  animation-duration: 19s;
+}
+
+.pv-depth-l5 .pv-depth-orb.o3{
+  left: 30%;
+  bottom: 8%;
+  width: 580px;
+  height: 580px;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--pv-depth-c3-rgb),0.18), rgba(0,0,0,0) 62%);
+  animation-duration: 21s;
+}
+
+.pv-depth-bg.pv-depth-light .pv-depth-l5 .pv-depth-orb{
+  /* 明るい背景：軽く "陰影" っぽく */
+  mix-blend-mode: multiply;
+  opacity: 0.22;
+}
+
+.pv-depth-bg.pv-depth-dark .pv-depth-l5 .pv-depth-orb{
+  /* 暗い背景：光らせる */
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+
+@keyframes pvOrbFloat{
+  0%   { transform: translate3d(0,0,0) scale(1.00); }
+  100% { transform: translate3d(20px,-26px,0) scale(1.06); }
 }
 
 @media (prefers-reduced-motion: reduce){
-  .pv-depth-l1,
-  .pv-depth-l3 .pv-depth-orb,
-  .pv-depth-l4{
+  .pv-depth-l4,
+  .pv-depth-l5 .pv-depth-orb{
     animation: none !important;
   }
 }
 
-/* 背景を見せるために、シェル/スクロールの「塗り」を透明にする */
-.pv-layout-260218.pv-shell,
-.pv-layout-260218 .pv-scroll{
+/* 背景を見せるために、シェル/スクロールの「塗り」を透明にする
+   ※ DepthBg が有効化されたときだけ（JS無しでも崩れない） */
+.pv-layout-260218.pv-shell.pv-depth-on,
+.pv-layout-260218.pv-shell.pv-depth-on .pv-scroll{
   background: transparent !important;
   background-image: none !important;
 }
@@ -8388,7 +8449,6 @@ a:hover{text-decoration:none;}
   position: relative;
   z-index: 1;
 }
-
 
 /* ====== Motion upgrade (v0.9.21) ======
    - ヒーロー画像：クロスフェード
@@ -8432,10 +8492,19 @@ a:hover{text-decoration:none;}
   will-change: opacity, transform, filter;
 }
 
+/* PC: left:50% + translateX(-50%) で中央寄せしているので、それを保持する */
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero-caption{
+  transform: translateX(-50%) translateY(14px);
+}
+
 .pv-layout-260218.pv-js .pv-hero-caption.is-show{
   opacity: 1;
   transform: none;
   filter: none;
+}
+
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero-caption.is-show{
+  transform: translateX(-50%) translateY(0);
 }
 
 /* スクロール浮上アニメ（セクション全体） */
@@ -8986,10 +9055,7 @@ a:hover{text-decoration:none;}
     var bg = null;
 
     // DOM refs（毎フレームの querySelector を避けて軽くする）
-    var l1 = null, cvs = null, l3 = null, l4 = null, l5 = null;
-    var canvas = null;
-    var ctx = null;
-    var dpr = 1;
+    var l1 = null, l2 = null, l3 = null, l4 = null, l5 = null;
 
     // input（目標値）→ 実値（ふわっと追従）
     var tMouseX = 0, tMouseY = 0;
@@ -8998,15 +9064,9 @@ a:hover{text-decoration:none;}
 
     var w = 1, h = 1;
 
-    // particles
-    var particles = [];
-
-    // fps（15〜20fps に抑えてPCでも重くなりにくく）
+    // fps（15〜30fpsに抑えて、PCでも重くなりにくく）
     var lastFrameTs = 0;
-    var frameInterval = 50; // mobile default: 20fps
-
-    // canvas color cache（毎フレーム getComputedStyle しない）
-    var particleRgb = '255,255,255';
+    var frameInterval = 42; // default: 24fps
 
     // color tween
     var current = null;
@@ -9015,23 +9075,23 @@ a:hover{text-decoration:none;}
     var tweenMs = 900;
 
     // 9色モード（青/赤/緑/オレンジ/紫/灰/黒/白/黄）
-    // ※ white / yellow は明るめ、それ以外は「奥行きダーク」寄り
+    // ✅「白黒以外が真っ黒」を防ぐため、基本は"明るめ"に統一
     var MODES = {
-      blue:   { c1:[ 15,118,255], c2:[ 56,189,248], c3:[167,139,250], ink:[255,255,255], b1:[ 10, 24, 64], b2:[  4, 10, 30] },
-      red:    { c1:[239, 68, 68], c2:[251,113,133], c3:[244, 63, 94], ink:[255,255,255], b1:[ 64, 20, 24], b2:[ 26,  8, 10] },
-      green:  { c1:[ 34,197, 94], c2:[ 45,212,191], c3:[132,204, 22], ink:[255,255,255], b1:[ 10, 44, 34], b2:[  4, 18, 14] },
-      orange: { c1:[249,115, 22], c2:[251,191, 36], c3:[245,158, 11], ink:[255,255,255], b1:[ 62, 34, 16], b2:[ 28, 14,  6] },
-      purple: { c1:[168, 85,247], c2:[ 99,102,241], c3:[236, 72,153], ink:[255,255,255], b1:[ 44, 18, 76], b2:[ 20,  8, 34] },
-      gray:   { c1:[ 71, 85,105], c2:[148,163,184], c3:[ 30, 41, 59], ink:[255,255,255], b1:[ 34, 40, 58], b2:[ 14, 18, 28] },
-      black:  { c1:[  2,  6, 23], c2:[ 15, 23, 42], c3:[  0,  0,  0], ink:[255,255,255], b1:[  2,  6, 23], b2:[  0,  0,  0] },
-      white:  { c1:[255,255,255], c2:[226,232,240], c3:[203,213,225], ink:[ 15, 23, 42], b1:[246,248,252], b2:[232,236,244] },
-      yellow: { c1:[250,204, 21], c2:[253,224, 71], c3:[234,179,  8], ink:[ 15, 23, 42], b1:[255,247,214], b2:[255,235,176] },
+      blue:   { c1:[ 15,118,255], c2:[ 56,189,248], c3:[167,139,250], ink:[ 15, 23, 42], b1:[235,246,255], b2:[214,232,255] },
+      red:    { c1:[239, 68, 68], c2:[251,113,133], c3:[244, 63, 94], ink:[ 15, 23, 42], b1:[255,240,243], b2:[255,228,234] },
+      green:  { c1:[ 34,197, 94], c2:[ 45,212,191], c3:[132,204, 22], ink:[ 15, 23, 42], b1:[236,255,247], b2:[214,246,235] },
+      orange: { c1:[249,115, 22], c2:[251,191, 36], c3:[245,158, 11], ink:[ 15, 23, 42], b1:[255,248,238], b2:[255,235,214] },
+      purple: { c1:[168, 85,247], c2:[ 99,102,241], c3:[236, 72,153], ink:[ 15, 23, 42], b1:[250,244,255], b2:[236,228,255] },
+      gray:   { c1:[ 71, 85,105], c2:[148,163,184], c3:[ 30, 41, 59], ink:[ 15, 23, 42], b1:[245,247,250], b2:[229,233,240] },
+      black:  { c1:[ 56,189,248], c2:[ 99,102,241], c3:[236, 72,153], ink:[255,255,255], b1:[  2,  6, 23], b2:[  0,  0,  0] },
+      white:  { c1:[148,163,184], c2:[ 59,130,246], c3:[167,139,250], ink:[ 15, 23, 42], b1:[250,252,255], b2:[238,242,247] },
+      yellow: { c1:[250,204, 21], c2:[253,224, 71], c3:[234,179,  8], ink:[ 15, 23, 42], b1:[255,250,230], b2:[255,242,196] },
     };
 
     function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
     function lerp(a, b, t){ return a + (b - a) * t; }
     function easeInOut(t){
-      // ゆる→速→ゆる（プロっぽい気持ちよさ）
+      // ゆる→速→ゆる（見た目が上品）
       return (t < 0.5) ? (2 * t * t) : (1 - Math.pow(-2 * t + 2, 2) / 2);
     }
     function mix3(ca, cb, t){
@@ -9052,8 +9112,8 @@ a:hover{text-decoration:none;}
     }
 
     function updateQuality(){
-      // PCは少し低め（15fps）で軽く、モバイルは20fpsくらい
-      frameInterval = isPc() ? 66 : 50;
+      // PCは20fps、モバイルは24fps くらい（重さと滑らかさの中間）
+      frameInterval = isPc() ? 50 : 42;
     }
 
     function guessModeFromRoot(root){
@@ -9069,19 +9129,19 @@ a:hover{text-decoration:none;}
 
       bg = document.createElement('div');
       bg.id = 'pv-depth-bg';
-      bg.className = 'pv-depth-bg';
+      bg.className = 'pv-depth-bg pv-depth-light';
 
-      // 5層（1:動的グラデ / 2:粒子 / 3:光の玉 / 4:ライン / 5:ノイズ&ビネット）
+      // ✅ 5層（役割固定）
       bg.innerHTML = ''
         + '<div class="pv-depth-layer pv-depth-l1"></div>'
-        + '<canvas class="pv-depth-layer pv-depth-l2" id="pv-depth-canvas"></canvas>'
-        + '<div class="pv-depth-layer pv-depth-l3">'
+        + '<div class="pv-depth-layer pv-depth-l2"></div>'
+        + '<div class="pv-depth-layer pv-depth-l3"></div>'
+        + '<div class="pv-depth-layer pv-depth-l4"></div>'
+        + '<div class="pv-depth-layer pv-depth-l5">'
         +   '<div class="pv-depth-orb o1"></div>'
         +   '<div class="pv-depth-orb o2"></div>'
         +   '<div class="pv-depth-orb o3"></div>'
-        + '</div>'
-        + '<div class="pv-depth-layer pv-depth-l4"></div>'
-        + '<div class="pv-depth-layer pv-depth-l5"></div>';
+        + '</div>';
 
       try{
         document.body.insertBefore(bg, document.body.firstChild);
@@ -9090,62 +9150,16 @@ a:hover{text-decoration:none;}
       }
 
       l1 = bg.querySelector('.pv-depth-l1');
-      canvas = bg.querySelector('#pv-depth-canvas');
-      cvs = canvas;
+      l2 = bg.querySelector('.pv-depth-l2');
       l3 = bg.querySelector('.pv-depth-l3');
       l4 = bg.querySelector('.pv-depth-l4');
       l5 = bg.querySelector('.pv-depth-l5');
-
-      try{
-        ctx = canvas.getContext('2d', { alpha: true });
-      }catch(e){
-        ctx = canvas.getContext('2d');
-      }
-    }
-
-    function makeParticles(n){
-      var arr = [];
-      for(var i=0;i<n;i++){
-        arr.push({
-          x: Math.random() * w,
-          y: Math.random() * h,
-          r: Math.random() * 1.6 + 0.6,
-          // 速度は小さめ（上品に & 軽く）
-          vx: (Math.random() * 0.16 + 0.03) * (Math.random() < 0.5 ? -1 : 1),
-          vy: (Math.random() * 0.10 + 0.02) * (Math.random() < 0.5 ? -1 : 1),
-          a: Math.random() * 0.30 + 0.06,
-        });
-      }
-      return arr;
     }
 
     function resize(){
       w = window.innerWidth || 1;
       h = window.innerHeight || 1;
-
       updateQuality();
-
-      // canvas は控えめ解像度（dpr を下げて軽量化）
-      dpr = Math.max(1, Math.min(1.25, window.devicePixelRatio || 1));
-
-      if(canvas){
-        canvas.width = Math.floor(w * dpr);
-        canvas.height = Math.floor(h * dpr);
-        canvas.style.width = w + 'px';
-        canvas.style.height = h + 'px';
-        if(ctx){
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        }
-      }
-
-      // 画面サイズに応じて粒子数を調整（軽くする）
-      var area = (w * h);
-      var denom = isPc() ? 65000 : 52000;
-      var maxN = isPc() ? 48 : 55;
-      var want = Math.round(clamp(area / denom, 16, maxN));
-      if(particles.length !== want){
-        particles = makeParticles(want);
-      }
     }
 
     function setCssVars(p){
@@ -9154,14 +9168,20 @@ a:hover{text-decoration:none;}
       el.style.setProperty('--pv-depth-c1-rgb', cssRgb(p.c1));
       el.style.setProperty('--pv-depth-c2-rgb', cssRgb(p.c2));
       el.style.setProperty('--pv-depth-c3-rgb', cssRgb(p.c3));
-      el.style.setProperty('--pv-depth-base-1-rgb', cssRgb(p.b1 || [10,14,28]));
-      el.style.setProperty('--pv-depth-base-2-rgb', cssRgb(p.b2 || [3,6,15]));
+      el.style.setProperty('--pv-depth-base-1-rgb', cssRgb(p.b1 || [245,247,250]));
+      el.style.setProperty('--pv-depth-base-2-rgb', cssRgb(p.b2 || [229,233,240]));
+      el.style.setProperty('--pv-depth-ink-rgb', cssRgb(p.ink || [15,23,42]));
 
-      // 粒子/ラインは背景とケンカしないよう、少しだけ "ink" に寄せる
-      particleRgb = cssRgb(mix3(p.c2, p.ink, 0.55));
-      var lineRgb = cssRgb(mix3(p.c1, p.ink, 0.35));
-      el.style.setProperty('--pv-depth-particle-rgb', particleRgb);
+      // line は、ink に少しだけ c1 を混ぜる（色が乗るけど、うるさくならない）
+      var lineRgb = cssRgb(mix3(p.ink || [15,23,42], p.c1 || [15,118,255], 0.22));
       el.style.setProperty('--pv-depth-line-rgb', lineRgb);
+
+      // dark / light の見た目調整
+      try{
+        var isDark = (p.ink && p.ink[0] > 200); // white text => dark
+        bg.classList.toggle('pv-depth-dark', !!isDark);
+        bg.classList.toggle('pv-depth-light', !isDark);
+      }catch(e){}
     }
 
     function setMode(next, instant){
@@ -9184,56 +9204,32 @@ a:hover{text-decoration:none;}
       tweenStart = performance.now();
     }
 
-    function drawParticles(dt){
-      if(!ctx){ return; }
-
-      ctx.clearRect(0, 0, w, h);
-
-      ctx.fillStyle = 'rgba(' + (particleRgb || '255,255,255') + ', 0.9)';
-
-      for(var i=0;i<particles.length;i++){
-        var p = particles[i];
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-
-        if(p.x < -10) p.x = w + 10;
-        if(p.x > w + 10) p.x = -10;
-        if(p.y < -10) p.y = h + 10;
-        if(p.y > h + 10) p.y = -10;
-
-        ctx.globalAlpha = p.a;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
-
     function applyTransforms(ts){
-      if(!l1 || !cvs || !l3 || !l4 || !l5) return;
+      if(!l1 || !l2 || !l3 || !l4 || !l5) return;
 
       // 入力値（目標）へ、ふわっと追従
       mouseX += (tMouseX - mouseX) * 0.08;
       mouseY += (tMouseY - mouseY) * 0.08;
       scrollY += (tScroll - scrollY) * 0.12;
 
+      // ✅ 3種類の動き：mouse / scroll / float
       var t = ts / 1000;
       var floatX = Math.sin(t * 0.55) * 10 + Math.cos(t * 0.21) * 6;
       var floatY = Math.cos(t * 0.50) * 8 + Math.sin(t * 0.18) * 5;
 
       var scroll = scrollY;
-      var px = mouseX * 30;
-      var py = mouseY * 24;
+      var px = mouseX * 28;
+      var py = mouseY * 22;
 
       // レイヤーごとに動きを変えて「奥行き」を作る
-      var t1 = "translate3d(" + (px * 0.25 + floatX * 0.20) + "px," + (py * 0.20 + floatY * 0.20 - scroll * 0.04) + "px,0)";
-      var t2 = "translate3d(" + (px * 0.40 + floatX * 0.35) + "px," + (py * 0.32 + floatY * 0.35 - scroll * 0.06) + "px,0)";
-      var t3 = "translate3d(" + (px * 0.55 + floatX * 0.55) + "px," + (py * 0.44 + floatY * 0.55 - scroll * 0.08) + "px,0)";
-      var t4 = "translate3d(" + (px * 0.80 + floatX * 0.65) + "px," + (py * 0.60 + floatY * 0.65 - scroll * 0.10) + "px,0)";
-      var t5 = "translate3d(" + (px * 0.18) + "px," + (py * 0.12) + "px,0)";
+      var t1 = "translate3d(" + (px * 0.18 + floatX * 0.18) + "px," + (py * 0.14 + floatY * 0.18 - scroll * 0.03) + "px,0)";
+      var t2 = "translate3d(" + (px * 0.30 + floatX * 0.28) + "px," + (py * 0.24 + floatY * 0.28 - scroll * 0.05) + "px,0)";
+      var t3 = "translate3d(" + (px * 0.42 + floatX * 0.38) + "px," + (py * 0.34 + floatY * 0.38 - scroll * 0.07) + "px,0)";
+      var t4 = "translate3d(" + (px * 0.66 + floatX * 0.48) + "px," + (py * 0.52 + floatY * 0.48 - scroll * 0.10) + "px,0)";
+      var t5 = "translate3d(" + (px * 0.54 + floatX * 0.44) + "px," + (py * 0.44 + floatY * 0.44 - scroll * 0.08) + "px,0)";
 
       l1.style.transform = t1;
-      cvs.style.transform = t2;
+      l2.style.transform = t2;
       l3.style.transform = t3;
       l4.style.transform = t4;
       l5.style.transform = t5;
@@ -9250,7 +9246,6 @@ a:hover{text-decoration:none;}
         return;
       }
 
-      var dt = Math.min(66, Math.max(16, raw)); // ms
       lastFrameTs = ts;
 
       // 色のなめらかな切り替え（JSで補間するのでブラウザ差が出にくい）
@@ -9283,8 +9278,6 @@ a:hover{text-decoration:none;}
       }
 
       applyTransforms(ts);
-      drawParticles(dt);
-
       requestAnimationFrame(step);
     }
 
@@ -9293,11 +9286,12 @@ a:hover{text-decoration:none;}
       ensureDom();
       resize();
 
-      // root を前面に（背景が被らないように）
+      // root を前面に（背景が被らないように） + DepthBg有効化class
       try{
         if(root){
           root.style.position = 'relative';
           root.style.zIndex = '1';
+          root.classList.add('pv-depth-on');
         }
       }catch(e){}
 
@@ -9353,7 +9347,7 @@ a:hover{text-decoration:none;}
     }
 
     return { init: init, setMode: setMode };
-  })();
+  })();;
   // 外から色を切り替えたい時用（例：console で cvhbDepthBg.setMode('red')）
   try{ window.cvhbDepthBg = DepthBg; }catch(e){}
 
@@ -11602,7 +11596,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
     # ---- dark mode decision ----
     if dark is None:
-        dark = (primary not in ("white", "yellow"))
+        dark = (primary == "black")
     is_dark = bool(dark)
 
     # ---- color math ----
@@ -11730,7 +11724,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
     # -------- theme --------
     primary_key = str(step1.get("primary_color") or "blue")
-    is_dark = primary_key not in ("white", "yellow")
+    is_dark = (primary_key == "black")
 
     # mode / root id（プレビュー統合のため、root_id を外から差し替え可能にする）
     mode = str(mode or "mobile").strip() or "mobile"
