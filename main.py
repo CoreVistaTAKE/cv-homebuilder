@@ -201,6 +201,21 @@ IMAGE_MAX_W = 1280
 IMAGE_MAX_H = 720
 IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動で16:9にカットして保存"
 
+CONOHA_PUBLISH_STEPS_HTML = """
+<div class="cvhb-publish-steps">
+  <div class="cvhb-publish-steps-title">最短手順（迷ったらこの順番）</div>
+  <ol class="cvhb-publish-steps-list">
+    <li>上の「ZIPを書き出す」で ZIP を作って、パソコンにダウンロードする</li>
+    <li>ZIP を解凍して、フォルダ内に <code>index.html</code> / <code>privacy.html</code> / <code>assets/</code> 等があることを確認</li>
+    <li>ConoHa WING 管理画面 → サイト管理 → ファイルマネージャー</li>
+    <li><code>public_html</code> → （あなたのドメイン名のフォルダ）を開く</li>
+    <li>解凍したフォルダの<strong>中身</strong>（<code>index.html</code> など）をドラッグ＆ドロップでアップロード（フォルダごとではなく“中身”）</li>
+    <li>テストURLで表示確認 → 問題なければ本番ドメインで確認</li>
+    <li>SSL が未設定なら WING 側で「無料独自SSL」を ON（反映に数十分〜数時間かかることがあります）</li>
+  </ol>
+</div>
+""".strip()
+
 # 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
@@ -298,6 +313,110 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
             return (out_bytes, out_mime) if out_bytes else (data, mime)
 
         # 透過がある場合は PNG、それ以外は JPEG（軽量化）
+        has_alpha = (
+            im.mode in ("RGBA", "LA")
+            or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
+        )
+
+        if has_alpha:
+            out_mime = "image/png"
+            try:
+                im.save(out, format="PNG", optimize=True)
+            except Exception:
+                return data, mime
+        else:
+            out_mime = "image/jpeg"
+            if im.mode != "RGB":
+                try:
+                    im = im.convert("RGB")
+                except Exception:
+                    pass
+            try:
+                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
+            except Exception:
+                return data, mime
+
+        out_bytes = out.getvalue()
+        return (out_bytes, out_mime) if out_bytes else (data, mime)
+    except Exception:
+        return data, mime
+
+
+def _maybe_resize_image_bytes_contain(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False) -> tuple[bytes, str]:
+    """画像を max_w×max_h に「収まるように縮小（contain方式）」して返す。
+
+    目的:
+    - 会社ロゴなど、切り抜き（クロップ）したくない画像を安全に軽量化したい
+    - 縦横比は維持し、はみ出しはしない（余白を付けない）
+
+    仕様:
+    - Pillow(PIL) が無い環境では元データを返す（安全優先）
+    - 画像は EXIF の回転を補正してから処理する
+    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
+      ただし force_png=True の場合は常に PNG を返す
+    """
+    try:
+        if not data:
+            return data, mime
+        if max_w <= 0 or max_h <= 0:
+            return data, mime
+        if not str(mime or "").startswith("image/"):
+            return data, mime
+
+        try:
+            from PIL import Image, ImageOps  # type: ignore
+            from io import BytesIO
+        except Exception:
+            return data, mime
+
+        im = Image.open(BytesIO(data))
+        try:
+            im.load()
+        except Exception:
+            pass
+
+        try:
+            im = ImageOps.exif_transpose(im)
+        except Exception:
+            pass
+
+        w, h = getattr(im, "size", (0, 0))
+        if not w or not h:
+            return data, mime
+
+        target_w = int(max_w)
+        target_h = int(max_h)
+        if target_w <= 0 or target_h <= 0:
+            return data, mime
+
+        # 縮小のみ（拡大はしない）
+        scale = min(target_w / float(w), target_h / float(h))
+        if scale <= 0:
+            return data, mime
+
+        if scale < 1.0:
+            new_w = max(1, int(round(w * scale)))
+            new_h = max(1, int(round(h * scale)))
+            try:
+                im = im.resize((new_w, new_h), Image.LANCZOS)
+            except Exception:
+                try:
+                    im = im.resize((new_w, new_h))
+                except Exception:
+                    pass
+
+        from io import BytesIO  # local import（PILがあるときだけ到達）
+        out = BytesIO()
+
+        if force_png:
+            out_mime = "image/png"
+            try:
+                im.save(out, format="PNG", optimize=True)
+            except Exception:
+                return data, mime
+            out_bytes = out.getvalue()
+            return (out_bytes, out_mime) if out_bytes else (data, mime)
+
         has_alpha = (
             im.mode in ("RGBA", "LA")
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
@@ -573,7 +692,7 @@ async def _read_upload_bytes(content, *, _depth: int = 0, _seen: Optional[set[in
 
 
 async def _upload_event_to_data_url(
-    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False
+    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False, mode: str = "cover"
 ) -> tuple[str, str]:
     """Upload event -> data URL（v0.6.9995 と同じ流れに戻す）.
 
@@ -629,13 +748,13 @@ async def _upload_event_to_data_url(
 
     mime = mime or _guess_mime(fname, default="image/png")
 
-    # Resize/crop (cover)
+    # Resize (cover/contain)
     if max_w and max_h:
         try:
             # PIL が重い時でも UI 全体が固まらないようにスレッドへ退避
-            data, mime = await asyncio.to_thread(
-                _maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h, force_png=force_png
-            )
+            m = str(mode or "cover").strip().lower()
+            fn = _maybe_resize_image_bytes_contain if (m == 'contain') else _maybe_resize_image_bytes
+            data, mime = await asyncio.to_thread(fn, data, mime, max_w=max_w, max_h=max_h, force_png=force_png)
         except Exception:
             traceback.print_exc()
 
@@ -4343,6 +4462,8 @@ def normalize_project(p: dict) -> dict:
     step2.setdefault("company_name", "")
     step2.setdefault("favicon_url", "")
     step2.setdefault("favicon_filename", "")
+    step2.setdefault("logo_url", "")
+    step2.setdefault("logo_filename", "")
     step2.setdefault("catch_copy", "")
     step2.setdefault("catch_size", "中")
     step2.setdefault("sub_catch_size", "中")
@@ -5615,7 +5736,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "") -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -5645,29 +5766,37 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     esc_company = html.escape(company_name)
     esc_email = html.escape(to_email)
 
-    favicon_href = (favicon_href or "").strip()
-    favicon_tags = ""
-    header_icon_html = ""
-    if favicon_href:
-        esc_fav = html.escape(favicon_href, quote=True)
+    favicon_href = (favicon_href or "").strip() or DEFAULT_FAVICON_DATA_URL
+    logo_href = (logo_href or "").strip()
 
-        # できるだけブラウザに伝わるように type も付ける（Safari対策）
-        low = favicon_href.lower().split("?", 1)[0]
-        icon_type = ""
-        if low.endswith(".png"):
-            icon_type = "image/png"
-        elif low.endswith(".ico"):
-            icon_type = "image/x-icon"
-        elif low.endswith(".svg"):
-            icon_type = "image/svg+xml"
-        elif low.endswith(".jpg") or low.endswith(".jpeg"):
-            icon_type = "image/jpeg"
-        elif low.endswith(".webp"):
-            icon_type = "image/webp"
+    # favicon タグ（必ず出す）
+    esc_fav = html.escape(favicon_href, quote=True)
+    icon_type = ""
+    if esc_fav.startswith("data:image/png") or esc_fav.endswith(".png"):
+        icon_type = "image/png"
+    elif esc_fav.startswith("data:image/svg+xml") or esc_fav.endswith(".svg"):
+        icon_type = "image/svg+xml"
+    elif esc_fav.startswith("data:image/x-icon") or esc_fav.endswith(".ico"):
+        icon_type = "image/x-icon"
+    type_attr = f' type="{icon_type}"' if icon_type else ""
+    favicon_tags = f'<link rel="icon"{type_attr} href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
 
-        type_attr = f' type="{icon_type}"' if icon_type else ""
-        favicon_tags = f'<link rel="icon"{type_attr} href="{esc_fav}">\n  <link rel="shortcut icon" href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
-        header_icon_html = f'<img class="pv-favicon" src="{esc_fav}" alt="">'
+    # ヘッダー左上：favicon +（ロゴがあればロゴ / 無ければ会社名）
+    if logo_href:
+        esc_logo = html.escape(logo_href, quote=True)
+        brand_main = (
+            f'<img class="pv-brand-logo" src="{esc_logo}" alt="{esc_company}" '
+            f'style="height:28px;width:auto;max-width:52vw;object-fit:contain;display:block;">'
+        )
+    else:
+        brand_main = f'<span class="pv-brand-name">{esc_company}</span>'
+
+    brand_html = (
+        f'<a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">'
+        f'<img class="pv-favicon" src="{esc_fav}" alt="">'
+        f"{brand_main}"
+        f"</a>"
+    )
 
     # ナビリンク（thanks はトップページ外なので、index.html へ戻す導線に揃える）
     sec = lambda sid: f"index.html#{sid}"
@@ -5712,10 +5841,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
-        <a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">
-          {header_icon_html}
-          <span class="pv-brand-name">{esc_company}</span>
-        </a>
+        {brand_html}
 
         <nav class="row pv-desktop-nav items-center no-wrap" aria-label="グローバルナビ">
           {desktop_nav_html}
@@ -5800,7 +5926,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", logo_href: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -5810,7 +5936,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -6105,10 +6231,10 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     favicon_url = str(step2.get("favicon_url") or "").strip()
     favicon_filename = str(step2.get("favicon_filename") or "").strip()
 
-    # v0.9.8: favicon未設定なら「ロゴ」をfaviconとして使う（管理者が迷わない）
+    # v0.9.20: favicon 未設定でも必ずデフォルトを使う（プレビューと書き出しのズレ防止）
     logo_url = str(step2.get("logo_url") or "").strip()
-    if (not favicon_url) and logo_url:
-        favicon_url = logo_url
+    if not favicon_url:
+        favicon_url = DEFAULT_FAVICON_DATA_URL
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
@@ -8323,7 +8449,7 @@ a:hover{text-decoration:none;}
             hero_urls.append(u)
 
     # 施設ロゴ（faviconとは別）
-    # logo_url は上で取得済み（faviconのフォールバックにも使う）
+    # logo_url は上で取得済み
     logo_href = ""
     if logo_url and _is_data_url(logo_url):
         mime, bts = _data_url_meta(logo_url)
@@ -8338,9 +8464,14 @@ a:hover{text-decoration:none;}
             logo_href = logo_url
     elif logo_url:
         logo_href = logo_url
+    # v0.9.20: logo もキャッシュされやすい → URL に版数を付けて更新がすぐ反映されるようにする
+    logo_href_html = logo_href
+    if logo_href_html and ("?" not in logo_href_html) and logo_href_html.startswith("assets/"):
+        logo_href_html = f"{logo_href_html}?v={VERSION}"
 
-    # v0.9.11: ヘッダー左の小アイコンは「ロゴ優先」。ロゴが無い場合は favicon を使う（現場で迷わない）
-    header_icon_href = logo_href or favicon_href_html or ""
+    # v0.9.11: 互換用（旧テンプレ向け）: ヘッダー左の小アイコンは「ロゴ優先」。ロゴが無い場合は favicon を使う
+    header_icon_href = logo_href_html or favicon_href_html or ""
+
 
     # philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
@@ -9008,7 +9139,7 @@ a:hover{text-decoration:none;}
     def _favicon_head_tags(href: str) -> str:
         h = str(href or "").strip()
         if not h:
-            return ""
+            h = DEFAULT_FAVICON_DATA_URL
         esc_h = _esc(h)
 
         # できるだけブラウザに伝わるように type も付ける（Safari対策）
@@ -9027,6 +9158,46 @@ a:hover{text-decoration:none;}
 
         type_attr = f' type="{icon_type}"' if icon_type else ""
         return f'<link rel="icon"{type_attr} href="{esc_h}">\n  <link rel="shortcut icon" href="{esc_h}">\n  <link rel="apple-touch-icon" href="{esc_h}">'
+
+
+    # ----
+    # v0.9.20: 「戻らない仕組み化」
+    # - ヘッダー（favicon / ロゴ / 会社名）のHTMLはここを唯一の正解にして、ページ間の差分をなくす
+    # - root_prefix を渡すだけで、/news/ 配下でもパスがズレない
+    # ----
+    def _is_abs_like(h: str) -> bool:
+        hh = str(h or "").strip()
+        return hh.startswith(("http://", "https://", "data:", "//", "/"))
+
+    def _prefix_href(h: str, root_prefix: str) -> str:
+        hh = str(h or "").strip()
+        if not hh:
+            return ""
+        rp = str(root_prefix or "")
+        if not rp:
+            return hh
+        if _is_abs_like(hh):
+            return hh
+        if hh.startswith(rp):
+            return hh
+        return rp + hh
+
+    def _brand_html(*, company_name: str, brand_href: str, favicon_src: str, logo_src: str) -> str:
+        # favicon は未設定でも必ず出す（デフォルトを使う）
+        fav = str(favicon_src or "").strip() or DEFAULT_FAVICON_DATA_URL
+        logo = str(logo_src or "").strip()
+        fav_esc = _esc(fav)
+        name_esc = _esc(company_name)
+        href_esc = _esc(brand_href)
+
+        # ロゴは CSS が無くても崩れにくいように inline で最小限のサイズ指定をする
+        if logo:
+            logo_esc = _esc(logo)
+            main = f'<img class="pv-brand-logo" src="{logo_esc}" alt="{name_esc}" style="height:28px;width:auto;max-width:52vw;object-fit:contain;display:block;">'
+        else:
+            main = f'<span class="pv-brand-name">{name_esc}</span>'
+
+        return f'<a class="row items-center no-wrap pv-brand" href="{href_esc}" aria-label="トップへ"><img class="pv-favicon" src="{fav_esc}" alt="">{main}</a>'
 
 
     def _paras(text: str) -> str:
@@ -9180,6 +9351,15 @@ a:hover{text-decoration:none;}
         mnav_html += f'<a class="pv-nav-item" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
 
         brand_href = sec_href("pv-top")
+        favicon_src = _prefix_href(favicon_href_ or favicon_href_html, root_prefix)
+        logo_src = _prefix_href(logo_href_html, root_prefix)
+        brand_html = _brand_html(
+            company_name=company_name,
+            brand_href=brand_href,
+            favicon_src=favicon_src,
+            logo_src=logo_src,
+        )
+
 
         return f"""<!doctype html>
 <html lang=\"ja\">
@@ -9194,10 +9374,7 @@ a:hover{text-decoration:none;}
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
-        <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
-          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
-        </a>
+        {brand_html}
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
           {nav_html}
@@ -9272,7 +9449,7 @@ a:hover{text-decoration:none;}
         title=f"{company_name}｜お知らせ一覧",
         css_href="../assets/site.css",
         js_href="../assets/site.js",
-        favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
+        favicon_href_=_prefix_href(favicon_href_html, "../"),
         body_inner=news_index_body,
         root_prefix="../",
     ).encode("utf-8")
@@ -9304,7 +9481,7 @@ a:hover{text-decoration:none;}
             title=f"{company_name}｜{title or 'お知らせ'}",
             css_href="../assets/site.css",
             js_href="../assets/site.js",
-            favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
+            favicon_href_=_prefix_href(favicon_href_html, "../"),
             body_inner=detail_body,
             root_prefix="../",
         ).encode("utf-8")
@@ -9520,12 +9697,19 @@ a:hover{text-decoration:none;}
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=logo_href_html))
 
     # --------------------
     # index.html
     # --------------------
     favicon_tag = _favicon_head_tags(favicon_href_html)
+    brand_html_root = _brand_html(
+        company_name=company_name,
+        brand_href="#pv-top",
+        favicon_src=favicon_href_html,
+        logo_src=logo_href_html,
+    )
+
 
     index_html = f"""<!doctype html>
 <html lang=\"ja\">
@@ -9540,10 +9724,7 @@ a:hover{text-decoration:none;}
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
-        <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
-          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
-        </a>
+        {brand_html_root}
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
           {desktop_nav_html}
@@ -9614,7 +9795,7 @@ a:hover{text-decoration:none;}
         title=f"{company_name}｜プライバシーポリシー",
         css_href="assets/site.css",
         js_href="assets/site.js",
-        favicon_href_=favicon_href,
+        favicon_href_=favicon_href_html,
         body_inner=privacy_page_body,
         root_prefix="",
     )
@@ -12160,6 +12341,49 @@ def render_main(u: User) -> None:
                                                 ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                             favicon_editor()
+                                            ui.label("会社ロゴ（任意）").classes("text-body1 q-mt-md")
+                                            ui.label("ヘッダー左上：会社名の代わりに表示されます。").classes("cvhb-muted")
+                                            ui.label("推奨：横長PNG 320×96（背景が透明だと綺麗です）").classes("cvhb-muted")
+                                            ui.label("大きい/小さい画像でも、自動でちょうど良いサイズにフィットします。").classes("cvhb-muted")
+
+                                            async def _on_upload_logo(e):
+                                                try:
+                                                    data_url, fname = await _upload_event_to_data_url(e, max_w=320, max_h=96, force_png=True, mode="contain")
+                                                    if not data_url:
+                                                        return
+                                                    step2["logo_url"] = data_url
+                                                    step2["logo_filename"] = _short_name(fname)
+                                                    update_and_refresh()
+                                                    logo_editor.refresh()
+                                                except Exception as ex:
+                                                    print(f"[UPLOAD:logo] unexpected error: {ex}", flush=True)
+
+                                            def _clear_logo():
+                                                try:
+                                                    step2["logo_url"] = ""
+                                                    step2["logo_filename"] = ""
+                                                except Exception:
+                                                    pass
+                                                update_and_refresh()
+                                                logo_editor.refresh()
+
+                                            @ui.refreshable
+                                            def logo_editor():
+                                                cur = str(step2.get("logo_url") or "").strip()
+                                                name = str(step2.get("logo_filename") or "").strip()
+                                                with ui.row().classes("items-center q-gutter-sm"):
+                                                    if cur:
+                                                        ui.image(pv_img_src(cur)).style("width:160px;height:48px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,0.75);border:1px solid rgba(0,0,0,0.08);")
+                                                    else:
+                                                        ui.label("未設定（会社名を表示）").classes("cvhb-muted")
+                                                    ui.upload(on_upload=_on_upload_logo, auto_upload=True).props("accept=image/*")
+                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated dense no-caps")
+                                                    ui.button("クリア", on_click=_clear_logo).props("outline dense")
+                                                if cur:
+                                                    ui.label(f"現在: オリジナル({name or 'アップロード'})").classes("cvhb-muted")
+
+                                            logo_editor()
+
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
                                             bind_step2_input("住所（地図リンクは自動生成）", "address", hint="住所を入力すると、プレビューの「地図を開く」が使えるようになります。")
@@ -13400,17 +13624,7 @@ def render_main(u: User) -> None:
                                                 ui.label("公開（ConoHa WING：ファイルマネージャー）").classes("text-subtitle1")
                                                 ui.label("ZIPを書き出して、ConoHaの管理画面からアップロードします。").classes("cvhb-muted")
 
-                                                ui.markdown(
-                                                    """**最短手順（迷ったらこの順番）**
-1. 上の「ZIPを書き出す」で ZIP を作って、パソコンにダウンロードする
-2. ZIPを右クリック → 「すべて展開」で展開する（中に **index.html** が見える状態にする）
-3. ConoHa WING → **WING** → **サイト管理** → **ファイルマネージャー** を開く
-4. 左の **public_html** → **あなたのドメイン名のフォルダ** を開く
-5. 展開したフォルダの **中身（index.html など）** を全部ドラッグ＆ドロップでアップロードする
-6. ConoHaの **動作確認URL**（テスト用URL）で表示確認 → OKなら本番ドメインで確認する
-7. 最後に ConoHa の **無料独自SSL** をONにして、httpsで開けるようにする
-"""
-                                                ).classes("q-mt-sm")
+                                                ui.html(CONOHA_PUBLISH_STEPS_HTML).classes("q-mt-sm")
 
                                                 ui.label("ポイント：『フォルダごと』ではなく『中身』をアップロードすると、トップ（/）で表示されます。").classes("text-caption text-grey q-mt-xs")
                                                 ui.label("※ ConoHa側の画面は変わることがあります。迷ったら公開マニュアル（ConoHa WING版）を見てください。").classes("text-caption text-grey q-mt-xs")

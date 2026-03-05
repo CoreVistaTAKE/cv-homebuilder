@@ -103,3 +103,24 @@
   white-space: normal !important;
   line-height: 1.2;
 }
+
+/* 公開手順（ConoHa WING）: 崩れ防止の固定HTML */
+.cvhb-publish-steps {
+  margin-top: 8px;
+}
+.cvhb-publish-steps-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.cvhb-publish-steps-list {
+  padding-left: 1.25em;
+  margin: 0.2em 0 0;
+}
+.cvhb-publish-steps-list li {
+  margin: 0.45em 0;
+  line-height: 1.6;
+}
+.cvhb-publish-steps code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95em;
+}
