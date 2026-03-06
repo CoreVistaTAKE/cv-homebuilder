@@ -8380,11 +8380,13 @@ a:hover{text-decoration:none;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 
 /* =========================
-   Depth Background (v0.9.24)
+   Depth Background (v0.9.26)
    5-layer (base / radial / blob / line / orb)
    9-color mode + parallax
-   - 軽量化: Canvas粒子を廃止（CSSのみ）
-   - 表現: 各レイヤー役割固定、2〜3色で上品に
+   方針（重要）:
+   - 「霧っぽい」→「柄がわかる」へ（radial/blob/line/orb を必ず視認できる）
+   - ただし文章の読みやすさ最優先（必要なら opacity を下げて守る）
+   - 動作は軽く（Canvasなし / 15fps相当 / CSS + transformのみ）
    ========================= */
 
 /* html/body は塗らない（背景は pv-depth-bg が担当） */
@@ -8404,121 +8406,144 @@ html,body{
 /* 各レイヤー（transform はJSでパララックス制御） */
 .pv-depth-layer{
   position: absolute;
-  inset: -10%;
+  inset: -12%;
   will-change: transform;
   transform: translate3d(0,0,0);
 }
 
-/* Layer1: ベースカラー */
+/* Layer1: ベースカラー（ここは「明るく上品」が軸） */
 .pv-depth-l1{
   inset: 0;
   background:
+    radial-gradient(1200px 900px at 18% 12%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.10) 0%,
+      transparent 62%),
+    radial-gradient(1100px 820px at 86% 8%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.08) 0%,
+      transparent 62%),
     linear-gradient(150deg,
       rgb(var(--pv-depth-base-1-rgb, 245,248,255)) 0%,
       rgb(var(--pv-depth-base-2-rgb, 255,255,255)) 100%);
 }
 
-/* Layer2: radial gradient */
+/* Layer2: radial gradient（柄の主役） */
 .pv-depth-l2{
-  opacity: var(--pv-depth-l2-opacity, 0.88);
+  opacity: var(--pv-depth-l2-opacity, 0.92);
   background:
-    radial-gradient(900px 720px at 18% 18%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.44) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.22) 34%,
-      transparent 64%),
-    radial-gradient(980px 820px at 82% 16%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.36) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.18) 36%,
-      transparent 66%),
-    radial-gradient(980px 820px at 70% 88%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.32) 0%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.16) 38%,
-      transparent 70%);
+    radial-gradient(820px 620px at 18% 22%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.62) 0%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.26) 34%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.10) 48%,
+      transparent 70%),
+    radial-gradient(900px 700px at 86% 18%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.52) 0%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.22) 38%,
+      transparent 72%),
+    radial-gradient(760px 560px at 72% 92%,
+      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.44) 0%,
+      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.18) 42%,
+      transparent 74%);
 }
 
-/* Layer3: organic blob */
+/* Layer3: organic blob（「霧」ではなく「形」が見えるブラー） */
 .pv-depth-l3{
-  opacity: var(--pv-depth-l3-opacity, 0.42);
-  filter: blur(16px);
+  opacity: var(--pv-depth-l3-opacity, 0.60);
+  filter: blur(12px);
   transform: translateZ(0);
 }
 .pv-depth-blob{
   position: absolute;
-  width: 62vmax;
-  height: 62vmax;
+  width: 54vmax;
+  height: 54vmax;
   border-radius: 42% 58% 62% 38% / 46% 52% 48% 54%;
   background:
-    radial-gradient(circle at 35% 35%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.58) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.22) 52%,
-      transparent 72%);
+    radial-gradient(circle at 30% 32%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.72) 0%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.26) 48%,
+      transparent 72%),
+    radial-gradient(circle at 70% 70%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.44) 0%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.12) 54%,
+      transparent 76%);
   will-change: transform;
 }
 .pv-depth-blob.blob-a{
-  left: -18vmax;
-  top: -22vmax;
+  left: -16vmax;
+  top: -20vmax;
   animation: pvBlobFloatA 16s ease-in-out infinite;
 }
 .pv-depth-blob.blob-b{
-  right: -22vmax;
-  bottom: -26vmax;
-  width: 68vmax;
-  height: 68vmax;
+  right: -20vmax;
+  bottom: -24vmax;
+  width: 62vmax;
+  height: 62vmax;
   border-radius: 55% 45% 40% 60% / 50% 55% 45% 50%;
   background:
-    radial-gradient(circle at 58% 40%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.52) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.18) 54%,
-      transparent 74%);
+    radial-gradient(circle at 60% 40%,
+      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.66) 0%,
+      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.22) 50%,
+      transparent 76%),
+    radial-gradient(circle at 22% 72%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.28) 0%,
+      transparent 72%);
   animation: pvBlobFloatB 18s ease-in-out infinite;
 }
 @keyframes pvBlobFloatA{
   0%,100%{ transform: translate3d(0,0,0) scale(1); }
-  50%{ transform: translate3d(4%,6%,0) scale(1.04); }
+  50%{ transform: translate3d(4%,6%,0) scale(1.05); }
 }
 @keyframes pvBlobFloatB{
   0%,100%{ transform: translate3d(0,0,0) scale(1); }
-  50%{ transform: translate3d(-5%,-4%,0) scale(1.03); }
+  50%{ transform: translate3d(-5%,-4%,0) scale(1.04); }
 }
 
-/* Layer4: geometric line */
+/* Layer4: geometric line（柄としてわかる程度に） */
 .pv-depth-l4{
-  opacity: var(--pv-depth-l4-opacity, 0.18);
+  opacity: var(--pv-depth-l4-opacity, 0.26);
   background-image:
     repeating-linear-gradient(  35deg,
-      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.22) 0 1px,
-      transparent 1px 14px),
+      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.26) 0 1px,
+      transparent 1px 16px),
     repeating-linear-gradient( 145deg,
-      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.16) 0 1px,
-      transparent 1px 18px),
+      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.20) 0 1px,
+      transparent 1px 22px),
     repeating-linear-gradient(  90deg,
-      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.08) 0 1px,
-      transparent 1px 26px);
-  mix-blend-mode: normal;
+      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.14) 0 1px,
+      transparent 1px 32px);
+  mix-blend-mode: multiply;
+}
+.pv-dark .pv-depth-l4{
+  mix-blend-mode: screen;
 }
 
-/* Layer5: light orb */
+/* Layer5: light orb（光の玉：lightでは通常合成、darkではスクリーン） */
 .pv-depth-l5{
-  opacity: var(--pv-depth-l5-opacity, 0.58);
+  opacity: var(--pv-depth-l5-opacity, 0.78);
 }
 .pv-depth-orb{
   position: absolute;
-  width: 40vmax;
-  height: 40vmax;
+  width: 38vmax;
+  height: 38vmax;
   border-radius: 999px;
-  filter: blur(8px);
+  filter: blur(10px);
   transform: translateZ(0);
-  mix-blend-mode: screen;
   will-change: transform;
+  mix-blend-mode: normal;
   background:
     radial-gradient(circle at 32% 30%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.56) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.26) 38%,
-      transparent 64%);
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.62) 0%,
+      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.22) 40%,
+      transparent 72%),
+    radial-gradient(circle at 55% 60%,
+      rgba(255,255,255,0.22) 0%,
+      transparent 62%);
+}
+.pv-dark .pv-depth-orb{
+  mix-blend-mode: screen;
 }
 .pv-depth-orb.orb-a{
   left: -12vmax;
-  top: 10vmax;
+  top: 12vmax;
   animation: pvOrbMoveA 12s ease-in-out infinite;
 }
 .pv-depth-orb.orb-b{
@@ -8528,9 +8553,12 @@ html,body{
   height: 46vmax;
   background:
     radial-gradient(circle at 60% 42%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.48) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.22) 42%,
-      transparent 66%);
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.56) 0%,
+      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.20) 44%,
+      transparent 74%),
+    radial-gradient(circle at 42% 58%,
+      rgba(255,255,255,0.18) 0%,
+      transparent 62%);
   animation: pvOrbMoveB 14s ease-in-out infinite;
 }
 @keyframes pvOrbMoveA{
@@ -8542,7 +8570,7 @@ html,body{
   50%{ transform: translate3d(-4%,3%,0) scale(1.05); }
 }
 
-/* ほんのりビネット（読みやすさ優先で弱め） */
+/* ほんのりビネット（暗くしすぎない） */
 .pv-depth-bg::after{
   content: "";
   position: absolute;
@@ -8553,7 +8581,7 @@ html,body{
       rgba(0,0,0,0.10), transparent 70%),
     radial-gradient(1200px 900px at 50% 110%,
       rgba(0,0,0,0.08), transparent 70%);
-  opacity: var(--pv-depth-vignette, 0.16);
+  opacity: var(--pv-depth-vignette, 0.13);
 }
 
 /* 動きが苦手な人向け（OS設定で減らす） */
@@ -9192,15 +9220,17 @@ var DepthBg = (function(){
 
   // 2〜3色（＋薄いベース）で上品に：各テーマは「明るめ」寄せ
   var MODES = {
-    blue:   { b1:[220,240,255], b2:[245,250,255], c1:[37,99,235],  c2:[56,189,248], c3:[167,139,250], ink:[15,23,42] },
-    red:    { b1:[255,228,235], b2:[255,246,250], c1:[239,68,68],  c2:[251,113,133], c3:[244,63,94],  ink:[15,23,42] },
-    green:  { b1:[224,255,240], b2:[246,255,250], c1:[34,197,94],  c2:[45,212,191], c3:[132,204,22], ink:[15,23,42] },
-    orange: { b1:[255,235,214], b2:[255,248,240], c1:[249,115,22], c2:[251,191,36], c3:[245,158,11], ink:[15,23,42] },
-    purple: { b1:[238,232,255], b2:[250,246,255], c1:[168,85,247], c2:[99,102,241], c3:[236,72,153], ink:[15,23,42] },
-    gray:   { b1:[232,238,246], b2:[248,250,253], c1:[100,116,139], c2:[148,163,184], c3:[71,85,105], ink:[15,23,42] },
-    white:  { b1:[255,255,255], b2:[238,244,252], c1:[59,130,246], c2:[34,197,94],  c3:[234,179,8],  ink:[15,23,42] },
-    yellow: { b1:[255,248,214], b2:[255,244,188], c1:[234,179,8],  c2:[250,204,21], c3:[249,115,22], ink:[15,23,42] },
-    black:  { b1:[9,10,18],     b2:[0,0,0],       c1:[56,189,248],  c2:[167,139,250], c3:[34,197,94],  ink:[255,255,255], dark:true }
+    // b1/b2: ベース（明るめ）
+    // c1/c2/c3: 柄の色（2〜3色で上品に）
+    blue:   { b1:[232,244,255], b2:[252,254,255], c1:[59,130,246],  c2:[34,211,238], c3:[168,85,247],  ink:[15,23,42] },
+    red:    { b1:[255,232,240], b2:[255,252,253], c1:[244,63,94],   c2:[251,113,133], c3:[249,115,22],  ink:[15,23,42] },
+    green:  { b1:[230,255,245], b2:[252,255,253], c1:[34,197,94],   c2:[45,212,191], c3:[163,230,53],  ink:[15,23,42] },
+    orange: { b1:[255,242,230], b2:[255,252,246], c1:[249,115,22],  c2:[251,191,36], c3:[236,72,153],  ink:[15,23,42] },
+    purple: { b1:[245,238,255], b2:[255,252,255], c1:[168,85,247],  c2:[99,102,241], c3:[236,72,153],  ink:[15,23,42] },
+    gray:   { b1:[242,244,248], b2:[253,253,255], c1:[100,116,139], c2:[148,163,184], c3:[71,85,105],  ink:[15,23,42] },
+    white:  { b1:[255,255,255], b2:[244,248,255], c1:[59,130,246],  c2:[34,197,94],  c3:[234,179,8],   ink:[15,23,42] },
+    yellow: { b1:[255,248,226], b2:[255,253,244], c1:[234,179,8],   c2:[250,204,21], c3:[249,115,22],  ink:[15,23,42] },
+    black:  { b1:[6,9,18],      b2:[0,0,0],       c1:[56,189,248],  c2:[167,139,250], c3:[34,197,94],  ink:[255,255,255], dark:true }
   };
 
   function ensureDom(){
@@ -9238,27 +9268,32 @@ var DepthBg = (function(){
   function setCssVars(p){
     var el = document.documentElement;
     try{
+      var dark = !!p.dark;
+
       el.style.setProperty('--pv-depth-base-1-rgb', p.b1.join(','));
       el.style.setProperty('--pv-depth-base-2-rgb', p.b2.join(','));
       el.style.setProperty('--pv-depth-c1-rgb', p.c1.join(','));
       el.style.setProperty('--pv-depth-c2-rgb', p.c2.join(','));
       el.style.setProperty('--pv-depth-c3-rgb', p.c3.join(','));
 
-      // 線は「読める」前提で、暗めインク寄りにする（上品）
+      // 線: 「霧」にならないよう、lightでも柄が見える程度に色を混ぜる
+      // - light: インク寄り（読みやすさ優先）だけど少し色を足す
+      // - dark : 白寄りだけど派手すぎない
+      var inkW = dark ? 0.52 : 0.64;
+      var colW = 1 - inkW;
       var line = [
-        Math.round(p.ink[0]*0.78 + p.c1[0]*0.22),
-        Math.round(p.ink[1]*0.78 + p.c1[1]*0.22),
-        Math.round(p.ink[2]*0.78 + p.c1[2]*0.22)
+        Math.round(p.ink[0]*inkW + p.c1[0]*colW),
+        Math.round(p.ink[1]*inkW + p.c1[1]*colW),
+        Math.round(p.ink[2]*inkW + p.c1[2]*colW)
       ];
       el.style.setProperty('--pv-depth-line-rgb', line.join(','));
 
-      // opacity（文章の読みやすさ優先）
-      var dark = !!p.dark;
-      el.style.setProperty('--pv-depth-l2-opacity', dark ? 0.62 : 0.90);
-      el.style.setProperty('--pv-depth-l3-opacity', dark ? 0.34 : 0.44);
-      el.style.setProperty('--pv-depth-l4-opacity', dark ? 0.12 : 0.18);
-      el.style.setProperty('--pv-depth-l5-opacity', dark ? 0.50 : 0.62);
-      el.style.setProperty('--pv-depth-vignette',   dark ? 0.26 : 0.18);
+      // opacity（文章の読みやすさ優先：でも柄は見える）
+      el.style.setProperty('--pv-depth-l2-opacity', dark ? 0.72 : 0.94);
+      el.style.setProperty('--pv-depth-l3-opacity', dark ? 0.48 : 0.62);
+      el.style.setProperty('--pv-depth-l4-opacity', dark ? 0.20 : 0.28);
+      el.style.setProperty('--pv-depth-l5-opacity', dark ? 0.66 : 0.80);
+      el.style.setProperty('--pv-depth-vignette',   dark ? 0.28 : 0.13);
     }catch(e){}
   }
 
@@ -9344,7 +9379,7 @@ var DepthBg = (function(){
     var driftX = Math.sin(t*0.35) * 6 + Math.cos(t*0.21) * 4;
     var driftY = Math.cos(t*0.33) * 6 + Math.sin(t*0.18) * 4;
 
-    var amp = 56; // 視差の強さ（重くしない範囲）
+    var amp = 64; // 視差の強さ（見えるけど重くしない）
     var px = _x * amp;
     var py = _y * amp;
 
