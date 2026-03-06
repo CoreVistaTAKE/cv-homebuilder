@@ -11723,113 +11723,134 @@ def _preview_accent2_hex(primary: str, accent_hex: str) -> str:
 
 
 def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, **_ignore) -> str:
-    """Return inline CSS variables for the preview glass theme.
+    """プレビュー/書き出しのガラス風テーマに使うCSS変数一式
 
-    - カラー設定が確実に効くように、ここで必要なCSS変数をすべて揃える
-    - 背景は「薄いグラデ + 複数の丸い光（ガラス）」で奥行きを作る
+    目的（今回の0.1）:
+      - 「見える」の定義を満たす背景にする
+        radial / blob / line / orb が、スクショ1枚でも “存在が分かる”
+        ただし本文の可読性は落とさない（文字が負けない）
+
+    背景は「役割固定の5レイヤー」で作る:
+      Layer1: ベースカラー
+      Layer2: radial gradient
+      Layer3: organic blob
+      Layer4: geometric line
+      Layer5: light orb
     """
 
-    # ---- primary color ----
-    primary = "blue"
-    try:
-        if isinstance(step1_or_primary, dict):
-            primary = str(step1_or_primary.get("primary_color") or "blue")
-        elif isinstance(step1_or_primary, str) and step1_or_primary:
-            primary = str(step1_or_primary)
-    except Exception:
-        primary = "blue"
+    # 旧版互換：呼び出し側が dict を渡してきても primary だけ拾えるようにする
+    if isinstance(step1_or_primary, dict):
+        primary = (step1_or_primary.get("primary_color") or step1_or_primary.get("primary") or "blue")
+        forced_dark = step1_or_primary.get("dark", None)
+    else:
+        primary = (step1_or_primary or "blue")
+        forced_dark = None
 
     accent = _preview_accent_hex(primary)
     accent2 = _preview_accent2_hex(primary, accent)
 
-    # ---- dark mode decision ----
-    if dark is None:
-        dark = (primary == "black")
-    is_dark = bool(dark)
-
-    # ---- color math ----
     r1, g1, b1 = _hex_to_rgb(accent)
     r2, g2, b2 = _hex_to_rgb(accent2)
 
+    # dark 判定（引数 > dictの指定 > テーマ名）
+    if dark is None:
+        dark = forced_dark
+    is_dark = bool(dark) if dark is not None else (primary == "black")
+
     if not is_dark:
-        # 背景（かなり薄く、でも色は感じる）
-        bg1 = _blend_hex(accent, "#ffffff", 0.92)
-        bg2 = _blend_hex(accent2, "#ffffff", 0.94)
+        # ---- Light (明るいテーマ) ----
+        # ここが今回の主戦場：
+        # 「薄すぎて柄が消える」→ ほんの少しだけ彩度を上げて、柄の存在を出す
+        bg1 = _blend_hex(accent, "#ffffff", 0.88)
+        bg2 = _blend_hex(accent2, "#ffffff", 0.90)
 
+        q_primary = accent
+        q_secondary = accent2
         text = "#0f172a"
-        muted = "rgba(15, 23, 42, 0.72)"
-        border = "rgba(255, 255, 255, 0.30)"
-        line = "rgba(15, 23, 42, 0.10)"
-
-        # カード（＝各ブロック枠）をもう少し透明に（体感で約+50%）
-        card = "linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.18))"
-        chip_bg = "rgba(255, 255, 255, 0.26)"
-        chip_border = "rgba(255, 255, 255, 0.24)"
-        shadow = "0 20px 60px rgba(15, 23, 42, 0.10)"
-
-        blob3 = "rgba(255, 255, 255, 0.22)"
-        blob4_hex = _blend_hex(accent2, "#ffffff", 0.55)
-        r4, g4, b4 = _hex_to_rgb(blob4_hex)
-
+        muted = "rgba(15, 23, 42, 0.74)"
+        border = "rgba(255, 255, 255, 0.34)"
+        line = "rgba(15, 23, 42, 0.12)"
+        shadow = "0 20px 60px rgba(15, 23, 42, 0.12)"
+        card = "linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0.20))"
+        chip_bg = "rgba(255, 255, 255, 0.28)"
+        chip_border = "rgba(255, 255, 255, 0.26)"
         primary_weak = f"rgba({r1}, {g1}, {b1}, 0.14)"
 
-        bg_img = (
-    f"radial-gradient(1000px 720px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.16), transparent 62%),"
-    f"radial-gradient(920px 680px at 90% 12%, rgba({r2}, {g2}, {b2}, 0.12), transparent 62%),"
-    f"radial-gradient(760px 520px at 58% 52%, rgba({r4}, {g4}, {b4}, 0.16), transparent 64%),"
-    f"radial-gradient(860px 560px at 12% 92%, rgba(255, 255, 255, 0.22), transparent 64%),"
-    f"radial-gradient(520px 520px at 84% 20%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.00) 72%),"
-    f"radial-gradient(420px 420px at 18% 72%, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.00) 70%),"
-    f"radial-gradient(360px 360px at 86% 78%, rgba(255, 255, 255, 0.00) 52%, rgba(255, 255, 255, 0.32) 56%, rgba(255, 255, 255, 0.00) 68%),"
-    f"radial-gradient(280px 280px at 22% 38%, rgba({r2}, {g2}, {b2}, 0.10) 0%, rgba({r2}, {g2}, {b2}, 0.10) 36%, transparent 37%),"
-    f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
-)
-
-
+        # blob の 3色目（淡いハイライト色）
+        blob4_hex = _blend_hex(accent2, "#ffffff", 0.55)
+        r4, g4, b4 = _hex_to_rgb(blob4_hex)
         blob4 = f"rgba({r4}, {g4}, {b4}, 0.22)"
 
+        # 5レイヤー合成（上→下 の順）
+        layers = [
+            # Layer4: geometric line（本文に勝たないように低不透明度）
+            "repeating-linear-gradient(135deg, rgba(15, 23, 42, 0.055) 0px, rgba(15, 23, 42, 0.055) 1px, rgba(15, 23, 42, 0.0) 1px, rgba(15, 23, 42, 0.0) 16px)",
+            "repeating-linear-gradient(45deg, rgba(15, 23, 42, 0.040) 0px, rgba(15, 23, 42, 0.040) 1px, rgba(15, 23, 42, 0.0) 1px, rgba(15, 23, 42, 0.0) 22px)",
+
+            # Layer5: light orb（白ハイライト + 色付きオーブ + リング）
+            "radial-gradient(260px 260px at 82% 22%, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.0) 74%)",
+            f"radial-gradient(220px 220px at 16% 34%, rgba({r2}, {g2}, {b2}, 0.22) 0%, rgba({r2}, {g2}, {b2}, 0.0) 68%)",
+            "radial-gradient(240px 240px at 86% 78%, rgba(255, 255, 255, 0.0) 52%, rgba(255, 255, 255, 0.62) 56%, rgba(255, 255, 255, 0.0) 72%)",
+
+            # Layer3: organic blob（“霧”にならないように止め位置を作る）
+            f"radial-gradient(760px 560px at 22% 60%, rgba({r1}, {g1}, {b1}, 0.20) 0%, rgba({r1}, {g1}, {b1}, 0.10) 44%, rgba({r1}, {g1}, {b1}, 0.0) 76%)",
+            f"radial-gradient(720px 540px at 78% 72%, rgba({r2}, {g2}, {b2}, 0.18) 0%, rgba({r2}, {g2}, {b2}, 0.09) 46%, rgba({r2}, {g2}, {b2}, 0.0) 78%)",
+            f"radial-gradient(560px 420px at 54% 40%, rgba({r4}, {g4}, {b4}, 0.16) 0%, rgba({r4}, {g4}, {b4}, 0.0) 72%)",
+
+            # Layer2: radial gradient（奥の大きい光）
+            f"radial-gradient(1200px 860px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.28) 0%, rgba({r1}, {g1}, {b1}, 0.0) 62%)",
+            f"radial-gradient(1100px 820px at 92% 12%, rgba({r2}, {g2}, {b2}, 0.22) 0%, rgba({r2}, {g2}, {b2}, 0.0) 62%)",
+            f"radial-gradient(980px 760px at 18% 92%, rgba({r2}, {g2}, {b2}, 0.14) 0%, rgba({r2}, {g2}, {b2}, 0.0) 66%)",
+
+            # Layer1: base（下地）
+            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)",
+        ]
+        bg_img = ",".join(layers)
+
     else:
-        # ダーク：黒ベタではなく、ほんのり色を乗せる
+        # ---- Dark (黒テーマ) ----
         bg1 = _blend_hex("#0b1220", accent, 0.10)
         bg2 = _blend_hex("#060913", accent2, 0.10)
 
-        text = "rgba(255, 255, 255, 0.92)"
-        muted = "rgba(255, 255, 255, 0.72)"
-        border = "rgba(255, 255, 255, 0.22)"
-        line = "rgba(255, 255, 255, 0.16)"
-
-        card = "linear-gradient(180deg, rgba(15, 23, 42, 0.48), rgba(15, 23, 42, 0.32))"
-        chip_bg = "rgba(255, 255, 255, 0.09)"
-        chip_border = "rgba(255, 255, 255, 0.16)"
-        shadow = "0 22px 80px rgba(0, 0, 0, 0.42)"
-
-        blob3 = "rgba(255, 255, 255, 0.09)"
-        blob4_hex = _blend_hex(accent2, "#0b1220", 0.35)
-        r4, g4, b4 = _hex_to_rgb(blob4_hex)
-
+        q_primary = accent
+        q_secondary = accent2
+        text = "#f8fafc"
+        muted = "rgba(248, 250, 252, 0.72)"
+        border = "rgba(255, 255, 255, 0.18)"
+        line = "rgba(255, 255, 255, 0.14)"
+        shadow = "0 22px 70px rgba(0, 0, 0, 0.55)"
+        card = "linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.06))"
+        chip_bg = "rgba(255, 255, 255, 0.10)"
+        chip_border = "rgba(255, 255, 255, 0.14)"
         primary_weak = f"rgba({r1}, {g1}, {b1}, 0.18)"
 
-        bg_img = (
-    f"radial-gradient(1000px 720px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.12), transparent 62%),"
-    f"radial-gradient(920px 680px at 90% 12%, rgba({r2}, {g2}, {b2}, 0.10), transparent 62%),"
-    f"radial-gradient(760px 520px at 58% 52%, rgba({r4}, {g4}, {b4}, 0.12), transparent 64%),"
-    f"radial-gradient(860px 560px at 12% 92%, rgba(255, 255, 255, 0.08), transparent 66%),"
-    f"radial-gradient(520px 520px at 84% 20%, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.00) 72%),"
-    f"radial-gradient(420px 420px at 18% 72%, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.00) 70%),"
-    f"radial-gradient(360px 360px at 86% 78%, rgba(255, 255, 255, 0.00) 52%, rgba(255, 255, 255, 0.12) 56%, rgba(255, 255, 255, 0.00) 68%),"
-    f"radial-gradient(280px 280px at 22% 38%, rgba({r2}, {g2}, {b2}, 0.08) 0%, rgba({r2}, {g2}, {b2}, 0.08) 36%, transparent 37%),"
-    f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)"
-)
-
-
+        blob4_hex = _blend_hex(accent2, "#0b1220", 0.35)
+        r4, g4, b4 = _hex_to_rgb(blob4_hex)
         blob4 = f"rgba({r4}, {g4}, {b4}, 0.16)"
 
-    # 文字が埋もれないよう、最低限のコントラストはここで確保
-    #（白テーマでも primary が白になって消える事故を避ける）
-    q_primary = accent
-    q_secondary = accent2
+        layers = [
+            # Layer4: lines
+            "repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.060) 0px, rgba(255, 255, 255, 0.060) 1px, rgba(255, 255, 255, 0.0) 1px, rgba(255, 255, 255, 0.0) 18px)",
+            "repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.040) 0px, rgba(255, 255, 255, 0.040) 1px, rgba(255, 255, 255, 0.0) 1px, rgba(255, 255, 255, 0.0) 26px)",
 
-    bg_img_str = bg_img
+            # Layer5: orbs（暗い背景なので “光” を少しだけ強め）
+            "radial-gradient(280px 280px at 78% 20%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.0) 74%)",
+            f"radial-gradient(240px 240px at 22% 32%, rgba({r1}, {g1}, {b1}, 0.18) 0%, rgba({r1}, {g1}, {b1}, 0.0) 72%)",
+            "radial-gradient(240px 240px at 86% 78%, rgba(255, 255, 255, 0.0) 54%, rgba(255, 255, 255, 0.28) 58%, rgba(255, 255, 255, 0.0) 74%)",
+
+            # Layer3: blobs
+            f"radial-gradient(900px 660px at 22% 60%, rgba({r2}, {g2}, {b2}, 0.14) 0%, rgba({r2}, {g2}, {b2}, 0.0) 72%)",
+            f"radial-gradient(980px 720px at 90% 18%, rgba({r1}, {g1}, {b1}, 0.16) 0%, rgba({r1}, {g1}, {b1}, 0.0) 70%)",
+            f"radial-gradient(640px 520px at 52% 48%, rgba({r4}, {g4}, {b4}, 0.12) 0%, rgba({r4}, {g4}, {b4}, 0.0) 72%)",
+
+            # Layer2: radials
+            f"radial-gradient(1200px 860px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.16) 0%, rgba({r1}, {g1}, {b1}, 0.0) 64%)",
+            f"radial-gradient(1100px 820px at 92% 12%, rgba({r2}, {g2}, {b2}, 0.12) 0%, rgba({r2}, {g2}, {b2}, 0.0) 66%)",
+
+            # Layer1: base
+            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)",
+        ]
+        bg_img = ",".join(layers)
 
     return (
         f"--q-primary: {q_primary};"
@@ -11837,7 +11858,6 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-accent: {accent};"
         f"--pv-accent-2: {accent2};"
         f"--pv-primary: {accent};"
-        f"--pv-primary-key: {primary};"
         f"--pv-primary-weak: {primary_weak};"
         f"--pv-text: {text};"
         f"--pv-muted: {muted};"
@@ -11848,8 +11868,9 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-chip-border: {chip_border};"
         f"--pv-shadow: {shadow};"
         f"--pv-blob4: {blob4};"
-        f"--pv-bg-img: {bg_img_str};"
+        f"--pv-bg-img: {bg_img};"
     )
+
 def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
