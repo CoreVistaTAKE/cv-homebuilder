@@ -9509,7 +9509,7 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
       // 保険（通信や拡張機能で load が遅延するケース）
       setTimeout(hide, maxVisible);
     }catch(e){}
-  }catch(e){}
+    try{
 
       // style (once)
       try{
