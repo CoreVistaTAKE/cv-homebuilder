@@ -6168,7 +6168,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "") -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -6230,11 +6230,15 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     sec = lambda sid: f"index.html#{sid}"
     nav_links = [
         (sec("pv-news"), "お知らせ"),
-        (sec("pv-about"), "私たちについて"),
-        (sec("pv-services"), "業務内容"),
+        (sec("pv-about"), about_label),
+    ]
+    if profile_label:
+        nav_links.append((sec("pv-company-profile"), profile_label))
+    nav_links += [
+        (sec("pv-services"), services_label),
         (sec("pv-faq"), "よくある質問"),
         (sec("pv-access"), "アクセス"),
-        (sec("pv-contact"), "お問い合わせ"),
+        (sec("pv-contact"), contact_label),
     ]
 
     desktop_nav_html = "".join(
@@ -6317,11 +6321,12 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
           <div class="pv-footer-links">
             <a class="pv-footer-link" href="index.html#pv-top">トップ</a>
             <a class="pv-footer-link" href="news/index.html">お知らせ一覧</a>
-            <a class="pv-footer-link" href="index.html#pv-about">私たちについて</a>
-            <a class="pv-footer-link" href="index.html#pv-services">業務内容</a>
+            <a class="pv-footer-link" href="index.html#pv-about">{html.escape(about_label)}</a>
+            {f'<a class="pv-footer-link" href="index.html#pv-company-profile">{html.escape(profile_label)}</a>' if profile_label else ''}
+            <a class="pv-footer-link" href="index.html#pv-services">{html.escape(services_label)}</a>
             <a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>
             <a class="pv-footer-link" href="index.html#pv-access">アクセス</a>
-            <a class="pv-footer-link" href="index.html#pv-contact">お問い合わせ</a>
+            <a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>
             <a class="pv-footer-link" href="privacy.html">プライバシーポリシー</a>
           </div>
           <div class="pv-footer-copy">© <span id="pvYear"></span> {esc_company}</div>
@@ -6357,7 +6362,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", logo_href: str = "") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -6367,7 +6372,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -9127,8 +9132,19 @@ body.pv-page-body{
 
     # v0.9.5: 完成品HPの「見出し文言」をビルダーと完全一致させる（重要）
     #   - ここがズレると「プレビューと公開結果が違う」事故になる
-    about_nav_label = str(ph.get("title") or "").strip() or "私たちについて"
+    about_nav_label = str(ph.get("title") or "").strip() or "私たちの想い"
+    # 会社概要 / 会社沿革 は表示時のみナビへ追加する
+    _profile_meta = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
+    _profile_mode_nav = str(_profile_meta.get("mode") or "unused").strip() or "unused"
+    if _profile_mode_nav not in COMPANY_PROFILE_MODE_OPTIONS:
+        _profile_mode_nav = "unused"
+    _profile_kind_nav = str(_profile_meta.get("kind") or "overview").strip() or "overview"
+    if _profile_kind_nav not in COMPANY_PROFILE_KIND_OPTIONS:
+        _profile_kind_nav = "overview"
+    profile_nav_label = COMPANY_PROFILE_KIND_OPTIONS.get(_profile_kind_nav, "会社概要") if _profile_mode_nav != "unused" else ""
     services_nav_label = str(svc.get("title") or "").strip() or "業務内容"
+    _contact_meta = blocks.get("contact") if isinstance(blocks.get("contact"), dict) else {}
+    contact_nav_label = str(_contact_meta.get("button_text") or "").strip() or "お問い合わせ"
 
     # --------------------
     # JS
@@ -9550,10 +9566,14 @@ body.pv-page-body{
     nav_items = [
         ("pv-news", "お知らせ"),
         ("pv-about", about_nav_label),
+    ]
+    if profile_nav_label and profile_mode != "unused" and profile_rows:
+        nav_items.append(("pv-company-profile", profile_nav_label))
+    nav_items += [
         ("pv-services", services_nav_label),
         ("pv-faq", "よくある質問"),
         ("pv-access", "アクセス"),
-        ("pv-contact", "お問い合わせ"),
+        ("pv-contact", contact_nav_label),
     ]
 
     desktop_nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
@@ -10048,14 +10068,14 @@ body.pv-page-body{
 
     contact_section_html = f"""
 <section class=\"pv-section pv-section-260218\" id=\"pv-contact\">
-  {_section_head("お問い合わせ", "CONTACT")}
+  {_section_head(contact_button_text, "CONTACT")}
   {contact_card_html}
 </section>
 """
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=(profile_title if profile_mode != "unused" and profile_rows else ""), services_label=services_nav_label, contact_label=contact_button_text))
 
     # --------------------
     # index.html
@@ -12169,6 +12189,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         "top": "pv-top",
         "news": "pv-news",
         "about": "pv-about",
+        "company_profile": "pv-company-profile",
         "services": "pv-services",
         "faq": "pv-faq",
         "access": "pv-access",
@@ -12230,7 +12251,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     news_items = _safe_list(news.get("items"))  # list[dict]
 
     philosophy = blocks.get("philosophy", {}) if isinstance(blocks.get("philosophy"), dict) else {}
-    about_title = _clean(philosophy.get("title"), "私たちについて")
+    about_title = _clean(philosophy.get("title"), "私たちの想い")
     about_body = _clean(philosophy.get("body"))
     about_points = _safe_list(philosophy.get("points"))
 
@@ -12261,6 +12282,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         company_profile_rows.append(
             f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>'
         )
+
+    profile_nav_label = company_profile_title if company_profile_mode != "unused" and company_profile_rows else ""
 
     services = philosophy.get("services") if isinstance(philosophy.get("services"), dict) else {}
     svc_title = _clean(services.get("title"), "業務内容")
@@ -12313,15 +12336,20 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                 if mode == "pc":
                     # desktop nav (PC only)
                     with ui.row().classes("pv-desktop-nav items-center no-wrap"):
-                        for label, sec in [
-                            ("私たちについて", "about"),
-                            ("業務内容", "services"),
+                        _desktop_nav_items = [
                             ("お知らせ", "news"),
-                            ("FAQ", "faq"),
+                            (about_title, "about"),
+                        ]
+                        if profile_nav_label:
+                            _desktop_nav_items.append((profile_nav_label, "company_profile"))
+                        _desktop_nav_items += [
+                            (svc_title, "services"),
+                            ("よくある質問", "faq"),
                             ("アクセス", "access"),
-                        ]:
+                        ]
+                        for label, sec in _desktop_nav_items:
                             ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-desktop-nav-btn")
-                        ui.button("お問い合わせ", on_click=lambda: scroll_to("contact")).props(
+                        ui.button(contact_btn, on_click=lambda: scroll_to("contact")).props(
                             "no-caps outline color=primary"
                         ).classes("pv-desktop-nav-btn pv-nav-contact")
                 else:
@@ -12329,19 +12357,25 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                     with ui.dialog() as nav_dialog:
                         with ui.card().classes("pv-nav-card"):
                             ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
-                            for label, sec in [
+                            _mobile_nav_items = [
                                 ("トップ", "top"),
                                 ("お知らせ", "news"),
-                                ("私たちについて", "about"),
-                                ("業務内容", "services"),
+                                (about_title, "about"),
+                            ]
+                            if profile_nav_label:
+                                _mobile_nav_items.append((profile_nav_label, "company_profile"))
+                            _mobile_nav_items += [
+                                (svc_title, "services"),
                                 ("よくある質問", "faq"),
                                 ("アクセス", "access"),
-                                ("お問い合わせ", "contact"),
-                            ]:
+                                (contact_btn, "contact"),
+                            ]
+                            for label, sec in _mobile_nav_items:
                                 ui.button(
                                     label,
                                     on_click=lambda s=sec: (nav_dialog.close(), scroll_to(s)),
                                 ).props("flat no-caps").classes("pv-nav-item w-full")
+                            ui.button("プライバシーポリシー", on_click=lambda: (nav_dialog.close(), privacy_dialog.open())).props("flat no-caps").classes("pv-nav-item w-full")
                     ui.button("MENU", icon="menu", on_click=nav_dialog.open).props("flat dense no-caps").classes("pv-menu-btn")
 
         with ui.element("div").classes("pv-scroll"):
@@ -12441,7 +12475,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             ui.label("ここに文章が入ります。").classes("pv-muted q-mt-sm")
 
                 if company_profile_mode != "unused" and company_profile_rows:
-                    with ui.element("section").classes("pv-section pv-section-260218 pv-section-profile"):
+                    with ui.element("section").classes("pv-section pv-section-260218 pv-section-profile").props('id="pv-company-profile"'):
                         if company_profile_mode == "collapsible":
                             ui.html(
                                 f'<div class="pv-panel pv-panel-glass pv-company-profile-panel"><details class="pv-company-profile-details"><summary class="pv-company-profile-summary">{html.escape(company_profile_title)}</summary><div class="pv-company-profile-list">{"".join(company_profile_rows)}</div></details></div>'
@@ -12684,15 +12718,20 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
             with ui.element("footer").classes("pv-footer"):
                 with ui.element("div").classes("pv-footer-inner"):
                     with ui.element("div").classes("pv-footer-links"):
-                        for label, sec in [
+                        _footer_nav_items = [
                             ("トップ", "top"),
                             ("お知らせ一覧", "news"),
-                            ("私たちについて", "about"),
-                            ("業務内容", "services"),
+                            (about_title, "about"),
+                        ]
+                        if profile_nav_label:
+                            _footer_nav_items.append((profile_nav_label, "company_profile"))
+                        _footer_nav_items += [
+                            (svc_title, "services"),
                             ("よくある質問", "faq"),
                             ("アクセス", "access"),
-                            ("お問い合わせ", "contact"),
-                        ]:
+                            (contact_btn, "contact"),
+                        ]
+                        for label, sec in _footer_nav_items:
                             ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
                         ui.button("プライバシーポリシー", on_click=privacy_dialog.open).props("flat no-caps").classes("pv-footer-link text-white")
                     ui.label(f"© {datetime.now().year} {company_name}").classes("pv-footer-copy")
