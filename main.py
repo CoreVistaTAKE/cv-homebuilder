@@ -201,6 +201,32 @@ IMAGE_MAX_W = 1280
 IMAGE_MAX_H = 720
 IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動で16:9にカットして保存"
 
+COMPANY_PROFILE_FIELD_DEFS = [
+    ("trade_name", "商号", "株式会社サンプル"),
+    ("address", "所在地", "東京都千代田区サンプル1-2-3 サンプルビル3F"),
+    ("executives", "代表者・役員", "代表取締役 山田 太郎"),
+    ("established", "設立日", "2020年4月1日"),
+    ("business", "事業内容", "住宅リフォーム / 外構工事 / 不動産管理"),
+    ("site_url", "サイトURL", "https://example.com"),
+    ("contact", "連絡先", "TEL 03-1234-5678 / Mail info@example.com"),
+    ("capital", "資本金", "500万円"),
+    ("employees", "従業員数", "12名"),
+    ("advisers", "顧問弁護士・税理士", "○○法律事務所 / ○○税理士事務所"),
+    ("corporate_number", "法人番号", "1234567890123"),
+    ("registration_number", "登録番号", "T1234567890123"),
+]
+
+COMPANY_PROFILE_MODE_OPTIONS = {
+    "always": "常に表示",
+    "collapsible": "折りたたむ",
+    "unused": "使用しない",
+}
+
+COMPANY_PROFILE_KIND_OPTIONS = {
+    "overview": "会社概要",
+    "history": "会社沿革",
+}
+
 # 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
@@ -1738,6 +1764,9 @@ def inject_global_styles() -> None:
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-bullets{
@@ -2315,6 +2344,9 @@ def inject_global_styles() -> None:
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-services-lead{
@@ -2325,6 +2357,9 @@ def inject_global_styles() -> None:
   font-weight: 800;
   font-size: 1.05rem;
   letter-spacing: 0.01em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-service-list{
@@ -2336,6 +2371,9 @@ def inject_global_styles() -> None:
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-services-grid{
@@ -2433,6 +2471,104 @@ def inject_global_styles() -> None:
   padding-left: 38px; /* Qマーク分 */
   color: var(--pv-muted);
   line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pv-layout-260218 .pv-company-profile-panel{
+  padding: 18px;
+}
+
+.pv-layout-260218 .pv-company-profile-title{
+  font-weight: 900;
+  font-size: 1.02rem;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-company-profile-list{
+  display: grid;
+  gap: 10px;
+}
+
+.pv-layout-260218 .pv-company-profile-row{
+  display: grid;
+  grid-template-columns: 168px minmax(0,1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.16);
+}
+
+.pv-layout-260218.pv-dark .pv-company-profile-row{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-company-profile-row:last-child{
+  border-bottom: 0;
+}
+
+.pv-layout-260218 .pv-company-profile-label{
+  font-weight: 900;
+  color: var(--pv-text);
+  opacity: 0.88;
+  white-space: nowrap;
+}
+
+.pv-layout-260218 .pv-company-profile-value{
+  color: var(--pv-text);
+  opacity: 0.88;
+  line-height: 1.75;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pv-layout-260218 .pv-company-profile-details{
+  width: 100%;
+}
+
+.pv-layout-260218 .pv-company-profile-details[open]{
+  padding-bottom: 2px;
+}
+
+.pv-layout-260218 .pv-company-profile-summary{
+  list-style: none;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 1.02rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pv-layout-260218 .pv-company-profile-summary::-webkit-details-marker{
+  display: none;
+}
+
+.pv-layout-260218 .pv-company-profile-summary::after{
+  content: '＋';
+  flex: 0 0 auto;
+  opacity: 0.62;
+}
+
+.pv-layout-260218 .pv-company-profile-details[open] .pv-company-profile-summary::after{
+  content: '−';
+}
+
+.pv-layout-260218 .pv-company-profile-details .pv-company-profile-list{
+  margin-top: 14px;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-company-profile-row{
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-company-profile-label{
+  white-space: normal;
 }
 
 .pv-layout-260218 .pv-access-card{
@@ -2791,10 +2927,16 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-footer-link.q-btn .q-btn__content,
 .pv-layout-260218 .pv-footer-link.q-btn .q-btn__content span{
   color: rgba(255,255,255,0.86) !important;
+  white-space: nowrap !important;
+  flex-wrap: nowrap !important;
+  word-break: keep-all !important;
 }
 .pv-layout-260218 .pv-footer-link.q-btn{
   justify-content: flex-start;
   padding-left: 0;
+  padding-right: 0;
+  min-width: 0;
+  flex: 0 0 auto;
   font-size: 0.82rem; /* v0.9.3: フッターメニューを小さく */
   letter-spacing: 0.01em;
 }
@@ -2827,7 +2969,7 @@ def inject_global_styles() -> None:
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: nowrap !important;
   justify-content: center;
   align-items: center;
   gap: 0.42em;
@@ -2837,6 +2979,7 @@ def inject_global_styles() -> None:
   overflow: visible;
   max-width: 100%;
   width: 100%;
+  white-space: nowrap;
 }
 .pv-layout-260218 .pv-footer-copy{
   flex: 0 0 auto;
@@ -2854,7 +2997,9 @@ def inject_global_styles() -> None:
   order: 1;
   justify-content: center;
   width: 100%;
-  font-size: clamp(6px, 2.95vw, 0.82rem);
+  font-size: clamp(5px, 2.55vw, 0.76rem);
+  flex-wrap: nowrap !important;
+  white-space: nowrap;
 }
 .pv-layout-260218.pv-mode-mobile .pv-footer-copy{
   order: 2;
@@ -4100,6 +4245,15 @@ def apply_template_starter_defaults(p: dict, template_id: str) -> None:
             services = {}
         philosophy["services"] = services
 
+        profile = philosophy.get("company_profile") or {}
+        if not isinstance(profile, dict):
+            profile = {}
+        philosophy["company_profile"] = profile
+        profile.setdefault("mode", "unused")
+        profile.setdefault("kind", "overview")
+        for _k, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+            profile.setdefault(_k, _sample)
+
         def _txt(v) -> str:
             return str(v or "").strip()
 
@@ -4667,6 +4821,15 @@ def normalize_project(p: dict) -> dict:
     # philosophy: 画像（任意）
     philosophy.setdefault("image_url", "")
     philosophy.setdefault("image_upload_name", "")
+
+    profile = philosophy.setdefault("company_profile", {})
+    if not isinstance(profile, dict):
+        profile = {}
+        philosophy["company_profile"] = profile
+    profile.setdefault("mode", "unused")
+    profile.setdefault("kind", "overview")
+    for _k, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        profile.setdefault(_k, _sample)
 
     # services: 業務内容（philosophyブロック内に統合 / 6ブロック固定のまま）
     services = philosophy.setdefault(
@@ -5953,7 +6116,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   {favicon_tags}
 
 </head>
-<body class="pv-page-body" style="{theme_style}">
+<body class="pv-page-body" style="{theme_style};overflow-x:hidden;max-width:100vw;">
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
@@ -7149,6 +7312,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-bullets{
@@ -7726,6 +7892,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-services-lead{
@@ -7736,6 +7905,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   font-weight: 800;
   font-size: 1.05rem;
   letter-spacing: 0.01em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-service-list{
@@ -7747,6 +7919,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pv-layout-260218 .pv-services-grid{
@@ -7844,6 +8019,104 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   padding-left: 38px; /* Qマーク分 */
   color: var(--pv-muted);
   line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pv-layout-260218 .pv-company-profile-panel{
+  padding: 18px;
+}
+
+.pv-layout-260218 .pv-company-profile-title{
+  font-weight: 900;
+  font-size: 1.02rem;
+  margin-bottom: 12px;
+}
+
+.pv-layout-260218 .pv-company-profile-list{
+  display: grid;
+  gap: 10px;
+}
+
+.pv-layout-260218 .pv-company-profile-row{
+  display: grid;
+  grid-template-columns: 168px minmax(0,1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.16);
+}
+
+.pv-layout-260218.pv-dark .pv-company-profile-row{
+  border-bottom-color: rgba(255,255,255,0.10);
+}
+
+.pv-layout-260218 .pv-company-profile-row:last-child{
+  border-bottom: 0;
+}
+
+.pv-layout-260218 .pv-company-profile-label{
+  font-weight: 900;
+  color: var(--pv-text);
+  opacity: 0.88;
+  white-space: nowrap;
+}
+
+.pv-layout-260218 .pv-company-profile-value{
+  color: var(--pv-text);
+  opacity: 0.88;
+  line-height: 1.75;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pv-layout-260218 .pv-company-profile-details{
+  width: 100%;
+}
+
+.pv-layout-260218 .pv-company-profile-details[open]{
+  padding-bottom: 2px;
+}
+
+.pv-layout-260218 .pv-company-profile-summary{
+  list-style: none;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 1.02rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pv-layout-260218 .pv-company-profile-summary::-webkit-details-marker{
+  display: none;
+}
+
+.pv-layout-260218 .pv-company-profile-summary::after{
+  content: '＋';
+  flex: 0 0 auto;
+  opacity: 0.62;
+}
+
+.pv-layout-260218 .pv-company-profile-details[open] .pv-company-profile-summary::after{
+  content: '−';
+}
+
+.pv-layout-260218 .pv-company-profile-details .pv-company-profile-list{
+  margin-top: 14px;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-company-profile-row{
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.pv-layout-260218.pv-mode-mobile .pv-company-profile-label{
+  white-space: normal;
 }
 
 .pv-layout-260218 .pv-access-card{
@@ -8202,10 +8475,16 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218 .pv-footer-link.q-btn .q-btn__content,
 .pv-layout-260218 .pv-footer-link.q-btn .q-btn__content span{
   color: rgba(255,255,255,0.86) !important;
+  white-space: nowrap !important;
+  flex-wrap: nowrap !important;
+  word-break: keep-all !important;
 }
 .pv-layout-260218 .pv-footer-link.q-btn{
   justify-content: flex-start;
   padding-left: 0;
+  padding-right: 0;
+  min-width: 0;
+  flex: 0 0 auto;
   font-size: 0.82rem; /* v0.9.3: フッターメニューを小さく */
   letter-spacing: 0.01em;
 }
@@ -8374,7 +8653,9 @@ a:hover{text-decoration:none;}
   order: 1;
   justify-content: center;
   width: 100%;
-  font-size: clamp(6px, 2.95vw, 0.82rem);
+  font-size: clamp(5px, 2.55vw, 0.76rem);
+  flex-wrap: nowrap !important;
+  white-space: nowrap;
 }
 .pv-layout-260218.pv-mode-mobile .pv-footer-copy{
   order: 2;
@@ -8408,21 +8689,32 @@ a:hover{text-decoration:none;}
 .pv-shell.pv-layout-260218.pv-mode-mobile,
 .pv-shell.pv-layout-260218.pv-mode-pc{
   width:100% !important;
-  max-width:none !important;
+  max-width:100vw !important;
   height:auto !important;
   min-height:100vh;
   flex:1 0 auto;
   display:flex !important;
   flex-direction:column !important;
   border-radius:0 !important;
-  overflow:visible !important;
+  box-sizing:border-box;
+  overflow-x:hidden !important;
+  overflow-y:visible !important;
 }
 
 .pv-layout-260218 .pv-scroll{
   min-height:100%;
   display:flex;
   flex-direction:column;
-  overflow:visible !important;
+  width:100%;
+  max-width:100%;
+  overflow-x:hidden !important;
+  overflow-y:visible !important;
+}
+
+.pv-layout-260218 .pv-main,
+.pv-layout-260218 .pv-section,
+.pv-layout-260218 .pv-footer{
+  max-width:100%;
 }
 .pv-layout-260218 .pv-footer{
   margin-top:auto;
@@ -9351,6 +9643,49 @@ a:hover{text-decoration:none;}
 
     about_body_html = _paras(ph_body)
 
+    profile = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
+    profile_mode = str(profile.get("mode") or "unused").strip() or "unused"
+    if profile_mode not in COMPANY_PROFILE_MODE_OPTIONS:
+        profile_mode = "unused"
+    profile_kind = str(profile.get("kind") or "overview").strip() or "overview"
+    if profile_kind not in COMPANY_PROFILE_KIND_OPTIONS:
+        profile_kind = "overview"
+    profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(profile_kind, "会社概要")
+    profile_rows = []
+    for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        _val = str(profile.get(_key) or "").strip()
+        if not _val:
+            continue
+        if _key == "site_url":
+            _safe_url = _esc(_val)
+            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{_esc(_val)}</a>'
+        else:
+            _cell_html = _esc(_val).replace("\n", "<br>")
+        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>')
+    profile_section_html = ""
+    if profile_mode != "unused" and profile_rows:
+        profile_rows_html = ''.join(profile_rows)
+        if profile_mode == "collapsible":
+            profile_section_html = f"""
+<section class=\"pv-section pv-section-260218 pv-section-profile\" id=\"pv-company-profile\">
+  <div class=\"pv-panel pv-panel-glass pv-company-profile-panel\">
+    <details class=\"pv-company-profile-details\">
+      <summary class=\"pv-company-profile-summary\">{_esc(profile_title)}</summary>
+      <div class=\"pv-company-profile-list\">{profile_rows_html}</div>
+    </details>
+  </div>
+</section>
+"""
+        else:
+            profile_section_html = f"""
+<section class=\"pv-section pv-section-260218 pv-section-profile\" id=\"pv-company-profile\">
+  <div class=\"pv-panel pv-panel-glass pv-company-profile-panel\">
+    <div class=\"pv-company-profile-title\">{_esc(profile_title)}</div>
+    <div class=\"pv-company-profile-list\">{profile_rows_html}</div>
+  </div>
+</section>
+"""
+
     about_section_html = f"""
 <section class=\"pv-section pv-section-260218\" id=\"pv-about\">
   {_section_head(ph_title, "ABOUT")}
@@ -9590,6 +9925,7 @@ a:hover{text-decoration:none;}
         {hero_html}
         {news_section_html}
         {about_section_html}
+        {profile_section_html}
         {services_section_html}
         {faq_section_html}
         {access_section_html}
@@ -11328,7 +11664,15 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v0.9.34) ===== */
+/* ===== Depth Background Rebuild (v0.9.38) ===== */
+html, body{
+  max-width: 100%;
+  overflow-x: hidden;
+}
+body.pv-page-body{
+  overflow-x: hidden;
+}
+/* ===== Depth Background Rebuild (v0.9.38) ===== */
 .pv-shell.pv-layout-260218{
   position: relative;
   isolation: isolate;
@@ -11618,6 +11962,28 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&h=720&q=60",
     )
 
+    company_profile = philosophy.get("company_profile") if isinstance(philosophy.get("company_profile"), dict) else {}
+    company_profile_mode = str(company_profile.get("mode") or "unused").strip() or "unused"
+    if company_profile_mode not in COMPANY_PROFILE_MODE_OPTIONS:
+        company_profile_mode = "unused"
+    company_profile_kind = str(company_profile.get("kind") or "overview").strip() or "overview"
+    if company_profile_kind not in COMPANY_PROFILE_KIND_OPTIONS:
+        company_profile_kind = "overview"
+    company_profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(company_profile_kind, "会社概要")
+    company_profile_rows = []
+    for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        _val = _clean(company_profile.get(_key))
+        if not _val:
+            continue
+        if _key == "site_url":
+            _safe_url = html.escape(_val, quote=True)
+            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{html.escape(_val)}</a>'
+        else:
+            _cell_html = html.escape(_val).replace("\n", "<br>")
+        company_profile_rows.append(
+            f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>'
+        )
+
     services = philosophy.get("services") if isinstance(philosophy.get("services"), dict) else {}
     svc_title = _clean(services.get("title"), "業務内容")
     svc_lead = _clean(services.get("lead"))
@@ -11796,6 +12162,17 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         else:
                             ui.label("ここに文章が入ります。").classes("pv-muted q-mt-sm")
 
+                if company_profile_mode != "unused" and company_profile_rows:
+                    with ui.element("section").classes("pv-section pv-section-260218 pv-section-profile"):
+                        if company_profile_mode == "collapsible":
+                            ui.html(
+                                f'<div class="pv-panel pv-panel-glass pv-company-profile-panel"><details class="pv-company-profile-details"><summary class="pv-company-profile-summary">{html.escape(company_profile_title)}</summary><div class="pv-company-profile-list">{"".join(company_profile_rows)}</div></details></div>'
+                            )
+                        else:
+                            ui.html(
+                                f'<div class="pv-panel pv-panel-glass pv-company-profile-panel"><div class="pv-company-profile-title">{html.escape(company_profile_title)}</div><div class="pv-company-profile-list">{"".join(company_profile_rows)}</div></div>'
+                            )
+
                 # SERVICES
                 with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-services"'):
                     with ui.element("div").classes("pv-section-head"):
@@ -11878,7 +12255,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                     ui.label(email).classes("pv-muted")
 
                         if access_notes:
-                            ui.label(access_notes).classes("pv-muted q-mt-sm")
+                            ui.label(access_notes).classes("pv-bodytext q-mt-sm")
 
                         # 地図：住所がある時は必ず表示（iframe は任意）
                         if address:
@@ -12868,7 +13245,34 @@ def render_main(u: User) -> None:
 
                                                         bind_dict_input(ph, "本文（必須）", "body", textarea=True, hint="例：私たちは、〜")
 
+                                                        ui.separator().classes("q-mt-md q-mb-sm")
+                                                        ui.label("会社沿革 / 会社概要（任意）").classes("text-body1")
+                                                        ui.label("本文と業務内容の間に表示されます。例が入っているので、上書きして使えます。不要なら「使用しない」のままでOKです。").classes("cvhb-muted q-mb-sm")
 
+                                                        profile = ph.setdefault("company_profile", {})
+                                                        if not isinstance(profile, dict):
+                                                            profile = {}
+                                                            ph["company_profile"] = profile
+                                                        profile.setdefault("mode", "unused")
+                                                        profile.setdefault("kind", "overview")
+                                                        for _k, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+                                                            profile.setdefault(_k, _sample)
+
+                                                        def _set_profile_value(key: str, value: str) -> None:
+                                                            try:
+                                                                profile[key] = value or ""
+                                                            except Exception:
+                                                                pass
+                                                            update_and_refresh()
+
+                                                        ui.select(COMPANY_PROFILE_KIND_OPTIONS, value=profile.get("kind", "overview"), label="表示タイトル", on_change=lambda e: _set_profile_value("kind", e.value or "overview")).props("outlined dense").classes("w-full q-mb-sm")
+                                                        ui.select(COMPANY_PROFILE_MODE_OPTIONS, value=profile.get("mode", "unused"), label="表示方法", on_change=lambda e: _set_profile_value("mode", e.value or "unused")).props("outlined dense").classes("w-full q-mb-sm")
+
+                                                        for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+                                                            if _key == "business":
+                                                                ui.textarea(_label, value=profile.get(_key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow").classes("w-full q-mb-sm")
+                                                            else:
+                                                                ui.input(_label, value=profile.get(_key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props(f'outlined dense hint={_sample}').classes("w-full q-mb-sm")
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
 
