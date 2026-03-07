@@ -1477,6 +1477,8 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-scroll{
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
@@ -1532,9 +1534,9 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-brand-logo{
   display: block;
   width: auto;
-  height: clamp(31px, 4.0vw, 34px);
-  max-height: clamp(31px, 4.0vw, 34px);
-  max-width: min(46vw, 260px);
+  height: clamp(32px, 4.4vw, 36px);
+  max-height: clamp(32px, 4.4vw, 36px);
+  max-width: min(48vw, 280px);
   min-width: 0;
   flex: 0 1 auto;
   object-fit: contain;
@@ -1543,9 +1545,9 @@ def inject_global_styles() -> None:
 
 @media (min-width: 640px){
   .pv-layout-260218 .pv-brand-logo{
-    height: clamp(32px, 2.4vw, 36px);
-    max-height: clamp(32px, 2.4vw, 36px);
-    max-width: min(28vw, 300px);
+    height: clamp(34px, 2.5vw, 38px);
+    max-height: clamp(34px, 2.5vw, 38px);
+    max-width: min(30vw, 320px);
   }
 }
 
@@ -1638,6 +1640,8 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-main{
+  flex: 1 0 auto;
+  width: 100%;
   max-width: 1280px;
   margin: 0 auto;
   padding: 20px 18px 0;
@@ -2068,15 +2072,31 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-hero-track{
-  display: flex;
+  position: relative;
+  display: block;
   height: 100%;
-  transition: transform 500ms ease;
+  transition: none;
 }
 
 .pv-layout-260218 .pv-hero-slide{
-  flex: 0 0 100%;
+  position: absolute;
+  inset: 0;
   height: 100%;
+  flex: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1000ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
   position: relative;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pv-layout-260218 .pv-hero-slider.is-js .pv-hero-slide.is-active{
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .pv-layout-260218 .pv-hero-img{
@@ -2085,6 +2105,91 @@ def inject_global_styles() -> None:
   object-fit: cover;
   display: block;
 }
+
+.pv-layout-260218.pv-js .pv-hero-caption{
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero-caption{
+  transform: translateX(-50%) translateY(16px) scale(0.986);
+}
+
+.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero-caption{
+  transform: translateY(16px) scale(0.988);
+}
+
+.pv-layout-260218.pv-js .pv-hero.is-caption-in .pv-hero-caption{
+  opacity: 1;
+  transition:
+    opacity 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 260ms,
+    transform 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 260ms;
+}
+
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero.is-caption-in .pv-hero-caption{
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero.is-caption-in .pv-hero-caption{
+  transform: translateY(0) scale(1);
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-section-head,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *{
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-section-head{
+  transform: translate3d(0, 18px, 0);
+  transition:
+    opacity 760ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 760ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel{
+  transform: translate3d(0, 22px, 0) scale(0.992);
+  transition:
+    opacity 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 70ms,
+    transform 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 70ms;
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *{
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 720ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 720ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(1){ transition-delay: 170ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(2){ transition-delay: 230ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(3){ transition-delay: 290ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(4){ transition-delay: 350ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(5){ transition-delay: 410ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(6){ transition-delay: 470ms; }
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218.is-in .pv-section-head,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218.is-in .pv-panel,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218.is-in .pv-panel > *{
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .pv-layout-260218 .pv-hero-slide{
+    transition: none !important;
+  }
+  .pv-layout-260218.pv-js .pv-hero-caption,
+  .pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-section-head,
+  .pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel,
+  .pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *{
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
 
 
 .pv-layout-260218 .pv-news-list{
@@ -2213,11 +2318,13 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-services-lead{
-  margin-top: 6px;
+  margin-top: 8px;
   color: var(--pv-text);
-  opacity: 0.90;
-  line-height: 1.75;
+  opacity: 0.92;
+  line-height: 1.78;
   font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
 }
 
 .pv-layout-260218 .pv-service-list{
@@ -2707,6 +2814,55 @@ def inject_global_styles() -> None:
   opacity: 0.62;
   font-size: 0.8rem;
 }
+
+.pv-layout-260218 .pv-footer-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pv-layout-260218 .pv-footer-links{
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.42em;
+  font-size: clamp(6px, 2.55vw, 0.82rem);
+  line-height: 1.2;
+  letter-spacing: 0;
+  overflow: visible;
+  max-width: 100%;
+  width: 100%;
+}
+.pv-layout-260218 .pv-footer-copy{
+  flex: 0 0 auto;
+  margin: 0 !important;
+  max-width: none;
+  text-align: right;
+  white-space: nowrap;
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-inner{
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-links{
+  order: 1;
+  justify-content: center;
+  width: 100%;
+  font-size: clamp(6px, 2.95vw, 0.82rem);
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-copy{
+  order: 2;
+  width: 100%;
+  text-align: right;
+  font-size: 0.74rem;
+  opacity: 0.68;
+}
 /* ====== Legal (Privacy Policy) ====== */
 .pv-legal-title{
   font-weight: 900;
@@ -2742,82 +2898,144 @@ def inject_global_styles() -> None:
   window.__cvhbHeroIntervals = window.__cvhbHeroIntervals || {};
   window.cvhbInitHeroSlider = function(sliderId, axis, intervalMs){
     try{
-      // backward compatible: (sliderId, intervalMs)
       if(typeof axis === 'number' && (intervalMs === undefined || intervalMs === null)){
         intervalMs = axis;
         axis = 'x';
       }
       const slider = document.getElementById(sliderId);
       if(!slider) return;
+      const track = slider.querySelector('.pv-hero-track');
+      const slides = slider.querySelectorAll('.pv-hero-slide');
+      if(!track || !slides || slides.length <= 0) return;
 
-      // v0.6.994: interval 多重化を抑止（PCが重くなる主因になりがち）
+      const root = slider.closest('.pv-shell') || document.getElementById('pv-root');
+      if(root){ try{ root.classList.add('pv-js'); }catch(e){} }
+
       try{
         const old = window.__cvhbHeroIntervals[sliderId];
         if(old){ window.clearInterval(old); }
         window.__cvhbHeroIntervals[sliderId] = null;
       } catch(e){}
 
-      const track = slider.querySelector('.pv-hero-track');
-      const slides = slider.querySelectorAll('.pv-hero-slide');
-      if(!track || !slides || slides.length <= 1) return;
+      try{ slider.classList.add('is-js'); }catch(e){}
 
       let dots = slider.querySelectorAll('.pv-hero-dot');
       try{
-        // dots may be outside the slider (PC: below image)
         if(!dots || dots.length === 0){
           const box = document.getElementById(sliderId + '-dots');
           if(box){ dots = box.querySelectorAll('.pv-hero-dot'); }
         }
       } catch(e){}
+
       let idx = 0;
-      const useAxis = (String(axis || 'x').toLowerCase() === 'y') ? 'y' : 'x';
-
-      // stack direction (PC=横, スマホ=縦)
+      const ms = (intervalMs && intervalMs > 0) ? intervalMs : 4500;
+      let timer = null;
+      let reduce = false;
       try{
-        track.style.flexDirection = (useAxis === 'y') ? 'column' : 'row';
-      } catch(e){}
+        reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      }catch(e){}
 
-      const apply = () => {
-        if(useAxis === 'y'){
-          track.style.transform = 'translateY(-' + (idx * 100) + '%)';
-        } else {
-          track.style.transform = 'translateX(-' + (idx * 100) + '%)';
-        }
+      const setActive = (n) => {
+        const len = slides.length;
+        if(len <= 0) return;
+        idx = (n + len) % len;
+        slides.forEach((s, i) => {
+          if(i === idx){
+            s.classList.add('is-active');
+            s.setAttribute('aria-hidden', 'false');
+          }else{
+            s.classList.remove('is-active');
+            s.setAttribute('aria-hidden', 'true');
+          }
+        });
         try{
-          dots.forEach((d,i)=>{ if(i===idx) d.classList.add('is-active'); else d.classList.remove('is-active'); });
-        } catch(e){}
+          dots.forEach((d,i)=>{
+            if(i===idx){
+              d.classList.add('is-active');
+              d.setAttribute('aria-current','true');
+            }else{
+              d.classList.remove('is-active');
+              d.removeAttribute('aria-current');
+            }
+          });
+        }catch(e){}
       };
 
-      // v0.6.994: addEventListener を使わず「上書き」で重複を防ぐ
-      try{
-        dots.forEach((d,i)=>{ d.onclick = function(){ idx=i; apply(); }; });
-      } catch(e){}
-
-      const ms = (intervalMs && intervalMs > 0) ? intervalMs : 4500;
-
       const stop = () => {
-        try{
-          const t = window.__cvhbHeroIntervals[sliderId];
-          if(t){ window.clearInterval(t); }
-          window.__cvhbHeroIntervals[sliderId] = null;
-        } catch(e){}
+        if(timer){ window.clearInterval(timer); timer = null; }
+        try{ window.__cvhbHeroIntervals[sliderId] = null; }catch(e){}
       };
 
       const start = () => {
         stop();
-        try{
-          const t = window.setInterval(()=>{ idx=(idx+1)%slides.length; apply(); }, ms);
-          window.__cvhbHeroIntervals[sliderId] = t;
-        } catch(e){}
+        if(reduce || slides.length <= 1) return;
+        timer = window.setInterval(() => { setActive(idx + 1); }, ms);
+        try{ window.__cvhbHeroIntervals[sliderId] = timer; }catch(e){}
       };
+
+      try{
+        dots.forEach((d,i)=>{
+          d.onclick = function(){
+            setActive(i);
+            start();
+          };
+        });
+      }catch(e){}
 
       const hoverTarget = (slider.parentElement && slider.parentElement.classList && slider.parentElement.classList.contains('pv-hero-stage')) ? slider.parentElement : slider;
       hoverTarget.onmouseenter = function(){ stop(); };
       hoverTarget.onmouseleave = function(){ start(); };
+      hoverTarget.onfocusin = function(){ stop(); };
+      hoverTarget.onfocusout = function(){ start(); };
 
+      setActive(0);
       start();
-      apply();
+
+      try{
+        const hero = slider.closest('.pv-hero') || slider.closest('.pv-hero-wide') || slider.closest('section');
+        if(hero){
+          hero.classList.remove('is-caption-in');
+          window.setTimeout(function(){
+            hero.classList.add('is-caption-in');
+          }, reduce ? 0 : 260);
+        }
+      }catch(e){}
+
+      slider.__cvhbReinit = function(){ setActive(idx); };
     } catch(e){}
+  };
+
+  window.cvhbInitScrollReveal = window.cvhbInitScrollReveal || function(rootId){
+    try{
+      const root = document.getElementById(rootId);
+      if(!root) return;
+      try{ root.classList.add('pv-js'); }catch(e){}
+      const targets = root.querySelectorAll('section.pv-section, section.pv-section-260218');
+      if(!targets || targets.length <= 0) return;
+
+      let reduce = false;
+      try{
+        reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      }catch(e){}
+
+      targets.forEach(function(el){ el.classList.add('pv-section-260218'); });
+
+      if(reduce || !('IntersectionObserver' in window)){
+        targets.forEach(function(el){ el.classList.add('is-in'); });
+        return;
+      }
+
+      const io = new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          if(entry.isIntersecting){
+            entry.target.classList.add('is-in');
+            io.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+
+      targets.forEach(function(el){ io.observe(el); });
+    }catch(e){}
   };
 
   window.cvhbPreviewScrollTo = window.cvhbPreviewScrollTo || function(rootId, targetId){
@@ -5735,7 +5953,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   {favicon_tags}
 
 </head>
-<body>
+<body class="pv-page-body" style="{theme_style}">
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
@@ -6670,6 +6888,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218 .pv-scroll{
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
@@ -6725,9 +6945,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218 .pv-brand-logo{
   display: block;
   width: auto;
-  height: clamp(31px, 4.0vw, 34px);
-  max-height: clamp(31px, 4.0vw, 34px);
-  max-width: min(46vw, 260px);
+  height: clamp(32px, 4.4vw, 36px);
+  max-height: clamp(32px, 4.4vw, 36px);
+  max-width: min(48vw, 280px);
   min-width: 0;
   flex: 0 1 auto;
   object-fit: contain;
@@ -6736,9 +6956,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
 @media (min-width: 640px){
   .pv-layout-260218 .pv-brand-logo{
-    height: clamp(32px, 2.4vw, 36px);
-    max-height: clamp(32px, 2.4vw, 36px);
-    max-width: min(28vw, 300px);
+    height: clamp(34px, 2.5vw, 38px);
+    max-height: clamp(34px, 2.5vw, 38px);
+    max-width: min(30vw, 320px);
   }
 }
 
@@ -6831,6 +7051,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-layout-260218 .pv-main{
+  flex: 1 0 auto;
+  width: 100%;
   max-width: 1280px;
   margin: 0 auto;
   padding: 20px 18px 0;
@@ -7261,15 +7483,31 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-layout-260218 .pv-hero-track{
-  display: flex;
+  position: relative;
+  display: block;
   height: 100%;
-  transition: transform 500ms ease;
+  transition: none;
 }
 
 .pv-layout-260218 .pv-hero-slide{
-  flex: 0 0 100%;
+  position: absolute;
+  inset: 0;
   height: 100%;
+  flex: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1000ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
   position: relative;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pv-layout-260218 .pv-hero-slider.is-js .pv-hero-slide.is-active{
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .pv-layout-260218 .pv-hero-img{
@@ -7278,6 +7516,91 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   object-fit: cover;
   display: block;
 }
+
+.pv-layout-260218.pv-js .pv-hero-caption{
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero-caption{
+  transform: translateX(-50%) translateY(16px) scale(0.986);
+}
+
+.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero-caption{
+  transform: translateY(16px) scale(0.988);
+}
+
+.pv-layout-260218.pv-js .pv-hero.is-caption-in .pv-hero-caption{
+  opacity: 1;
+  transition:
+    opacity 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 260ms,
+    transform 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 260ms;
+}
+
+.pv-layout-260218.pv-js.pv-mode-pc .pv-hero.is-caption-in .pv-hero-caption{
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.pv-layout-260218.pv-js.pv-mode-mobile .pv-hero.is-caption-in .pv-hero-caption{
+  transform: translateY(0) scale(1);
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-section-head,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *{
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-section-head{
+  transform: translate3d(0, 18px, 0);
+  transition:
+    opacity 760ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 760ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel{
+  transform: translate3d(0, 22px, 0) scale(0.992);
+  transition:
+    opacity 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 70ms,
+    transform 820ms cubic-bezier(0.22, 0.61, 0.36, 1) 70ms;
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *{
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 720ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 720ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(1){ transition-delay: 170ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(2){ transition-delay: 230ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(3){ transition-delay: 290ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(4){ transition-delay: 350ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(5){ transition-delay: 410ms; }
+.pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *:nth-child(6){ transition-delay: 470ms; }
+
+.pv-layout-260218.pv-js .pv-section.pv-section-260218.is-in .pv-section-head,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218.is-in .pv-panel,
+.pv-layout-260218.pv-js .pv-section.pv-section-260218.is-in .pv-panel > *{
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .pv-layout-260218 .pv-hero-slide{
+    transition: none !important;
+  }
+  .pv-layout-260218.pv-js .pv-hero-caption,
+  .pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-section-head,
+  .pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel,
+  .pv-layout-260218.pv-js .pv-section.pv-section-260218 .pv-panel > *{
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
 
 
 .pv-layout-260218 .pv-news-list{
@@ -7406,11 +7729,13 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-layout-260218 .pv-services-lead{
-  margin-top: 6px;
+  margin-top: 8px;
   color: var(--pv-text);
-  opacity: 0.90;
-  line-height: 1.75;
+  opacity: 0.92;
+  line-height: 1.78;
   font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
 }
 
 .pv-layout-260218 .pv-service-list{
@@ -7927,8 +8252,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     EXPORT_BASE_CSS = r"""
 /* ===== CVHB Export Base ===== */
 *{box-sizing:border-box;}
-html,body{margin:0;padding:0;}
+html,body{margin:0;padding:0;min-height:100%;}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; line-height:1.7; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility;}
+body.pv-page-body{min-height:100vh; background:var(--pv-bg-img); background-color:var(--pv-base-1, #f8fafc); color:var(--pv-text);}
 a{color:inherit;text-decoration:none;}
 a:hover{text-decoration:none;}
 
@@ -8085,12 +8411,21 @@ a:hover{text-decoration:none;}
   max-width:none !important;
   height:auto !important;
   min-height:100vh;
+  flex:1 0 auto;
+  display:flex !important;
+  flex-direction:column !important;
   border-radius:0 !important;
   overflow:visible !important;
 }
 
 .pv-layout-260218 .pv-scroll{
+  min-height:100%;
+  display:flex;
+  flex-direction:column;
   overflow:visible !important;
+}
+.pv-layout-260218 .pv-footer{
+  margin-top:auto;
 }
 
 /* PCではメニューボタンを隠す（プレビューは条件レンダリングだが、exportは両方DOMに置く） */
@@ -8537,54 +8872,102 @@ a:hover{text-decoration:none;}
     if(!track) return;
 
     var slides = Array.prototype.slice.call(track.children || []);
-    if(slides.length <= 1) return;
+    if(!slides || slides.length <= 0) return;
+
+    try{ root.classList.add('pv-js'); }catch(_e){}
+    try{ slider.classList.add('is-js'); }catch(_e){}
 
     var dotsBox = document.getElementById('pv-hero-slider-dots');
-    var axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
+    var dots = dotsBox ? Array.prototype.slice.call(dotsBox.querySelectorAll('.pv-hero-dot')) : [];
     var idx = 0;
+    var timer = null;
+    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10) || 4500;
+    var reduce = false;
 
-    function applyAxis(){
-      axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
-      track.style.flexDirection = axis === 'y' ? 'column' : 'row';
-      slides.forEach(function(sl){ sl.style.flex = '0 0 100%'; });
-      update();
-    }
-
-    function update(){
-      track.style.transform = (axis === 'y')
-        ? ('translate3d(0,' + (-idx * 100) + '%,0)')
-        : ('translate3d(' + (-idx * 100) + '%,0,0)');
-      if(dotsBox){
-        dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(d, i){
-          d.classList.toggle('is-active', i === idx);
-        });
-      }
-    }
+    try{
+      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }catch(_e){}
 
     function set(i){
-      idx = (i + slides.length) % slides.length;
-      update();
-    }
-
-    if(dotsBox){
-      dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(btn){
-        btn.addEventListener('click', function(){
-          var i = parseInt(btn.getAttribute('data-i') || '0', 10);
-          if(!isNaN(i)) set(i);
-        });
+      var len = slides.length;
+      if(len <= 0) return;
+      idx = (i + len) % len;
+      slides.forEach(function(sl, n){
+        sl.classList.toggle('is-active', n === idx);
+        sl.setAttribute('aria-hidden', n === idx ? 'false' : 'true');
+      });
+      dots.forEach(function(d, n){
+        d.classList.toggle('is-active', n === idx);
+        if(n === idx){ d.setAttribute('aria-current', 'true'); }
+        else{ d.removeAttribute('aria-current'); }
       });
     }
 
-    applyAxis();
-
-    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10);
-    if(intervalMs > 0){
-      var timer = setInterval(function(){ set(idx + 1); }, intervalMs);
-      slider.addEventListener('mouseenter', function(){ clearInterval(timer); });
-      slider.addEventListener('mouseleave', function(){ timer = setInterval(function(){ set(idx + 1); }, intervalMs); });
+    function stop(){
+      if(timer){ clearInterval(timer); timer = null; }
     }
 
-    slider.__cvhbReinit = applyAxis;
+    function start(){
+      stop();
+      if(reduce || slides.length <= 1 || intervalMs <= 0) return;
+      timer = setInterval(function(){ set(idx + 1); }, intervalMs);
+    }
+
+    dots.forEach(function(btn, i){
+      btn.onclick = function(){
+        set(i);
+        start();
+      };
+    });
+
+    slider.onmouseenter = stop;
+    slider.onmouseleave = start;
+    slider.onfocusin = stop;
+    slider.onfocusout = start;
+
+    set(0);
+    start();
+
+    try{
+      var hero = slider.closest('.pv-hero') || slider.closest('.pv-hero-wide') || slider.closest('section');
+      if(hero){
+        hero.classList.remove('is-caption-in');
+        setTimeout(function(){ hero.classList.add('is-caption-in'); }, reduce ? 0 : 260);
+      }
+    }catch(_e){}
+
+    slider.__cvhbReinit = function(){ set(idx); };
+  }
+
+  function initScrollReveal(root){
+    if(!root) return;
+    try{ root.classList.add('pv-js'); }catch(_e){}
+
+    var reduce = false;
+    try{
+      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }catch(_e){}
+
+    var targets = root.querySelectorAll('section.pv-section, section.pv-section-260218');
+    if(!targets || targets.length <= 0) return;
+
+    targets.forEach(function(el){ el.classList.add('pv-section-260218'); });
+
+    if(reduce || !('IntersectionObserver' in window)){
+      targets.forEach(function(el){ el.classList.add('is-in'); });
+      return;
+    }
+
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){
+          entry.target.classList.add('is-in');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+
+    targets.forEach(function(el){ io.observe(el); });
   }
 
   ready(function(){
@@ -8620,6 +9003,7 @@ a:hover{text-decoration:none;}
     initNav();
     initSmoothScroll();
     initHeroSlider(root);
+    initScrollReveal(root);
 
     // フォント読み込み後にもう一度フィット（iPhone等で幅が変わることがある）
     try{
@@ -8830,7 +9214,7 @@ a:hover{text-decoration:none;}
   <link rel=\"stylesheet\" href=\"{_esc(css_href)}\">
   {icon_tag}
 </head>
-<body>
+<body class=\"pv-page-body\" style=\"{theme_style}\">
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
@@ -9176,7 +9560,7 @@ a:hover{text-decoration:none;}
   <link rel=\"stylesheet\" href=\"assets/site.css\">
   {favicon_tag}
 </head>
-<body>
+<body class=\"pv-page-body\" style=\"{theme_style}\">
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
@@ -10759,17 +11143,17 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.62))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.42), _alpha(0.60))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.40), _alpha(0.48))
-        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.40), _alpha(0.010))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.44), _alpha(0.008))
-        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.54), _alpha(0.004))
-        orb_1 = _rgba("#ffffff", _alpha(0.92))
-        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.30), _alpha(0.42))
-        orb_ring = _rgba(_blend_hex(accent3, "#ffffff", 0.52), _alpha(0.06))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.56), _alpha(0.006))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.60), _alpha(0.0048))
+        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.72), _alpha(0.0022))
+        orb_1 = _rgba("#ffffff", _alpha(0.76))
+        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.54), _alpha(0.28))
+        orb_ring = _rgba(_blend_hex(accent3, "#ffffff", 0.74), _alpha(0.028))
 
         radial_opacity = {"weak": 0.42, "medium": 0.86, "strong": 1.24}.get(strength, 0.86)
         blob_opacity = {"weak": 0.28, "medium": 0.66, "strong": 1.02}.get(strength, 0.66)
-        line_opacity = {"weak": 0.003, "medium": 0.014, "strong": 0.038}.get(strength, 0.014)
-        orb_opacity = {"weak": 0.52, "medium": 0.96, "strong": 1.34}.get(strength, 0.96)
+        line_opacity = {"weak": 0.0012, "medium": 0.0046, "strong": 0.013}.get(strength, 0.0046)
+        orb_opacity = {"weak": 0.42, "medium": 0.78, "strong": 1.02}.get(strength, 0.78)
         panel_show_opacity = {"weak": 0.02, "medium": 0.10, "strong": 0.20}.get(strength, 0.10)
     else:
         base1 = _blend_hex("#0b1220", accent, 0.18)
@@ -10809,17 +11193,17 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.36))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.16), _alpha(0.38))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.22), _alpha(0.30))
-        line_1 = _rgba("#ffffff", _alpha(0.008))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.36), _alpha(0.012))
-        line_1_soft = _rgba("#ffffff", _alpha(0.004))
-        orb_1 = _rgba("#ffffff", _alpha(0.50))
-        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.28), _alpha(0.34))
-        orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.40), _alpha(0.08))
+        line_1 = _rgba("#ffffff", _alpha(0.0046))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.56), _alpha(0.0064))
+        line_1_soft = _rgba("#ffffff", _alpha(0.0022))
+        orb_1 = _rgba("#ffffff", _alpha(0.42))
+        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.50), _alpha(0.24))
+        orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.66), _alpha(0.034))
 
         radial_opacity = {"weak": 0.40, "medium": 0.80, "strong": 1.12}.get(strength, 0.80)
         blob_opacity = {"weak": 0.28, "medium": 0.62, "strong": 0.92}.get(strength, 0.62)
-        line_opacity = {"weak": 0.004, "medium": 0.016, "strong": 0.042}.get(strength, 0.016)
-        orb_opacity = {"weak": 0.52, "medium": 0.92, "strong": 1.26}.get(strength, 0.92)
+        line_opacity = {"weak": 0.0016, "medium": 0.0048, "strong": 0.014}.get(strength, 0.0048)
+        orb_opacity = {"weak": 0.40, "medium": 0.72, "strong": 0.94}.get(strength, 0.72)
         panel_show_opacity = {"weak": 0.02, "medium": 0.09, "strong": 0.18}.get(strength, 0.09)
 
     motion = {
@@ -10997,13 +11381,13 @@ DEPTH_BG_CSS = r"""
   z-index: 1;
   background:
     repeating-linear-gradient(126deg,
-      transparent 0 86px,
-      var(--pv-line-1) 86px 86.6px,
-      transparent 86.6px 252px),
+      transparent 0 108px,
+      var(--pv-line-1) 108px 108.4px,
+      transparent 108.4px 320px),
     repeating-linear-gradient(-126deg,
-      transparent 0 126px,
-      var(--pv-line-2) 126px 126.8px,
-      transparent 126.8px 320px),
+      transparent 0 158px,
+      var(--pv-line-2) 158px 158.5px,
+      transparent 158.5px 396px),
     linear-gradient(134deg,
       transparent 0 48.9%,
       var(--pv-line-1-soft) 49.2%,
@@ -11031,13 +11415,13 @@ DEPTH_BG_CSS = r"""
 .pv-shell.pv-layout-260218 .pv-scroll::after{
   z-index: 1;
   background:
-    radial-gradient(860px 860px at 82% 18%, var(--pv-orb-1) 0%, transparent 70%),
-    radial-gradient(620px 620px at 82% 18%, var(--pv-orb-1) 0%, transparent 46%),
-    radial-gradient(760px 760px at 18% 74%, var(--pv-orb-2) 0%, transparent 72%),
-    radial-gradient(1220px 1220px at 80% 22%, transparent 54%, var(--pv-orb-ring) 59%, transparent 78%),
-    radial-gradient(520px 520px at 70% 82%, var(--pv-orb-2) 0%, transparent 80%);
+    radial-gradient(1080px 1080px at 82% 18%, var(--pv-orb-1) 0%, transparent 76%),
+    radial-gradient(760px 760px at 82% 18%, rgba(255,255,255,0.22) 0%, transparent 52%),
+    radial-gradient(920px 920px at 18% 74%, var(--pv-orb-2) 0%, transparent 78%),
+    radial-gradient(1480px 1480px at 80% 22%, transparent 56%, var(--pv-orb-ring) 60%, transparent 82%),
+    radial-gradient(760px 760px at 70% 82%, var(--pv-orb-2) 0%, transparent 84%);
   opacity: var(--pv-orb-opacity);
-  filter: blur(var(--pv-orb-blur));
+  filter: blur(calc(var(--pv-orb-blur) * 1.42));
   transform: var(--pv-orb-from);
   animation: pvDepthOrb var(--pv-orb-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
@@ -11088,9 +11472,9 @@ DEPTH_BG_CSS = r"""
     radial-gradient(480px 300px at 10% 12%, var(--pv-radial-1) 0%, transparent 72%),
     radial-gradient(360px 280px at 86% 18%, var(--pv-orb-2) 0%, transparent 78%),
     repeating-linear-gradient(136deg,
-      transparent 0 72px,
-      var(--pv-line-1-soft) 72px 72.5px,
-      transparent 72.5px 208px);
+      transparent 0 96px,
+      var(--pv-line-1-soft) 96px 96.35px,
+      transparent 96.35px 248px);
   opacity: var(--pv-panel-show-opacity) !important;
 }
 /* 文字を守る枠 */
@@ -11318,7 +11702,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
         with ui.element("div").classes("pv-scroll"):
             # ----- HERO (full width / no buttons) -----
-            with ui.element("section").classes("pv-hero-wide").props('id="pv-top"'):
+            with ui.element("section").classes("pv-hero pv-hero-wide").props('id="pv-top"'):
                 slider_id = f"pv-hero-slider-{mode}"
 
                 # slider + dots are grouped so we can place dots "below the image" on PC
@@ -11351,7 +11735,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
             # ----- main -----
             with ui.element("main").classes("pv-main"):
                 # NEWS
-                with ui.element("section").classes("pv-section").props('id="pv-news"'):
+                with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-news"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("お知らせ").classes("pv-section-title")
                         ui.label("NEWS").classes("pv-section-en")
@@ -11387,7 +11771,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             ui.button("お知らせ一覧", on_click=lambda: None).props("flat no-caps color=primary").classes("pv-link-btn")
 
                 # ABOUT
-                with ui.element("section").classes("pv-section").props('id="pv-about"'):
+                with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-about"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label(about_title).classes("pv-section-title")
                         ui.label("ABOUT").classes("pv-section-en")
@@ -11408,12 +11792,12 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                         ui.label(pt).classes("pv-point-text")
 
                         if about_body:
-                            ui.label(about_body).classes("pv-bodytext q-mt-sm")
+                            ui.label(about_body).classes("pv-about-text")
                         else:
                             ui.label("ここに文章が入ります。").classes("pv-muted q-mt-sm")
 
                 # SERVICES
-                with ui.element("section").classes("pv-section").props('id="pv-services"'):
+                with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-services"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label(svc_title).classes("pv-section-title")
                         ui.label("SERVICE").classes("pv-section-en")
@@ -11424,7 +11808,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                             ui.image(pv_img_src(svc_image_url)).classes("pv-services-img q-mb-sm")
 
                         if svc_lead:
-                            ui.label(svc_lead).classes("pv-bodytext")
+                            ui.label(svc_lead).classes("pv-services-lead")
 
                         if svc_items:
                             with ui.element("div").classes("pv-service-list q-mt-sm"):
@@ -11442,12 +11826,12 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                         if t:
                                             ui.label(t).classes("pv-service-title")
                                         if b:
-                                            ui.label(b).classes("pv-muted")
+                                            ui.label(b).classes("pv-service-body")
                         else:
                             ui.label("業務内容を入力すると、ここに表示されます。").classes("pv-muted")
 
                 # FAQ
-                with ui.element("section").classes("pv-section").props('id="pv-faq"'):
+                with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-faq"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("よくある質問").classes("pv-section-title")
                         ui.label("FAQ").classes("pv-section-en")
@@ -11474,7 +11858,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                             ui.label(a).classes("pv-faq-a")
 
                 # ACCESS
-                with ui.element("section").classes("pv-section").props('id="pv-access"'):
+                with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-access"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label("アクセス").classes("pv-section-title")
                         ui.label("ACCESS").classes("pv-section-en")
@@ -11534,7 +11918,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
 
                 # CONTACT
-                with ui.element("section").classes("pv-section").props('id="pv-contact"'):
+                with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-contact"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label(contact_btn or "お問い合わせ").classes("pv-section-title")
                         ui.label("CONTACT").classes("pv-section-en")
@@ -11639,12 +12023,11 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
 # FOOTER
             with ui.element("footer").classes("pv-footer"):
-                with ui.element("div").classes("pv-footer-grid"):
-                    with ui.element("div"):
-                        ui.label(company_name).classes("pv-footer-brand")
+                with ui.element("div").classes("pv-footer-inner"):
+                    with ui.element("div").classes("pv-footer-links"):
                         for label, sec in [
                             ("トップ", "top"),
-                            ("お知らせ", "news"),
+                            ("お知らせ一覧", "news"),
                             ("私たちについて", "about"),
                             ("業務内容", "services"),
                             ("よくある質問", "faq"),
@@ -11653,7 +12036,11 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                         ]:
                             ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
                         ui.button("プライバシーポリシー", on_click=privacy_dialog.open).props("flat no-caps").classes("pv-footer-link text-white")
-                ui.label(f"© {datetime.now().year} {company_name}. All rights reserved.").classes("pv-footer-copy")
+                    ui.label(f"© {datetime.now().year} {company_name}").classes("pv-footer-copy")
+
+            ui.run_javascript(
+                f"setTimeout(function(){{try{{window.cvhbInitScrollReveal && window.cvhbInitScrollReveal('{root_id}');}}catch(e){{}}}},0);"
+            )
 
 def render_main(u: User) -> None:
     inject_global_styles()
