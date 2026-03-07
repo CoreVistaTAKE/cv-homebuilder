@@ -205,17 +205,16 @@ IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動�
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
 
-def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False) -> tuple[bytes, str]:
-    """画像を target(max_w×max_h) に「比率を合わせてセンタークロップ + リサイズ」して返す。
+def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False, fit_mode: str = "cover") -> tuple[bytes, str]:
+    """画像を target(max_w×max_h) に整えて返す。
 
-    目的:
-    - 画像の保存/表示の比率を 1280×720（16:9）に統一したい（ヒーロー/理念/業務内容など）
-    - 元画像が縦長/横長でも、できるだけ残しつつ中心を基準にカットする（cover方式）
-    - ファビコンは 32×32 の PNG（正方形）にしたい → force_png=True を使う
+    fit_mode:
+    - cover  : 比率を合わせてセンタークロップ + リサイズ
+    - contain: 画像全体を残して target 内に収める（ロゴ向け）
 
     仕様:
     - Pillow(PIL) が無い環境では元データを返す（安全優先）
-    - 画像は EXIF の回転を補正してから処理する
+    - EXIF の回転を補正してから処理する
     - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
       ただし force_png=True の場合は常に PNG を返す
     """
@@ -227,12 +226,15 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
         if not str(mime or "").startswith("image/"):
             return data, mime
 
-        # Pillow が入っている場合だけ加工する（依存が無い環境でも落ちない）
         try:
             from PIL import Image, ImageOps  # type: ignore
             from io import BytesIO
         except Exception:
             return data, mime
+
+        fit_mode = str(fit_mode or "cover").strip().lower()
+        if fit_mode not in ("cover", "contain"):
+            fit_mode = "cover"
 
         im = Image.open(BytesIO(data))
         try:
@@ -240,7 +242,6 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
         except Exception:
             pass
 
-        # EXIF の回転を補正（スマホ写真が横倒しになる事故を防ぐ）
         try:
             im = ImageOps.exif_transpose(im)
         except Exception:
@@ -258,38 +259,68 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
         target_ratio = target_w / float(target_h)
         src_ratio = w / float(h)
 
-        # --- センタークロップで target_ratio に寄せる（できるだけ残す） ---
-        # 縦横どちらが大きいかをベースにして、はみ出る分だけをカット
-        try:
-            if src_ratio > target_ratio:
-                # 横長 → 左右をカット
-                new_w = max(1, int(round(h * target_ratio)))
-                left = int(round((w - new_w) / 2.0))
-                im = im.crop((left, 0, left + new_w, h))
-            elif src_ratio < target_ratio:
-                # 縦長 → 上下をカット
-                new_h = max(1, int(round(w / target_ratio)))
-                top = int(round((h - new_h) / 2.0))
-                im = im.crop((0, top, w, top + new_h))
-        except Exception:
-            # crop に失敗しても元のまま続行（落ちない方が大事）
-            pass
-
-        # --- target にリサイズ（小さければ拡大もする） ---
-        try:
-            im = im.resize((target_w, target_h), Image.LANCZOS)
-        except Exception:
+        if fit_mode == "cover":
             try:
-                im = im.resize((target_w, target_h))
+                if src_ratio > target_ratio:
+                    new_w = max(1, int(round(h * target_ratio)))
+                    left = int(round((w - new_w) / 2.0))
+                    im = im.crop((left, 0, left + new_w, h))
+                elif src_ratio < target_ratio:
+                    new_h = max(1, int(round(w / target_ratio)))
+                    top = int(round((h - new_h) / 2.0))
+                    im = im.crop((0, top, w, top + new_h))
+            except Exception:
+                pass
+            try:
+                im = im.resize((target_w, target_h), Image.LANCZOS)
+            except Exception:
+                try:
+                    im = im.resize((target_w, target_h))
+                except Exception:
+                    pass
+        else:
+            try:
+                scale = min(target_w / float(w), target_h / float(h))
+                new_w = max(1, int(round(w * scale)))
+                new_h = max(1, int(round(h * scale)))
+                try:
+                    fit_im = im.resize((new_w, new_h), Image.LANCZOS)
+                except Exception:
+                    fit_im = im.resize((new_w, new_h))
+
+                use_alpha = force_png or im.mode in ("RGBA", "LA") or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
+                canvas_mode = "RGBA" if use_alpha else "RGB"
+                canvas_bg = (255, 255, 255, 0) if use_alpha else (255, 255, 255)
+                canvas = Image.new(canvas_mode, (target_w, target_h), canvas_bg)
+                paste_x = int(round((target_w - new_w) / 2.0))
+                paste_y = int(round((target_h - new_h) / 2.0))
+                if fit_im.mode in ("RGBA", "LA") or (fit_im.mode == "P" and ("transparency" in getattr(fit_im, "info", {}))):
+                    try:
+                        fit_rgba = fit_im.convert("RGBA")
+                    except Exception:
+                        fit_rgba = fit_im
+                    canvas.paste(fit_rgba, (paste_x, paste_y), fit_rgba if canvas_mode == "RGBA" else None)
+                else:
+                    if canvas_mode == "RGBA" and fit_im.mode != "RGBA":
+                        try:
+                            fit_im = fit_im.convert("RGBA")
+                        except Exception:
+                            pass
+                    canvas.paste(fit_im, (paste_x, paste_y))
+                im = canvas
             except Exception:
                 pass
 
-        from io import BytesIO  # local import（PILがあるときだけ到達）
+        from io import BytesIO
         out = BytesIO()
 
-        # force_png のときは常に PNG
         if force_png:
             out_mime = "image/png"
+            try:
+                if im.mode != "RGBA":
+                    im = im.convert("RGBA")
+            except Exception:
+                pass
             try:
                 im.save(out, format="PNG", optimize=True)
             except Exception:
@@ -297,7 +328,6 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
             out_bytes = out.getvalue()
             return (out_bytes, out_mime) if out_bytes else (data, mime)
 
-        # 透過がある場合は PNG、それ以外は JPEG（軽量化）
         has_alpha = (
             im.mode in ("RGBA", "LA")
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
@@ -305,6 +335,11 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
 
         if has_alpha:
             out_mime = "image/png"
+            try:
+                if im.mode != "RGBA":
+                    im = im.convert("RGBA")
+            except Exception:
+                pass
             try:
                 im.save(out, format="PNG", optimize=True)
             except Exception:
@@ -325,7 +360,6 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
         return (out_bytes, out_mime) if out_bytes else (data, mime)
     except Exception:
         return data, mime
-
 
 def _upload_debug_summary(obj) -> str:
     """Heroku logs 向けの安全な要約（生bytes/base64は絶対に出さない）"""
@@ -573,7 +607,7 @@ async def _read_upload_bytes(content, *, _depth: int = 0, _seen: Optional[set[in
 
 
 async def _upload_event_to_data_url(
-    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False
+    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False, fit_mode: str = "cover"
 ) -> tuple[str, str]:
     """Upload event -> data URL（v0.6.9995 と同じ流れに戻す）.
 
@@ -634,7 +668,7 @@ async def _upload_event_to_data_url(
         try:
             # PIL が重い時でも UI 全体が固まらないようにスレッドへ退避
             data, mime = await asyncio.to_thread(
-                _maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h, force_png=force_png
+                _maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h, force_png=force_png, fit_mode=fit_mode
             )
         except Exception:
             traceback.print_exc()
@@ -1475,6 +1509,13 @@ def inject_global_styles() -> None:
 .pv-layout-260218.pv-dark .pv-favicon{
   border-color: rgba(255,255,255,0.16);
   background: rgba(0,0,0,0.20);
+}
+
+.pv-layout-260218 .pv-brand-logo{
+  height: 28px;
+  max-width: 180px;
+  object-fit: contain;
+  display: block;
 }
 
 .pv-layout-260218 .pv-brand-name{
@@ -4278,6 +4319,8 @@ def normalize_project(p: dict) -> dict:
     step2.setdefault("company_name", "")
     step2.setdefault("favicon_url", "")
     step2.setdefault("favicon_filename", "")
+    step2.setdefault("logo_url", "")
+    step2.setdefault("logo_filename", "")
     step2.setdefault("catch_copy", "")
     step2.setdefault("catch_size", "中")
     step2.setdefault("sub_catch_size", "中")
@@ -4579,7 +4622,7 @@ def create_project(name: str, created_by: Optional[User]) -> dict:
         "updated_by": created_by.username if created_by else "",
         "data": {
             "step1": {"industry": "会社サイト（企業）", "primary_color": "blue", "welfare_domain": "", "welfare_mode": "", "template_id": "corp_v1"},
-            "step2": {"company_name": "", "favicon_url": "", "favicon_filename": "", "catch_copy": "", "catch_size": "中", "sub_catch_size": "中", "phone": "", "address": "", "email": ""},
+            "step2": {"company_name": "", "favicon_url": "", "favicon_filename": "", "logo_url": "", "logo_filename": "", "catch_copy": "", "catch_size": "中", "sub_catch_size": "中", "phone": "", "address": "", "email": ""},
             "blocks": {},
         },
     }
@@ -5105,8 +5148,9 @@ def collect_project_images(p: dict) -> list[dict]:
                 "data_url": data_url,
             })
 
-        # favicon
+        # favicon / logo
         _add("favicon", str(step2.get("favicon_url") or ""), str(step2.get("favicon_filename") or ""))
+        _add("logo", str(step2.get("logo_url") or ""), str(step2.get("logo_filename") or ""))
 
         hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
         urls = hero.get("hero_image_urls")
@@ -5173,11 +5217,18 @@ def remove_data_url_from_project(p: dict, target_data_url: str) -> int:
     step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
     blocks = data.get("blocks") if isinstance(data.get("blocks"), dict) else {}
 
-    # favicon
+    # favicon / logo
     try:
         if str(step2.get("favicon_url") or "") == target:
             step2["favicon_url"] = ""
             step2["favicon_filename"] = ""
+            cleared += 1
+    except Exception:
+        pass
+    try:
+        if str(step2.get("logo_url") or "") == target:
+            step2["logo_url"] = ""
+            step2["logo_filename"] = ""
             cleared += 1
     except Exception:
         pass
@@ -6632,6 +6683,13 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218.pv-dark .pv-favicon{
   border-color: rgba(255,255,255,0.16);
   background: rgba(0,0,0,0.20);
+}
+
+.pv-layout-260218 .pv-brand-logo{
+  height: 28px;
+  max-width: 180px;
+  object-fit: contain;
+  display: block;
 }
 
 .pv-layout-260218 .pv-brand-name{
@@ -8152,8 +8210,10 @@ a:hover{text-decoration:none;}
     elif logo_url:
         logo_href = logo_url
 
-    # v0.9.11: ヘッダー左の小アイコンは「ロゴ優先」。ロゴが無い場合は favicon を使う（現場で迷わない）
-    header_icon_href = logo_href or favicon_href_html or ""
+    # ヘッダー左の小アイコンは favicon を優先。ロゴは社名位置に表示する
+    header_icon_href = favicon_href_html or ""
+    brand_logo_href = logo_href or ""
+    brand_label_html = f'<img class="pv-brand-logo" src="{_esc(brand_logo_href)}" alt="{_esc(company_name)}">' if brand_logo_href else f'<span class="pv-brand-name">{_esc(company_name)}</span>' 
 
     # philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
@@ -11050,7 +11110,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
     # -------- content --------
     company_name = _clean(step2.get("company_name"), "会社名")
-    favicon_url = _clean(step2.get("favicon_url")) or DEFAULT_FAVICON_DATA_URL
+    logo_url = _clean(step2.get("logo_url"))
+    favicon_url = _clean(step2.get("favicon_url")) or logo_url or DEFAULT_FAVICON_DATA_URL
     catch_copy = _clean(step2.get("catch_copy"))
     catch_size = _clean(step2.get("catch_size"), "中")
     sub_catch_size = _clean(step2.get("sub_catch_size"), "中")
@@ -11134,11 +11195,14 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
         # ----- header -----
         with ui.element("header").classes("pv-topbar pv-topbar-260218"):
             with ui.row().classes("pv-topbar-inner items-center justify-between"):
-                # brand (favicon + name)
+                # brand (favicon + logo or company name)
                 with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
                     if favicon_url:
                         ui.image(pv_img_src(favicon_url)).classes("pv-favicon")
-                    ui.label(company_name).classes("pv-brand-name")
+                    if logo_url:
+                        ui.image(pv_img_src(logo_url)).classes("pv-brand-logo")
+                    else:
+                        ui.label(company_name).classes("pv-brand-name")
 
                 if mode == "pc":
                     # desktop nav (PC only)
@@ -12019,6 +12083,56 @@ def render_main(u: User) -> None:
                                                 ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                             favicon_editor()
+
+                                            ui.label("会社ロゴ（任意）").classes("text-body1 q-mt-sm")
+                                            ui.label("推奨: 横長PNG 320×96（透過推奨）。大きさが合わなくても自動で収めます。",).classes("cvhb-muted")
+
+                                            async def _on_upload_logo(e):
+                                                try:
+                                                    data_url, fname = await _upload_event_to_data_url(
+                                                        e,
+                                                        max_w=640,
+                                                        max_h=192,
+                                                        force_png=True,
+                                                        fit_mode="contain",
+                                                    )
+                                                    if not data_url:
+                                                        return
+                                                    step2["logo_url"] = data_url
+                                                    step2["logo_filename"] = _short_name(fname)
+                                                    update_and_refresh()
+                                                    logo_editor.refresh()
+                                                except Exception as ex:
+                                                    print(f"[UPLOAD:logo] unexpected error: {ex}", flush=True)
+
+                                            def _clear_logo():
+                                                try:
+                                                    step2["logo_url"] = ""
+                                                    step2["logo_filename"] = ""
+                                                except Exception:
+                                                    pass
+                                                update_and_refresh()
+                                                logo_editor.refresh()
+
+                                            @ui.refreshable
+                                            def logo_editor():
+                                                cur = str(step2.get("logo_url") or "").strip()
+                                                name = str(step2.get("logo_filename") or "").strip()
+                                                with ui.column().classes("q-gutter-xs"):
+                                                    with ui.row().classes("items-center q-gutter-sm"):
+                                                        with ui.element("div").style("width:180px;height:56px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;padding:6px 10px;"):
+                                                            if cur:
+                                                                ui.image(cur).style("width:100%;height:100%;object-fit:contain;")
+                                                            else:
+                                                                ui.label("未設定").classes("cvhb-muted")
+                                                        ui.upload(on_upload=_on_upload_logo, auto_upload=True).props("accept=image/*")
+                                                        ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props(
+                                                            "color=primary unelevated dense no-caps"
+                                                        )
+                                                        ui.button("クリア", on_click=_clear_logo).props("outline dense")
+                                                    ui.label(f"現在: {'未設定' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+
+                                            logo_editor()
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
                                             bind_step2_input("住所（地図リンクは自動生成）", "address", hint="住所を入力すると、プレビューの「地図を開く」が使えるようになります。")
