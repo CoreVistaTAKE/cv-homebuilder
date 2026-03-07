@@ -8843,8 +8843,8 @@ a:hover{text-decoration:none;}
 body.pv-page-body{
   width:100%;
   max-width:100vw;
-  overflow-x:clip !important;
-  overflow-y:auto;
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
 }
 .pv-shell.pv-layout-260218,
 .pv-shell.pv-layout-260218.pv-mode-mobile,
@@ -8854,33 +8854,29 @@ body.pv-page-body{
   height:auto !important;
   min-height:100vh;
   min-height:100dvh;
-  flex:1 0 auto;
+  flex:0 0 auto;
   display:flex !important;
   flex-direction:column !important;
   border-radius:0 !important;
   box-sizing:border-box;
   position:relative;
   isolation:isolate;
-  contain:layout paint style;
-  overflow:hidden !important;
   overflow-x:hidden !important;
-  overflow-y:hidden !important;
+  overflow-y:visible !important;
   clip-path: inset(0);
 }
 
 .pv-layout-260218 .pv-scroll{
-  min-height:100%;
+  min-height:auto !important;
   display:flex;
-  flex:1 0 auto;
+  flex:0 0 auto !important;
   flex-direction:column;
   width:100%;
   max-width:100%;
   position:relative;
-  contain:layout paint style;
-  overflow:hidden !important;
   overflow-x:hidden !important;
-  overflow-y:auto !important;
-  overscroll-behavior-x:none;
+  overflow-y:visible !important;
+  overscroll-behavior:auto !important;
   clip-path: inset(0);
 }
 
@@ -8891,7 +8887,7 @@ body.pv-page-body{
   overflow-x:hidden;
 }
 .pv-layout-260218 .pv-footer{
-  margin-top:auto;
+  margin-top:0;
 }
 
 /* PCではメニューボタンを隠す（プレビューは条件レンダリングだが、exportは両方DOMに置く） */
@@ -12050,12 +12046,16 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.1) ===== */
+/* ===== Export final viewport clamp (v1.0.2) ===== */
+html,
 body.pv-page-body{
   margin:0;
   min-width:0;
+  width:100%;
   max-width:100vw !important;
   overflow-x:hidden !important;
+}
+body.pv-page-body{
   overflow-y:auto !important;
   overscroll-behavior-x:none;
   background:none !important;
@@ -12082,10 +12082,12 @@ body.pv-page-body > #pv-root.pv-shell{
   width:100% !important;
   max-width:100vw !important;
   min-width:0;
+  min-height:100dvh;
+  height:auto !important;
   background:none !important;
-  overflow:hidden !important;
   overflow-x:hidden !important;
-  overflow-y:hidden !important;
+  overflow-y:visible !important;
+  clip-path:inset(0);
 }
 body.pv-page-body > #pv-root.pv-shell::before,
 body.pv-page-body > #pv-root.pv-shell::after,
@@ -12105,10 +12107,19 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
 body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   position:relative;
   z-index:2;
-  min-width:0;
+  display:flex;
+  flex:0 0 auto !important;
+  flex-direction:column;
+  width:100%;
   max-width:100vw !important;
+  min-width:0;
+  min-height:auto !important;
+  height:auto !important;
+  max-height:none !important;
   overflow-x:hidden !important;
-  overflow-y:auto !important;
+  overflow-y:visible !important;
+  overscroll-behavior:auto !important;
+  background:transparent !important;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main,
 body.pv-page-body > #pv-root.pv-shell .pv-section,
