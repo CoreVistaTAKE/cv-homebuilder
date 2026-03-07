@@ -228,6 +228,9 @@ COMPANY_PROFILE_KIND_OPTIONS = {
 }
 
 COMPANY_PROFILE_SAMPLE_MAP = {k: sample for k, _label, sample in COMPANY_PROFILE_FIELD_DEFS}
+COMPANY_PROFILE_EXTRA_ROW_COUNT = 5
+COMPANY_PROFILE_EXTRA_LABEL_SAMPLE = "例：許認可"
+COMPANY_PROFILE_EXTRA_VALUE_SAMPLE = "例：建設業許可 東京都知事許可（般-00）第000000号"
 
 
 def _company_profile_autofill_values(step2: Optional[dict]) -> dict[str, str]:
@@ -271,7 +274,7 @@ def _company_profile_effective_value(step2: Optional[dict], profile: Optional[di
 
 
 def _company_profile_editor_value(step2: Optional[dict], profile: Optional[dict], key: str, sample: str) -> str:
-    """編集欄に出す値。手入力値 > 基本情報の自動反映 > 例文 の順。"""
+    """編集欄に出す値。手入力値 > 基本情報の自動反映 > 空欄（プレースホルダーで例表示）。"""
     prof = profile if isinstance(profile, dict) else {}
     raw = str(prof.get(key) or "").strip()
     sample = str(sample or "").strip()
@@ -280,7 +283,41 @@ def _company_profile_editor_value(step2: Optional[dict], profile: Optional[dict]
         return raw
     if auto_val:
         return auto_val
-    return raw or sample
+    return ""
+
+
+def _normalize_company_profile_extra_rows(profile: Optional[dict]) -> list[dict]:
+    prof = profile if isinstance(profile, dict) else {}
+    rows_raw = prof.get("extra_rows")
+    if not isinstance(rows_raw, list):
+        rows_raw = []
+    rows: list[dict] = []
+    for item in rows_raw[:COMPANY_PROFILE_EXTRA_ROW_COUNT]:
+        if isinstance(item, dict):
+            rows.append({
+                "label": str(item.get("label") or "").strip(),
+                "value": str(item.get("value") or "").strip(),
+            })
+        else:
+            rows.append({"label": "", "value": ""})
+    while len(rows) < COMPANY_PROFILE_EXTRA_ROW_COUNT:
+        rows.append({"label": "", "value": ""})
+    return rows
+
+
+def _company_profile_visible_extra_rows(profile: Optional[dict]) -> list[dict[str, str]]:
+    rows = _normalize_company_profile_extra_rows(profile)
+    visible: list[dict[str, str]] = []
+    for row in rows:
+        label = str(row.get("label") or "").strip()
+        value = str(row.get("value") or "").strip()
+        if not value:
+            continue
+        visible.append({
+            "label": label or "補足",
+            "value": value,
+        })
+    return visible
 
 # 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
@@ -4174,6 +4211,13 @@ BG_STRENGTH_PRESETS = [
 ]
 BG_STRENGTH_OPTIONS = [x["value"] for x in BG_STRENGTH_PRESETS]
 
+BG_MOTION_PRESETS = [
+    {"value": "weak", "label": "弱", "hint": "静かにゆっくり動く"},
+    {"value": "medium", "label": "中（初期設定・おすすめ）", "hint": "上品さと動きのバランス"},
+    {"value": "strong", "label": "強", "hint": "動きが分かりやすい"},
+]
+BG_MOTION_OPTIONS = [x["value"] for x in BG_MOTION_PRESETS]
+
 
 def _normalize_bg_strength(value: str) -> str:
     aliases = {
@@ -4191,6 +4235,23 @@ def _normalize_bg_strength(value: str) -> str:
     v = str(value or "").strip().lower()
     v = aliases.get(v, aliases.get(str(value or "").strip(), v))
     return v if v in BG_STRENGTH_OPTIONS else "medium"
+
+
+def _normalize_bg_motion(value: str) -> str:
+    aliases = {
+        "弱": "weak",
+        "中": "medium",
+        "中（おすすめ）": "medium",
+        "中（初期設定）": "medium",
+        "中（初期設定・おすすめ）": "medium",
+        "強": "strong",
+        "weak": "weak",
+        "medium": "medium",
+        "strong": "strong",
+    }
+    v = str(value or "").strip().lower()
+    v = aliases.get(v, aliases.get(str(value or "").strip(), v))
+    return v if v in BG_MOTION_OPTIONS else "medium"
 
 # 色スウォッチ用（だいたいのイメージ色）
 COLOR_HEX = {
@@ -4755,6 +4816,7 @@ def normalize_project(p: dict) -> dict:
         color = "blue"
     step1["primary_color"] = color
     step1["bg_strength"] = _normalize_bg_strength(step1.get("bg_strength") or "medium")
+    step1["bg_motion"] = _normalize_bg_motion(step1.get("bg_motion") or "medium")
 
     # 福祉事業所だけ追加の分岐（入所/通所/児童など）
     if industry == "福祉事業所":
@@ -4884,7 +4946,8 @@ def normalize_project(p: dict) -> dict:
     profile.setdefault("mode", "unused")
     profile.setdefault("kind", "overview")
     for _k, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
-        profile.setdefault(_k, _sample)
+        profile.setdefault(_k, "")
+    profile["extra_rows"] = _normalize_company_profile_extra_rows(profile)
 
     # services: 業務内容（philosophyブロック内に統合 / 6ブロック固定のまま）
     services = philosophy.setdefault(
@@ -6171,7 +6234,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   {favicon_tags}
 
 </head>
-<body class="pv-page-body" style="{theme_style};width:100%;overflow-x:hidden;">
+<body class="pv-page-body" style="{theme_style};width:100%;max-width:100vw;overflow-x:clip;">
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
@@ -8742,8 +8805,9 @@ a:hover{text-decoration:none;}
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
 body.pv-page-body{
   width:100%;
-  max-width:100%;
-  overflow-x:hidden !important;
+  max-width:100vw;
+  overflow-x:clip !important;
+  overflow-y:auto;
 }
 .pv-shell.pv-layout-260218,
 .pv-shell.pv-layout-260218.pv-mode-mobile,
@@ -8759,8 +8823,10 @@ body.pv-page-body{
   border-radius:0 !important;
   box-sizing:border-box;
   position:relative;
-  contain:paint;
-  overflow:hidden !important;
+  contain:layout paint style;
+  overflow-x:clip !important;
+  overflow-y:hidden !important;
+  clip-path: inset(0);
 }
 
 .pv-layout-260218 .pv-scroll{
@@ -8771,8 +8837,10 @@ body.pv-page-body{
   width:100%;
   max-width:100%;
   position:relative;
-  contain:paint;
-  overflow:hidden !important;
+  contain:layout paint style;
+  overflow-x:clip !important;
+  overflow-y:auto;
+  clip-path: inset(0);
 }
 
 .pv-layout-260218 .pv-main,
@@ -9726,6 +9794,12 @@ body.pv-page-body{
         else:
             _cell_html = _esc(_val).replace("\n", "<br>")
         profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>')
+    for _row in _company_profile_visible_extra_rows(profile):
+        _lbl = str(_row.get("label") or "").strip() or "補足"
+        _val = str(_row.get("value") or "").strip()
+        if not _val:
+            continue
+        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(_lbl)}</div><div class="pv-company-profile-value">{_esc(_val).replace("\n", "<br>")}</div></div>')
     profile_section_html = ""
     if profile_mode != "unused" and profile_rows:
         profile_rows_html = ''.join(profile_rows)
@@ -11474,15 +11548,18 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
     primary = "blue"
     strength = "medium"
+    motion_strength = "medium"
     try:
         if isinstance(step1_or_primary, dict):
             primary = str(step1_or_primary.get("primary_color") or "blue").strip() or "blue"
             strength = _normalize_bg_strength(step1_or_primary.get("bg_strength") or "medium")
+            motion_strength = _normalize_bg_motion(step1_or_primary.get("bg_motion") or "medium")
         elif isinstance(step1_or_primary, str) and step1_or_primary:
             primary = str(step1_or_primary).strip() or "blue"
     except Exception:
         primary = "blue"
         strength = "medium"
+        motion_strength = "medium"
 
     primary = COLOR_MIGRATION.get(primary, primary)
     if primary not in COLOR_OPTIONS:
@@ -11661,7 +11738,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
             "orb_duration": "5.4s",
             "orb_blur": "46px",
         },
-    }.get(strength, {})
+    }.get(motion_strength, {})
 
     bg_img_str = f"linear-gradient(160deg, {base1} 0%, {base2} 48%, {base3} 100%)"
 
@@ -11673,6 +11750,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-primary: {accent};"
         f"--pv-primary-key: {primary};"
         f"--pv-bg-strength-key: {strength};"
+        f"--pv-bg-motion-key: {motion_strength};"
         f"--pv-primary-weak: {primary_weak};"
         f"--pv-text: {text};"
         f"--pv-muted: {muted};"
@@ -11730,16 +11808,25 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 DEPTH_BG_CSS = r"""
 /* ===== Depth Background Rebuild (v0.9.38) ===== */
 html, body{
-  max-width: 100%;
-  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: clip;
 }
 body.pv-page-body{
-  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: clip !important;
+  overflow-y: auto;
 }
 /* ===== Depth Background Rebuild (v0.9.38) ===== */
 .pv-shell.pv-layout-260218{
   position: relative;
   isolation: isolate;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip !important;
+  overflow-y: hidden !important;
+  clip-path: inset(0);
   background-image: var(--pv-bg-img) !important;
   background-color: var(--pv-base-1);
   background-size: var(--pv-base-size);
@@ -11754,6 +11841,11 @@ body.pv-page-body{
 
 .pv-shell.pv-layout-260218 .pv-scroll{
   position: relative;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip !important;
+  overflow-y: auto;
+  clip-path: inset(0);
   background: transparent !important;
 }
 .pv-shell.pv-layout-260218 .pv-scroll > *{
@@ -12905,6 +12997,36 @@ def render_main(u: User) -> None:
 
                                             bg_strength_selector()
 
+                                        with ui.card().classes("q-pa-sm rounded-borders w-full q-mb-sm").props("flat bordered"):
+                                            ui.label("背景の動きを選んでください").classes("text-subtitle1")
+                                            ui.label("背景の動く量と速さを 弱 / 中（初期設定・おすすめ） / 強 で選べます。表示サイズからはみ出さないように抑えつつ調整します。" ).classes("cvhb-muted q-mb-sm")
+
+                                            @ui.refreshable
+                                            def bg_motion_selector():
+                                                current_motion = _normalize_bg_motion(step1.get("bg_motion") or "medium")
+
+                                                def set_bg_motion(value: str) -> None:
+                                                    step1["bg_motion"] = _normalize_bg_motion(value)
+                                                    update_and_refresh()
+                                                    bg_motion_selector.refresh()
+
+                                                for opt in BG_MOTION_PRESETS:
+                                                    selected = (opt["value"] == current_motion)
+                                                    card = ui.card().classes(
+                                                        "q-pa-sm q-mb-xs cvhb-choice " + ("is-selected" if selected else "")
+                                                    ).props("flat bordered").style("width: 100%;")
+                                                    with card:
+                                                        with ui.row().classes("items-center justify-between"):
+                                                            with ui.row().classes("items-center q-gutter-sm"):
+                                                                ui.label(opt["label"]).classes("text-body1")
+                                                            with ui.row().classes("items-center q-gutter-sm"):
+                                                                ui.label(opt["hint"]).classes("cvhb-muted")
+                                                                if selected:
+                                                                    ui.icon("check_circle").classes("text-primary")
+                                                    card.on("click", lambda e, v=opt["value"]: set_bg_motion(v))
+
+                                            bg_motion_selector()
+
                                         # Color
                                         with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                             ui.label("ページカラー（テーマ色）を選んでください").classes("text-subtitle1")
@@ -13321,7 +13443,8 @@ def render_main(u: User) -> None:
                                                         profile.setdefault("mode", "unused")
                                                         profile.setdefault("kind", "overview")
                                                         for _k, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
-                                                            profile.setdefault(_k, _sample)
+                                                            profile.setdefault(_k, "")
+                                                        profile["extra_rows"] = _normalize_company_profile_extra_rows(profile)
 
                                                         def _set_profile_value(key: str, value: str) -> None:
                                                             try:
@@ -13330,14 +13453,37 @@ def render_main(u: User) -> None:
                                                                 pass
                                                             update_and_refresh()
 
+                                                        def _set_profile_extra(index: int, field: str, value: str) -> None:
+                                                            try:
+                                                                rows = _normalize_company_profile_extra_rows(profile)
+                                                                rows[index][field] = value or ""
+                                                                profile["extra_rows"] = rows
+                                                            except Exception:
+                                                                pass
+                                                            update_and_refresh()
+
                                                         ui.select(COMPANY_PROFILE_KIND_OPTIONS, value=profile.get("kind", "overview"), label="表示タイトル", on_change=lambda e: _set_profile_value("kind", e.value or "overview")).props("outlined dense").classes("w-full q-mb-sm")
                                                         ui.select(COMPANY_PROFILE_MODE_OPTIONS, value=profile.get("mode", "unused"), label="表示方法", on_change=lambda e: _set_profile_value("mode", e.value or "unused")).props("outlined dense").classes("w-full q-mb-sm")
 
                                                         for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+                                                            _editor_val = _company_profile_editor_value(step2, profile, _key, _sample)
                                                             if _key == "business":
-                                                                ui.textarea(_label, value=_company_profile_editor_value(step2, profile, _key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow").classes("w-full q-mb-sm")
+                                                                ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_sample).props("outlined autogrow").classes("w-full q-mb-xs")
                                                             else:
-                                                                ui.input(_label, value=_company_profile_editor_value(step2, profile, _key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props(f'outlined dense hint={_sample}').classes("w-full q-mb-sm")
+                                                                ui.input(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_sample).props("outlined dense").classes("w-full q-mb-xs")
+                                                            ui.label(f"例：{_sample}").classes("cvhb-muted text-caption q-mb-sm")
+
+                                                        ui.separator().classes("q-mt-sm q-mb-sm")
+                                                        ui.label("追加項目（任意 / 最大5行）").classes("text-body2")
+                                                        ui.label("他の入力欄にない項目だけを追加してください。内容が空の行は完成ページに表示されません。入力がない行はグレーの例だけ表示されます。" ).classes("cvhb-muted q-mb-sm")
+                                                        _extra_rows = _normalize_company_profile_extra_rows(profile)
+                                                        for _i, _row in enumerate(_extra_rows):
+                                                            with ui.row().classes("w-full q-col-gutter-sm"): 
+                                                                with ui.column().classes("col-12 col-md-4"):
+                                                                    ui.input(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or ""), placeholder=COMPANY_PROFILE_EXTRA_LABEL_SAMPLE).props("outlined dense").classes("w-full q-mb-xs")
+                                                                with ui.column().classes("col-12 col-md-8"):
+                                                                    ui.input(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or ""), placeholder=COMPANY_PROFILE_EXTRA_VALUE_SAMPLE).props("outlined dense").classes("w-full q-mb-xs")
+                                                            ui.label(f"例：{COMPANY_PROFILE_EXTRA_LABEL_SAMPLE} / {COMPANY_PROFILE_EXTRA_VALUE_SAMPLE}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
 
