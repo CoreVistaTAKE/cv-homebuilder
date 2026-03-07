@@ -1512,10 +1512,22 @@ def inject_global_styles() -> None:
 }
 
 .pv-layout-260218 .pv-brand-logo{
-  height: 28px;
-  max-width: 180px;
-  object-fit: contain;
   display: block;
+  width: auto;
+  height: auto;
+  max-height: 32px;
+  max-width: min(44vw, 220px);
+  min-width: 0;
+  flex: 0 1 auto;
+  object-fit: contain;
+  object-position: left center;
+}
+
+@media (min-width: 640px){
+  .pv-layout-260218 .pv-brand-logo{
+    max-height: 34px;
+    max-width: min(28vw, 260px);
+  }
 }
 
 .pv-layout-260218 .pv-brand-name{
@@ -5605,7 +5617,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "") -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -5636,8 +5648,12 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     esc_email = html.escape(to_email)
 
     favicon_href = (favicon_href or "").strip()
+    logo_href = (logo_href or "").strip()
     favicon_tags = ""
     header_icon_html = ""
+    brand_label_html = f'<span class="pv-brand-name">{esc_company}</span>'
+    if logo_href:
+        brand_label_html = f'<img class="pv-brand-logo" src="{html.escape(logo_href, quote=True)}" alt="{esc_company}">'
     if favicon_href:
         esc_fav = html.escape(favicon_href, quote=True)
 
@@ -5704,7 +5720,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
       <div class="row pv-topbar-inner items-center justify-between">
         <a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">
           {header_icon_html}
-          <span class="pv-brand-name">{esc_company}</span>
+          {brand_label_html}
         </a>
 
         <nav class="row pv-desktop-nav items-center no-wrap" aria-label="グローバルナビ">
@@ -5790,7 +5806,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", logo_href: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -5800,7 +5816,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -6686,10 +6702,22 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-layout-260218 .pv-brand-logo{
-  height: 28px;
-  max-width: 180px;
-  object-fit: contain;
   display: block;
+  width: auto;
+  height: auto;
+  max-height: 32px;
+  max-width: min(44vw, 220px);
+  min-width: 0;
+  flex: 0 1 auto;
+  object-fit: contain;
+  object-position: left center;
+}
+
+@media (min-width: 640px){
+  .pv-layout-260218 .pv-brand-logo{
+    max-height: 34px;
+    max-width: min(28vw, 260px);
+  }
 }
 
 .pv-layout-260218 .pv-brand-name{
@@ -8758,8 +8786,8 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
-          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if header_icon_href else ''}
+          {brand_label_html}
         </a>
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
@@ -9083,7 +9111,7 @@ a:hover{text-decoration:none;}
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href))
 
     # --------------------
     # index.html
@@ -9104,8 +9132,8 @@ a:hover{text-decoration:none;}
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
-          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
-          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if header_icon_href else ''}
+          {brand_label_html}
         </a>
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
@@ -10660,40 +10688,40 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         primary_weak = _rgba(accent, 0.14)
 
         panel_guard = {
-            "weak": "linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.72))",
-            "medium": "linear-gradient(180deg, rgba(255,255,255,0.76), rgba(255,255,255,0.64))",
-            "strong": "linear-gradient(180deg, rgba(255,255,255,0.68), rgba(255,255,255,0.54))",
-        }.get(strength, "linear-gradient(180deg, rgba(255,255,255,0.76), rgba(255,255,255,0.64))")
+            "weak": "linear-gradient(180deg, rgba(255,255,255,0.84), rgba(255,255,255,0.74))",
+            "medium": "linear-gradient(180deg, rgba(255,255,255,0.76), rgba(255,255,255,0.62))",
+            "strong": "linear-gradient(180deg, rgba(255,255,255,0.64), rgba(255,255,255,0.48))",
+        }.get(strength, "linear-gradient(180deg, rgba(255,255,255,0.76), rgba(255,255,255,0.62))")
         panel_border = "rgba(255,255,255,0.42)"
         topbar_bg = {
-            "weak": "linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.64))",
-            "medium": "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.60))",
-            "strong": "linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.52))",
-        }.get(strength, "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.60))")
+            "weak": "linear-gradient(180deg, rgba(255,255,255,0.84), rgba(255,255,255,0.66))",
+            "medium": "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.58))",
+            "strong": "linear-gradient(180deg, rgba(255,255,255,0.70), rgba(255,255,255,0.50))",
+        }.get(strength, "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.58))")
         topbar_border = "rgba(255,255,255,0.34)"
         surface_bg = {
-            "weak": "linear-gradient(180deg, rgba(255,255,255,0.60), rgba(255,255,255,0.44))",
-            "medium": "linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.38))",
-            "strong": "linear-gradient(180deg, rgba(255,255,255,0.48), rgba(255,255,255,0.30))",
-        }.get(strength, "linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.38))")
+            "weak": "linear-gradient(180deg, rgba(255,255,255,0.62), rgba(255,255,255,0.46))",
+            "medium": "linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.36))",
+            "strong": "linear-gradient(180deg, rgba(255,255,255,0.44), rgba(255,255,255,0.24))",
+        }.get(strength, "linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.36))")
         surface_border = "rgba(255,255,255,0.30)"
 
-        radial_1 = _rgba(accent, _alpha(0.54))
-        radial_2 = _rgba(accent2, _alpha(0.44))
-        blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.34), _alpha(0.56))
-        blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.28), _alpha(0.42))
-        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.10), _alpha(0.24))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.12), _alpha(0.20))
-        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.20), _alpha(0.12))
-        orb_1 = _rgba("#ffffff", _alpha(0.90))
-        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.14), _alpha(0.46))
-        orb_ring = _rgba(accent, _alpha(0.34))
+        radial_1 = _rgba(accent, _alpha(0.60))
+        radial_2 = _rgba(accent2, _alpha(0.50))
+        blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.30), _alpha(0.64))
+        blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.26), _alpha(0.50))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.10), _alpha(0.16))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.12), _alpha(0.12))
+        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.20), _alpha(0.07))
+        orb_1 = _rgba("#ffffff", _alpha(0.96))
+        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.10), _alpha(0.56))
+        orb_ring = _rgba(accent, _alpha(0.28))
 
-        radial_opacity = {"weak": 0.78, "medium": 1.00, "strong": 1.30}.get(strength, 1.00)
-        blob_opacity = {"weak": 0.68, "medium": 0.98, "strong": 1.28}.get(strength, 0.98)
-        line_opacity = {"weak": 0.60, "medium": 1.04, "strong": 1.38}.get(strength, 1.04)
-        orb_opacity = {"weak": 0.72, "medium": 1.00, "strong": 1.28}.get(strength, 1.00)
-        panel_show_opacity = {"weak": 0.15, "medium": 0.26, "strong": 0.40}.get(strength, 0.26)
+        radial_opacity = {"weak": 0.58, "medium": 1.00, "strong": 1.48}.get(strength, 1.00)
+        blob_opacity = {"weak": 0.48, "medium": 0.98, "strong": 1.44}.get(strength, 0.98)
+        line_opacity = {"weak": 0.22, "medium": 0.54, "strong": 0.92}.get(strength, 0.54)
+        orb_opacity = {"weak": 0.52, "medium": 1.02, "strong": 1.46}.get(strength, 1.02)
+        panel_show_opacity = {"weak": 0.08, "medium": 0.24, "strong": 0.44}.get(strength, 0.24)
     else:
         base1 = _blend_hex("#0b1220", accent, 0.12)
         base2 = _blend_hex("#111827", accent2, 0.10)
@@ -10710,95 +10738,95 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         primary_weak = _rgba(accent, 0.20)
 
         panel_guard = {
-            "weak": "linear-gradient(180deg, rgba(7,12,20,0.82), rgba(7,12,20,0.68))",
-            "medium": "linear-gradient(180deg, rgba(7,12,20,0.76), rgba(7,12,20,0.60))",
-            "strong": "linear-gradient(180deg, rgba(7,12,20,0.70), rgba(7,12,20,0.54))",
-        }.get(strength, "linear-gradient(180deg, rgba(7,12,20,0.76), rgba(7,12,20,0.60))")
+            "weak": "linear-gradient(180deg, rgba(7,12,20,0.84), rgba(7,12,20,0.70))",
+            "medium": "linear-gradient(180deg, rgba(7,12,20,0.76), rgba(7,12,20,0.58))",
+            "strong": "linear-gradient(180deg, rgba(7,12,20,0.68), rgba(7,12,20,0.48))",
+        }.get(strength, "linear-gradient(180deg, rgba(7,12,20,0.76), rgba(7,12,20,0.58))")
         panel_border = "rgba(255,255,255,0.14)"
         topbar_bg = {
-            "weak": "linear-gradient(180deg, rgba(8,12,19,0.86), rgba(8,12,19,0.70))",
-            "medium": "linear-gradient(180deg, rgba(8,12,19,0.82), rgba(8,12,19,0.66))",
-            "strong": "linear-gradient(180deg, rgba(8,12,19,0.76), rgba(8,12,19,0.60))",
-        }.get(strength, "linear-gradient(180deg, rgba(8,12,19,0.82), rgba(8,12,19,0.66))")
+            "weak": "linear-gradient(180deg, rgba(8,12,19,0.88), rgba(8,12,19,0.72))",
+            "medium": "linear-gradient(180deg, rgba(8,12,19,0.82), rgba(8,12,19,0.64))",
+            "strong": "linear-gradient(180deg, rgba(8,12,19,0.74), rgba(8,12,19,0.56))",
+        }.get(strength, "linear-gradient(180deg, rgba(8,12,19,0.82), rgba(8,12,19,0.64))")
         topbar_border = "rgba(255,255,255,0.14)"
         surface_bg = {
-            "weak": "linear-gradient(180deg, rgba(9,13,21,0.74), rgba(9,13,21,0.56))",
-            "medium": "linear-gradient(180deg, rgba(9,13,21,0.70), rgba(9,13,21,0.52))",
-            "strong": "linear-gradient(180deg, rgba(9,13,21,0.64), rgba(9,13,21,0.46))",
-        }.get(strength, "linear-gradient(180deg, rgba(9,13,21,0.70), rgba(9,13,21,0.52))")
+            "weak": "linear-gradient(180deg, rgba(9,13,21,0.76), rgba(9,13,21,0.58))",
+            "medium": "linear-gradient(180deg, rgba(9,13,21,0.68), rgba(9,13,21,0.50))",
+            "strong": "linear-gradient(180deg, rgba(9,13,21,0.58), rgba(9,13,21,0.40))",
+        }.get(strength, "linear-gradient(180deg, rgba(9,13,21,0.68), rgba(9,13,21,0.50))")
         surface_border = "rgba(255,255,255,0.14)"
 
-        radial_1 = _rgba(accent, _alpha(0.34))
-        radial_2 = _rgba(accent2, _alpha(0.26))
-        blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.08), _alpha(0.30))
-        blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.12), _alpha(0.22))
-        line_1 = _rgba("#ffffff", _alpha(0.13))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.18), _alpha(0.14))
-        line_1_soft = _rgba("#ffffff", _alpha(0.08))
-        orb_1 = _rgba("#ffffff", _alpha(0.38))
-        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.12), _alpha(0.26))
-        orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.18), _alpha(0.24))
+        radial_1 = _rgba(accent, _alpha(0.38))
+        radial_2 = _rgba(accent2, _alpha(0.30))
+        blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.08), _alpha(0.34))
+        blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.12), _alpha(0.26))
+        line_1 = _rgba("#ffffff", _alpha(0.08))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.18), _alpha(0.09))
+        line_1_soft = _rgba("#ffffff", _alpha(0.05))
+        orb_1 = _rgba("#ffffff", _alpha(0.42))
+        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.10), _alpha(0.30))
+        orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.16), _alpha(0.22))
 
-        radial_opacity = {"weak": 0.76, "medium": 1.00, "strong": 1.24}.get(strength, 1.00)
-        blob_opacity = {"weak": 0.72, "medium": 1.00, "strong": 1.22}.get(strength, 1.00)
-        line_opacity = {"weak": 0.86, "medium": 1.12, "strong": 1.34}.get(strength, 1.12)
-        orb_opacity = {"weak": 0.74, "medium": 1.00, "strong": 1.20}.get(strength, 1.00)
-        panel_show_opacity = {"weak": 0.14, "medium": 0.24, "strong": 0.34}.get(strength, 0.24)
+        radial_opacity = {"weak": 0.60, "medium": 1.00, "strong": 1.40}.get(strength, 1.00)
+        blob_opacity = {"weak": 0.54, "medium": 1.00, "strong": 1.34}.get(strength, 1.00)
+        line_opacity = {"weak": 0.34, "medium": 0.72, "strong": 1.02}.get(strength, 0.72)
+        orb_opacity = {"weak": 0.58, "medium": 1.00, "strong": 1.34}.get(strength, 1.00)
+        panel_show_opacity = {"weak": 0.08, "medium": 0.20, "strong": 0.34}.get(strength, 0.20)
 
     motion = {
         "weak": {
-            "base_size": "118% 118%",
-            "base_duration": "34s",
-            "radial_from": "translate3d(-1.8%, -0.9%, 0) scale(1.00)",
-            "radial_to": "translate3d(1.8%, 1.2%, 0) scale(1.07)",
-            "radial_duration": "26s",
-            "blob_from": "translate3d(-1.4%, 0.9%, 0) scale(1.00)",
-            "blob_to": "translate3d(2.2%, -1.6%, 0) scale(1.09)",
-            "blob_duration": "34s",
+            "base_size": "120% 120%",
+            "base_duration": "24s",
+            "radial_from": "translate3d(-2.4%, -1.2%, 0) scale(1.00)",
+            "radial_to": "translate3d(2.8%, 1.8%, 0) scale(1.08)",
+            "radial_duration": "16s",
+            "blob_from": "translate3d(-1.8%, 1.0%, 0) scale(1.00)",
+            "blob_to": "translate3d(2.8%, -1.8%, 0) scale(1.10)",
+            "blob_duration": "20s",
             "blob_blur": "18px",
-            "line_from": "translate3d(0, 0, 0) scale(1.02) rotate(0deg)",
-            "line_to": "translate3d(1.6%, -1.8%, 0) scale(1.08) rotate(0.9deg)",
-            "line_duration": "42s",
-            "orb_from": "translate3d(-1.0%, 0.2%, 0) scale(0.98)",
-            "orb_to": "translate3d(1.5%, -1.1%, 0) scale(1.06)",
-            "orb_duration": "22s",
+            "line_from": "translate3d(0, 0, 0) scale(1.01) rotate(0deg)",
+            "line_to": "translate3d(1.8%, -1.8%, 0) scale(1.06) rotate(0.7deg)",
+            "line_duration": "24s",
+            "orb_from": "translate3d(-1.2%, 0.2%, 0) scale(0.98)",
+            "orb_to": "translate3d(1.8%, -1.2%, 0) scale(1.06)",
+            "orb_duration": "14s",
             "orb_blur": "1.6px",
         },
         "medium": {
-            "base_size": "132% 132%",
-            "base_duration": "28s",
-            "radial_from": "translate3d(-2.6%, -1.4%, 0) scale(1.00)",
-            "radial_to": "translate3d(2.8%, 1.8%, 0) scale(1.10)",
-            "radial_duration": "20s",
-            "blob_from": "translate3d(-2.0%, 1.2%, 0) scale(1.00)",
-            "blob_to": "translate3d(3.0%, -2.0%, 0) scale(1.12)",
-            "blob_duration": "26s",
-            "blob_blur": "16px",
-            "line_from": "translate3d(0, 0, 0) scale(1.03) rotate(0deg)",
-            "line_to": "translate3d(2.4%, -2.6%, 0) scale(1.12) rotate(1.2deg)",
-            "line_duration": "32s",
-            "orb_from": "translate3d(-1.4%, 0.2%, 0) scale(0.97)",
-            "orb_to": "translate3d(2.2%, -1.6%, 0) scale(1.08)",
-            "orb_duration": "18s",
+            "base_size": "136% 136%",
+            "base_duration": "18s",
+            "radial_from": "translate3d(-3.4%, -1.8%, 0) scale(1.00)",
+            "radial_to": "translate3d(3.8%, 2.4%, 0) scale(1.11)",
+            "radial_duration": "12s",
+            "blob_from": "translate3d(-2.6%, 1.4%, 0) scale(1.00)",
+            "blob_to": "translate3d(3.8%, -2.4%, 0) scale(1.14)",
+            "blob_duration": "15s",
+            "blob_blur": "15px",
+            "line_from": "translate3d(0, 0, 0) scale(1.02) rotate(0deg)",
+            "line_to": "translate3d(2.4%, -2.4%, 0) scale(1.10) rotate(0.95deg)",
+            "line_duration": "18s",
+            "orb_from": "translate3d(-1.8%, 0.4%, 0) scale(0.97)",
+            "orb_to": "translate3d(2.6%, -1.8%, 0) scale(1.08)",
+            "orb_duration": "10s",
             "orb_blur": "1.8px",
         },
         "strong": {
-            "base_size": "148% 148%",
-            "base_duration": "22s",
-            "radial_from": "translate3d(-3.2%, -1.8%, 0) scale(1.00)",
-            "radial_to": "translate3d(3.6%, 2.2%, 0) scale(1.13)",
-            "radial_duration": "16s",
-            "blob_from": "translate3d(-2.4%, 1.5%, 0) scale(1.00)",
-            "blob_to": "translate3d(3.8%, -2.6%, 0) scale(1.15)",
-            "blob_duration": "22s",
-            "blob_blur": "14px",
-            "line_from": "translate3d(0, 0, 0) scale(1.04) rotate(0deg)",
-            "line_to": "translate3d(3.0%, -3.2%, 0) scale(1.16) rotate(1.6deg)",
-            "line_duration": "24s",
-            "orb_from": "translate3d(-1.8%, 0.4%, 0) scale(0.96)",
-            "orb_to": "translate3d(2.8%, -2.0%, 0) scale(1.10)",
-            "orb_duration": "14s",
-            "orb_blur": "2.1px",
+            "base_size": "152% 152%",
+            "base_duration": "13s",
+            "radial_from": "translate3d(-4.2%, -2.2%, 0) scale(1.00)",
+            "radial_to": "translate3d(4.8%, 3.0%, 0) scale(1.14)",
+            "radial_duration": "9s",
+            "blob_from": "translate3d(-3.0%, 1.8%, 0) scale(1.00)",
+            "blob_to": "translate3d(4.4%, -2.8%, 0) scale(1.17)",
+            "blob_duration": "11s",
+            "blob_blur": "13px",
+            "line_from": "translate3d(0, 0, 0) scale(1.03) rotate(0deg)",
+            "line_to": "translate3d(3.2%, -3.0%, 0) scale(1.13) rotate(1.15deg)",
+            "line_duration": "14s",
+            "orb_from": "translate3d(-2.0%, 0.5%, 0) scale(0.96)",
+            "orb_to": "translate3d(3.0%, -2.0%, 0) scale(1.10)",
+            "orb_duration": "8s",
+            "orb_blur": "2.0px",
         },
     }.get(strength, {})
 
@@ -10867,7 +10895,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v0.9.30) ===== */
+/* ===== Depth Background Rebuild (v0.9.32) ===== */
 .pv-shell.pv-layout-260218{
   position: relative;
   isolation: isolate;
@@ -10920,13 +10948,13 @@ DEPTH_BG_CSS = r"""
   z-index: 1;
   background:
     repeating-linear-gradient(125deg,
-      transparent 0 18px,
-      var(--pv-line-1) 18px 20px,
-      transparent 20px 48px),
+      transparent 0 26px,
+      var(--pv-line-1) 26px 27px,
+      transparent 27px 78px),
     repeating-linear-gradient(-125deg,
-      transparent 0 28px,
-      var(--pv-line-2) 28px 30px,
-      transparent 30px 74px),
+      transparent 0 40px,
+      var(--pv-line-2) 40px 41px,
+      transparent 41px 110px),
     linear-gradient(135deg,
       transparent 0 46%,
       var(--pv-line-1-soft) 48%,
@@ -11010,9 +11038,9 @@ DEPTH_BG_CSS = r"""
     radial-gradient(360px 240px at 10% 12%, var(--pv-radial-1) 0%, transparent 68%),
     radial-gradient(220px 180px at 86% 18%, var(--pv-orb-2) 0%, transparent 70%),
     repeating-linear-gradient(135deg,
-      transparent 0 20px,
-      var(--pv-line-1-soft) 20px 22px,
-      transparent 22px 52px);
+      transparent 0 28px,
+      var(--pv-line-1-soft) 28px 29px,
+      transparent 29px 84px);
   opacity: var(--pv-panel-show-opacity) !important;
 }
 /* 文字を守る枠 */
@@ -11971,7 +11999,7 @@ def render_main(u: User) -> None:
 
                                         with ui.card().classes("q-pa-sm rounded-borders w-full q-mb-sm").props("flat bordered"):
                                             ui.label("背景の濃さを選んでください").classes("text-subtitle1")
-                                            ui.label("柄の見え方を 弱 / 中（初期設定） / 強 で選べます。迷ったら「中（初期設定）」がおすすめです。" ).classes("cvhb-muted q-mb-sm")
+                                            ui.label("背景の柄と動きの見え方を 弱 / 中（おすすめ） / 強 で選べます。初期設定は「中（おすすめ）」です。" ).classes("cvhb-muted q-mb-sm")
 
                                             @ui.refreshable
                                             def bg_strength_selector():
