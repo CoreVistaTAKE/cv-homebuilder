@@ -227,6 +227,61 @@ COMPANY_PROFILE_KIND_OPTIONS = {
     "history": "会社沿革",
 }
 
+COMPANY_PROFILE_SAMPLE_MAP = {k: sample for k, _label, sample in COMPANY_PROFILE_FIELD_DEFS}
+
+
+def _company_profile_autofill_values(step2: Optional[dict]) -> dict[str, str]:
+    """基本情報で入力済みの値を、会社概要/沿革の初期値として使う。"""
+    src = step2 if isinstance(step2, dict) else {}
+    company_name = str(src.get("company_name") or "").strip()
+    address = str(src.get("address") or "").strip()
+    phone = str(src.get("phone") or "").strip()
+    email = str(src.get("email") or "").strip()
+    site_url = str(src.get("site_url") or src.get("website_url") or src.get("main_site_url") or "").strip()
+
+    contact_parts: list[str] = []
+    if phone:
+        contact_parts.append(f"TEL {phone}")
+    if email:
+        contact_parts.append(f"Mail {email}")
+
+    out: dict[str, str] = {}
+    if company_name:
+        out["trade_name"] = company_name
+    if address:
+        out["address"] = address
+    if site_url:
+        out["site_url"] = site_url
+    if contact_parts:
+        out["contact"] = " / ".join(contact_parts)
+    return out
+
+
+def _company_profile_effective_value(step2: Optional[dict], profile: Optional[dict], key: str) -> str:
+    """表示に使う会社概要値。空やサンプル値なら基本情報の値を優先する。"""
+    prof = profile if isinstance(profile, dict) else {}
+    raw = str(prof.get(key) or "").strip()
+    sample = str(COMPANY_PROFILE_SAMPLE_MAP.get(key) or "").strip()
+    auto_val = str(_company_profile_autofill_values(step2).get(key) or "").strip()
+    if raw and raw != sample:
+        return raw
+    if auto_val:
+        return auto_val
+    return "" if raw == sample else raw
+
+
+def _company_profile_editor_value(step2: Optional[dict], profile: Optional[dict], key: str, sample: str) -> str:
+    """編集欄に出す値。手入力値 > 基本情報の自動反映 > 例文 の順。"""
+    prof = profile if isinstance(profile, dict) else {}
+    raw = str(prof.get(key) or "").strip()
+    sample = str(sample or "").strip()
+    auto_val = str(_company_profile_autofill_values(step2).get(key) or "").strip()
+    if raw and raw != sample:
+        return raw
+    if auto_val:
+        return auto_val
+    return raw or sample
+
 # 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
@@ -6116,7 +6171,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   {favicon_tags}
 
 </head>
-<body class="pv-page-body" style="{theme_style};overflow-x:hidden;max-width:100vw;">
+<body class="pv-page-body" style="{theme_style};width:100%;overflow-x:hidden;">
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
@@ -8533,7 +8588,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;min-height:100%;}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; line-height:1.7; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility;}
-body.pv-page-body{min-height:100vh; background:var(--pv-bg-img); background-color:var(--pv-base-1, #f8fafc); color:var(--pv-text);}
+body.pv-page-body{min-height:100vh; min-height:100dvh; width:100%; max-width:100%; overflow-x:hidden; background:var(--pv-bg-img); background-color:var(--pv-base-1, #f8fafc); color:var(--pv-text);} 
 a{color:inherit;text-decoration:none;}
 a:hover{text-decoration:none;}
 
@@ -8685,30 +8740,39 @@ a:hover{text-decoration:none;}
 .pv-layout-260218.pv-mode-mobile .pv-hero-caption-sub.pv-size-s{ font-size: clamp(8px, 3.6vw, 0.92rem); }
 
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
+body.pv-page-body{
+  width:100%;
+  max-width:100%;
+  overflow-x:hidden !important;
+}
 .pv-shell.pv-layout-260218,
 .pv-shell.pv-layout-260218.pv-mode-mobile,
 .pv-shell.pv-layout-260218.pv-mode-pc{
   width:100% !important;
-  max-width:100vw !important;
+  max-width:100% !important;
   height:auto !important;
   min-height:100vh;
+  min-height:100dvh;
   flex:1 0 auto;
   display:flex !important;
   flex-direction:column !important;
   border-radius:0 !important;
   box-sizing:border-box;
-  overflow-x:hidden !important;
-  overflow-y:visible !important;
+  position:relative;
+  contain:paint;
+  overflow:hidden !important;
 }
 
 .pv-layout-260218 .pv-scroll{
   min-height:100%;
   display:flex;
+  flex:1 0 auto;
   flex-direction:column;
   width:100%;
   max-width:100%;
-  overflow-x:hidden !important;
-  overflow-y:visible !important;
+  position:relative;
+  contain:paint;
+  overflow:hidden !important;
 }
 
 .pv-layout-260218 .pv-main,
@@ -9506,7 +9570,7 @@ a:hover{text-decoration:none;}
   <link rel=\"stylesheet\" href=\"{_esc(css_href)}\">
   {icon_tag}
 </head>
-<body class=\"pv-page-body\" style=\"{theme_style}\">
+<body class=\"pv-page-body\" style=\"{theme_style};width:100%;overflow-x:hidden;\">
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
@@ -9653,7 +9717,7 @@ a:hover{text-decoration:none;}
     profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(profile_kind, "会社概要")
     profile_rows = []
     for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
-        _val = str(profile.get(_key) or "").strip()
+        _val = _company_profile_effective_value(step2, profile, _key)
         if not _val:
             continue
         if _key == "site_url":
@@ -9895,7 +9959,7 @@ a:hover{text-decoration:none;}
   <link rel=\"stylesheet\" href=\"assets/site.css\">
   {favicon_tag}
 </head>
-<body class=\"pv-page-body\" style=\"{theme_style}\">
+<body class=\"pv-page-body\" style=\"{theme_style};width:100%;overflow-x:hidden;\">
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
@@ -11972,7 +12036,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
     company_profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(company_profile_kind, "会社概要")
     company_profile_rows = []
     for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
-        _val = _clean(company_profile.get(_key))
+        _val = _clean(_company_profile_effective_value(step2, company_profile, _key))
         if not _val:
             continue
         if _key == "site_url":
@@ -13248,6 +13312,7 @@ def render_main(u: User) -> None:
                                                         ui.separator().classes("q-mt-md q-mb-sm")
                                                         ui.label("会社沿革 / 会社概要（任意）").classes("text-body1")
                                                         ui.label("本文と業務内容の間に表示されます。例が入っているので、上書きして使えます。不要なら「使用しない」のままでOKです。").classes("cvhb-muted q-mb-sm")
+                                                        ui.label("商号・所在地・連絡先は、基本情報の会社名 / 住所 / 電話番号 / メールアドレスが自動で入ります。必要ならここで上書きしてください。").classes("cvhb-muted q-mb-sm")
 
                                                         profile = ph.setdefault("company_profile", {})
                                                         if not isinstance(profile, dict):
@@ -13270,9 +13335,9 @@ def render_main(u: User) -> None:
 
                                                         for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
                                                             if _key == "business":
-                                                                ui.textarea(_label, value=profile.get(_key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow").classes("w-full q-mb-sm")
+                                                                ui.textarea(_label, value=_company_profile_editor_value(step2, profile, _key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow").classes("w-full q-mb-sm")
                                                             else:
-                                                                ui.input(_label, value=profile.get(_key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props(f'outlined dense hint={_sample}').classes("w-full q-mb-sm")
+                                                                ui.input(_label, value=_company_profile_editor_value(step2, profile, _key, _sample), on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props(f'outlined dense hint={_sample}').classes("w-full q-mb-sm")
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
 
