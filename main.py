@@ -12049,6 +12049,75 @@ body.pv-page-body{
 .pv-layout-260218.pv-dark .pv-footer{
   background: rgba(6, 10, 18, 0.92);
 }
+
+/* ===== Export final viewport clamp (v1.0.1) ===== */
+body.pv-page-body{
+  margin:0;
+  min-width:0;
+  max-width:100vw !important;
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
+  overscroll-behavior-x:none;
+  background:none !important;
+  background-color:var(--pv-base-1, #f8fafc) !important;
+}
+body.pv-page-body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  width:100vw;
+  height:100vh;
+  height:100dvh;
+  pointer-events:none;
+  z-index:0;
+  background-image:var(--pv-bg-img);
+  background-color:var(--pv-base-1, #f8fafc);
+  background-size:var(--pv-base-size);
+  background-position:0% 0%;
+  animation:pvDepthBase var(--pv-base-duration) ease-in-out infinite alternate;
+}
+body.pv-page-body > #pv-root.pv-shell{
+  position:relative;
+  z-index:1;
+  width:100% !important;
+  max-width:100vw !important;
+  min-width:0;
+  background:none !important;
+  overflow:hidden !important;
+  overflow-x:hidden !important;
+  overflow-y:hidden !important;
+}
+body.pv-page-body > #pv-root.pv-shell::before,
+body.pv-page-body > #pv-root.pv-shell::after,
+body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
+body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
+  position:fixed !important;
+  inset:0 !important;
+  width:100vw !important;
+  max-width:100vw !important;
+  height:100vh !important;
+  height:100dvh !important;
+  max-height:100dvh !important;
+  left:0 !important;
+  top:0 !important;
+  pointer-events:none;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-scroll{
+  position:relative;
+  z-index:2;
+  min-width:0;
+  max-width:100vw !important;
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-main,
+body.pv-page-body > #pv-root.pv-shell .pv-section,
+body.pv-page-body > #pv-root.pv-shell .pv-footer{
+  position:relative;
+  z-index:2;
+  max-width:100%;
+  overflow-x:hidden;
+}
 """
 
 
