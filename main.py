@@ -6269,7 +6269,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   {favicon_tags}
 
 </head>
-<body class="pv-page-body" style="{theme_style};width:100%;max-width:100vw;overflow-x:clip;">
+<body class="pv-page-body" style="{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;">
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
@@ -8847,7 +8847,9 @@ a:hover{text-decoration:none;}
 /* ===== Export: プレビュー用「固定幅シェル」をWebに合わせて解放 ===== */
 body.pv-page-body{
   width:100%;
-  max-width:100vw;
+  max-width:100%;
+  min-width:0;
+  margin:0;
   overflow-x:hidden !important;
   overflow-y:auto !important;
 }
@@ -8855,7 +8857,7 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218.pv-mode-mobile,
 .pv-shell.pv-layout-260218.pv-mode-pc{
   width:100% !important;
-  max-width:100vw !important;
+  max-width:100% !important;
   height:auto !important;
   min-height:100vh;
   min-height:100dvh;
@@ -8866,15 +8868,14 @@ body.pv-page-body{
   box-sizing:border-box;
   position:relative;
   isolation:isolate;
-  overflow-x:hidden !important;
-  overflow-y:visible !important;
+  overflow:hidden !important;
   clip-path: inset(0);
 }
 
 .pv-layout-260218 .pv-scroll{
-  min-height:auto !important;
+  min-height:calc(100dvh - 56px) !important;
   display:flex;
-  flex:0 0 auto !important;
+  flex:1 1 auto !important;
   flex-direction:column;
   width:100%;
   max-width:100%;
@@ -9696,7 +9697,7 @@ body.pv-page-body{
   <link rel=\"stylesheet\" href=\"{_esc(css_href)}\">
   {icon_tag}
 </head>
-<body class=\"pv-page-body\" style=\"{theme_style};width:100%;max-width:100vw;overflow-x:hidden;overflow-y:auto;\">
+<body class=\"pv-page-body\" style=\"{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;\">
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
@@ -10091,7 +10092,7 @@ body.pv-page-body{
   <link rel=\"stylesheet\" href=\"assets/site.css\">
   {favicon_tag}
 </head>
-<body class=\"pv-page-body\" style=\"{theme_style};width:100%;overflow-x:hidden;\">
+<body class=\"pv-page-body\" style=\"{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;\">
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
@@ -12066,28 +12067,29 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.2) ===== */
+/* ===== Export final viewport clamp (v1.0.4) ===== */
 html,
 body.pv-page-body{
   margin:0;
   min-width:0;
   width:100%;
-  max-width:100vw !important;
+  max-width:100%;
   overflow-x:hidden !important;
 }
 body.pv-page-body{
   overflow-y:auto !important;
   overscroll-behavior-x:none;
+  overscroll-behavior-y:auto;
   background:none !important;
   background-color:var(--pv-base-1, #f8fafc) !important;
 }
 body.pv-page-body::before{
   content:"";
   position:fixed;
-  inset:0;
-  width:100vw;
-  height:100vh;
-  height:100dvh;
+  top:0;
+  right:0;
+  bottom:0;
+  left:0;
   pointer-events:none;
   z-index:0;
   background-image:var(--pv-bg-img);
@@ -12100,13 +12102,12 @@ body.pv-page-body > #pv-root.pv-shell{
   position:relative;
   z-index:1;
   width:100% !important;
-  max-width:100vw !important;
+  max-width:100% !important;
   min-width:0;
   min-height:100dvh;
   height:auto !important;
   background:none !important;
-  overflow-x:hidden !important;
-  overflow-y:visible !important;
+  overflow:hidden !important;
   clip-path:inset(0);
 }
 body.pv-page-body > #pv-root.pv-shell::before,
@@ -12114,32 +12115,31 @@ body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
   position:fixed !important;
-  inset:0 !important;
-  width:100vw !important;
-  max-width:100vw !important;
-  height:100vh !important;
-  height:100dvh !important;
-  max-height:100dvh !important;
-  left:0 !important;
   top:0 !important;
+  right:0 !important;
+  bottom:0 !important;
+  left:0 !important;
   pointer-events:none;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   position:relative;
   z-index:2;
   display:flex;
-  flex:0 0 auto !important;
+  flex:1 1 auto !important;
   flex-direction:column;
   width:100%;
-  max-width:100vw !important;
+  max-width:100% !important;
   min-width:0;
-  min-height:auto !important;
+  min-height:calc(100dvh - 56px) !important;
   height:auto !important;
   max-height:none !important;
   overflow-x:hidden !important;
   overflow-y:visible !important;
   overscroll-behavior:auto !important;
   background:transparent !important;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-main{
+  flex:1 0 auto;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main,
 body.pv-page-body > #pv-root.pv-shell .pv-section,
