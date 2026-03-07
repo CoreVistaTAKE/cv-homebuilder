@@ -201,21 +201,6 @@ IMAGE_MAX_W = 1280
 IMAGE_MAX_H = 720
 IMAGE_RECOMMENDED_TEXT = "推奨画像サイズ：1280×720（16:9）※自動で16:9にカットして保存"
 
-CONOHA_PUBLISH_STEPS_HTML = """
-<div class="cvhb-publish-steps">
-  <div class="cvhb-publish-steps-title">最短手順（迷ったらこの順番）</div>
-  <ol class="cvhb-publish-steps-list">
-    <li>上の「ZIPを書き出す」で ZIP を作って、パソコンにダウンロードする</li>
-    <li>ZIP を解凍して、フォルダ内に <code>index.html</code> / <code>privacy.html</code> / <code>assets/</code> 等があることを確認</li>
-    <li>ConoHa WING 管理画面 → サイト管理 → ファイルマネージャー</li>
-    <li><code>public_html</code> → （あなたのドメイン名のフォルダ）を開く</li>
-    <li>解凍したフォルダの<strong>中身</strong>（<code>index.html</code> など）をドラッグ＆ドロップでアップロード（フォルダごとではなく“中身”）</li>
-    <li>テストURLで表示確認 → 問題なければ本番ドメインで確認</li>
-    <li>SSL が未設定なら WING 側で「無料独自SSL」を ON（反映に数十分〜数時間かかることがあります）</li>
-  </ol>
-</div>
-""".strip()
-
 # 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
@@ -318,16 +303,6 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
             or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
         )
 
-        # RGBA/LA でも「完全に不透明」なら JPEG へ（スマホ写真PNGが重くなる対策）
-        if has_alpha and im.mode in ("RGBA", "LA"):
-            try:
-                a = im.getchannel("A")
-                mn, mx = a.getextrema()  # type: ignore
-                if mn == 255 and mx == 255:
-                    has_alpha = False
-            except Exception:
-                pass
-
         if has_alpha:
             out_mime = "image/png"
             try:
@@ -342,12 +317,7 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
                 except Exception:
                     pass
             try:
-                im.save(out, format="JPEG", quality=82, optimize=True, progressive=True, subsampling=2)
-            except TypeError:
-                try:
-                    im.save(out, format="JPEG", quality=82, optimize=True, progressive=True)
-                except Exception:
-                    return data, mime
+                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
             except Exception:
                 return data, mime
 
@@ -355,209 +325,6 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
         return (out_bytes, out_mime) if out_bytes else (data, mime)
     except Exception:
         return data, mime
-
-
-def _maybe_resize_image_bytes_contain(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False) -> tuple[bytes, str]:
-    """画像を max_w×max_h に「収まるように縮小（contain方式）」して返す。
-
-    目的:
-    - 会社ロゴなど、切り抜き（クロップ）したくない画像を安全に軽量化したい
-    - 縦横比は維持し、はみ出しはしない（余白を付けない）
-
-    仕様:
-    - Pillow(PIL) が無い環境では元データを返す（安全優先）
-    - 画像は EXIF の回転を補正してから処理する
-    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
-      ただし force_png=True の場合は常に PNG を返す
-    """
-    try:
-        if not data:
-            return data, mime
-        if max_w <= 0 or max_h <= 0:
-            return data, mime
-        if not str(mime or "").startswith("image/"):
-            return data, mime
-
-        try:
-            from PIL import Image, ImageOps  # type: ignore
-            from io import BytesIO
-        except Exception:
-            return data, mime
-
-        im = Image.open(BytesIO(data))
-        try:
-            im.load()
-        except Exception:
-            pass
-
-        try:
-            im = ImageOps.exif_transpose(im)
-        except Exception:
-            pass
-
-        w, h = getattr(im, "size", (0, 0))
-        if not w or not h:
-            return data, mime
-
-        target_w = int(max_w)
-        target_h = int(max_h)
-        if target_w <= 0 or target_h <= 0:
-            return data, mime
-
-        # 縮小のみ（拡大はしない）
-        scale = min(target_w / float(w), target_h / float(h))
-        if scale <= 0:
-            return data, mime
-
-        if scale < 1.0:
-            new_w = max(1, int(round(w * scale)))
-            new_h = max(1, int(round(h * scale)))
-            try:
-                im = im.resize((new_w, new_h), Image.LANCZOS)
-            except Exception:
-                try:
-                    im = im.resize((new_w, new_h))
-                except Exception:
-                    pass
-
-        from io import BytesIO  # local import（PILがあるときだけ到達）
-        out = BytesIO()
-
-        if force_png:
-            out_mime = "image/png"
-            try:
-                im.save(out, format="PNG", optimize=True)
-            except Exception:
-                return data, mime
-            out_bytes = out.getvalue()
-            return (out_bytes, out_mime) if out_bytes else (data, mime)
-
-        has_alpha = (
-            im.mode in ("RGBA", "LA")
-            or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
-        )
-
-        # RGBA/LA でも「完全に不透明」なら JPEG へ（スマホ写真PNGが重くなる対策）
-        if has_alpha and im.mode in ("RGBA", "LA"):
-            try:
-                a = im.getchannel("A")
-                mn, mx = a.getextrema()  # type: ignore
-                if mn == 255 and mx == 255:
-                    has_alpha = False
-            except Exception:
-                pass
-
-        if has_alpha:
-            out_mime = "image/png"
-            try:
-                im.save(out, format="PNG", optimize=True)
-            except Exception:
-                return data, mime
-        else:
-            out_mime = "image/jpeg"
-            if im.mode != "RGB":
-                try:
-                    im = im.convert("RGB")
-                except Exception:
-                    pass
-            try:
-                im.save(out, format="JPEG", quality=82, optimize=True, progressive=True, subsampling=2)
-            except TypeError:
-                try:
-                    im.save(out, format="JPEG", quality=82, optimize=True, progressive=True)
-                except Exception:
-                    return data, mime
-            except Exception:
-                return data, mime
-
-        out_bytes = out.getvalue()
-        return (out_bytes, out_mime) if out_bytes else (data, mime)
-    except Exception:
-        return data, mime
-
-
-def _maybe_reencode_image_bytes(data: bytes, mime: str, *, jpeg_quality: int = 82) -> tuple[bytes, str]:
-    """画像bytesを「リサイズせずに」軽量化する（再エンコードのみ）.
-
-    目的:
-    - PNG で保存された写真が重くなりがちなケースを救う（透過が無ければ JPEG へ）
-    - 既存プロジェクトの data URL 画像も、書き出し時に軽量化できるようにする
-
-    仕様:
-    - Pillow(PIL) が無い環境では元データを返す（安全優先）
-    - 画像は EXIF の回転を補正してから処理する
-    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG
-    """
-    try:
-        if not data:
-            return data, mime
-        if not str(mime or "").startswith("image/"):
-            return data, mime
-
-        try:
-            from PIL import Image, ImageOps  # type: ignore
-            from io import BytesIO
-        except Exception:
-            return data, mime
-
-        im = Image.open(BytesIO(data))
-        try:
-            im.load()
-        except Exception:
-            pass
-
-        try:
-            im = ImageOps.exif_transpose(im)
-        except Exception:
-            pass
-
-        has_alpha = (
-            im.mode in ("RGBA", "LA")
-            or (im.mode == "P" and ("transparency" in getattr(im, "info", {})))
-        )
-
-        # RGBA/LA でも「完全に不透明」なら透過なし扱い（=JPEGでOK）
-        if has_alpha and im.mode in ("RGBA", "LA"):
-            try:
-                a = im.getchannel("A")
-                mn, mx = a.getextrema()  # type: ignore
-                if mn == 255 and mx == 255:
-                    has_alpha = False
-            except Exception:
-                pass
-
-        from io import BytesIO  # local import（PILがあるときだけ到達）
-        out = BytesIO()
-
-        if has_alpha:
-            out_mime = "image/png"
-            try:
-                im.save(out, format="PNG", optimize=True)
-            except Exception:
-                return data, mime
-        else:
-            out_mime = "image/jpeg"
-            if im.mode != "RGB":
-                try:
-                    im = im.convert("RGB")
-                except Exception:
-                    pass
-            q = int(jpeg_quality) if jpeg_quality else 82
-            try:
-                im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling=2)
-            except TypeError:
-                try:
-                    im.save(out, format="JPEG", quality=q, optimize=True, progressive=True)
-                except Exception:
-                    return data, mime
-            except Exception:
-                return data, mime
-
-        out_bytes = out.getvalue()
-        return (out_bytes, out_mime) if out_bytes else (data, mime)
-    except Exception:
-        return data, mime
-
 
 
 def _upload_debug_summary(obj) -> str:
@@ -806,7 +573,7 @@ async def _read_upload_bytes(content, *, _depth: int = 0, _seen: Optional[set[in
 
 
 async def _upload_event_to_data_url(
-    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False, mode: str = "cover"
+    e, *, max_w: int = 0, max_h: int = 0, force_png: bool = False
 ) -> tuple[str, str]:
     """Upload event -> data URL（v0.6.9995 と同じ流れに戻す）.
 
@@ -862,13 +629,13 @@ async def _upload_event_to_data_url(
 
     mime = mime or _guess_mime(fname, default="image/png")
 
-    # Resize (cover/contain)
+    # Resize/crop (cover)
     if max_w and max_h:
         try:
             # PIL が重い時でも UI 全体が固まらないようにスレッドへ退避
-            m = str(mode or "cover").strip().lower()
-            fn = _maybe_resize_image_bytes_contain if (m == 'contain') else _maybe_resize_image_bytes
-            data, mime = await asyncio.to_thread(fn, data, mime, max_w=max_w, max_h=max_h, force_png=force_png)
+            data, mime = await asyncio.to_thread(
+                _maybe_resize_image_bytes, data, mime, max_w=max_w, max_h=max_h, force_png=force_png
+            )
         except Exception:
             traceback.print_exc()
 
@@ -1095,99 +862,6 @@ if not _export_route_added:
         app._cvhb_export_route_added = True
     except Exception:
         pass
-
-
-# =========================
-# Preview Site cache (exported HTML/CSS/JS)
-#   - プレビューを「書き出し(完成形HP)」と完全一致させるための仕組み
-#   - iframe から /pv_site/{key}/... を読み込む
-# =========================
-
-_PREVIEW_SITE_CACHE: dict = {}
-_PREVIEW_SITE_CACHE_MAX = 12
-_PREVIEW_SITE_CACHE_TTL_SEC = 60 * 20  # 20分
-
-def _preview_site_cache_cleanup() -> None:
-    """古いプレビューサイトキャッシュを掃除する（落ちてもアプリ全体は落とさない）"""
-    try:
-        now_ts = float(datetime.now(timezone.utc).timestamp())
-        expired = []
-        for k, v in list(_PREVIEW_SITE_CACHE.items()):
-            ts = float((v or {}).get("created_ts") or 0.0)
-            if (now_ts - ts) > float(_PREVIEW_SITE_CACHE_TTL_SEC):
-                expired.append(k)
-        for k in expired:
-            _PREVIEW_SITE_CACHE.pop(k, None)
-
-        # 念のため上限も守る
-        if len(_PREVIEW_SITE_CACHE) > int(_PREVIEW_SITE_CACHE_MAX):
-            items = sorted(
-                _PREVIEW_SITE_CACHE.items(),
-                key=lambda kv: float((kv[1] or {}).get("created_ts") or 0.0),
-            )
-            while len(items) > int(_PREVIEW_SITE_CACHE_MAX):
-                k, _ = items.pop(0)
-                _PREVIEW_SITE_CACHE.pop(k, None)
-    except Exception:
-        pass
-
-def _preview_site_cache_put(user_id: int, files: dict) -> str:
-    """files(パス→bytes) をキャッシュして、参照キーを返す"""
-    _preview_site_cache_cleanup()
-    key = secrets.token_urlsafe(12)
-    _PREVIEW_SITE_CACHE[key] = {
-        "user_id": int(user_id),
-        "created_ts": float(datetime.now(timezone.utc).timestamp()),
-        "files": files,
-    }
-    _preview_site_cache_cleanup()
-    return key
-
-# /pv_site は、書き出しHTMLをそのままプレビューに見せるための簡易ファイルサーバー
-_pvsite_route_added = False
-try:
-    _pvsite_route_added = bool(getattr(app, "_cvhb_pvsite_route_added", False))
-except Exception:
-    _pvsite_route_added = False
-
-if not _pvsite_route_added:
-    @app.get("/pv_site/{key}/{path:path}")
-    def _pv_site_endpoint(key: str, path: str):
-        try:
-            user = current_user()
-            item = _PREVIEW_SITE_CACHE.get(str(key))
-            if not user or not item or int(item.get("user_id") or -1) != int(getattr(user, "id", -2)):
-                return Response(status_code=404)
-
-            safe_path = str(path or "").lstrip("/")
-            if not safe_path:
-                safe_path = "index.html"
-            # 事故防止：パストラバーサル禁止
-            if ".." in safe_path or safe_path.startswith("\\") or safe_path.startswith("/"):
-                return Response(status_code=404)
-
-            files = item.get("files") or {}
-            content = files.get(safe_path)
-            if content is None:
-                return Response(status_code=404)
-
-            mime = mimetypes.guess_type(safe_path)[0] or "application/octet-stream"
-            if mime.startswith("text/") and "charset" not in mime:
-                mime = mime + "; charset=utf-8"
-
-            return Response(
-                content=content,
-                media_type=mime,
-                headers={"Cache-Control": "no-store"},
-            )
-        except Exception:
-            return Response(status_code=404)
-
-    try:
-        app._cvhb_pvsite_route_added = True
-    except Exception:
-        pass
-
 
 def _preview_preflight_error() -> Optional[str]:
     """プレビュー描画前に、必要な定義が揃っているかチェックして事故を減らす。"""
@@ -2468,7 +2142,6 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218 .pv-services-lead{
   margin-top: 6px;
-  font-size: 1.05rem;
   color: var(--pv-text);
   opacity: 0.86;
   line-height: 1.75;
@@ -2678,7 +2351,7 @@ def inject_global_styles() -> None:
   background: rgba(255,255,255,0.66);
   border: 1px solid rgba(255,255,255,0.28);
   color: var(--pv-text);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
   pointer-events: none;
 }
 .pv-layout-260218.pv-dark .pv-mapframe-badge{
@@ -2986,6 +2659,8 @@ def inject_global_styles() -> None:
 </style>
 """
     )
+
+    ui.add_head_html(f"<style>{DEPTH_BG_CSS}</style>")
 
     ui.add_head_html(
         """
@@ -3359,7 +3034,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "0.9.22")
+VERSION = read_text_file("VERSION", "0.9.11")
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -4001,6 +3676,28 @@ COLOR_PRESETS = [
 ]
 COLOR_OPTIONS = [x["value"] for x in COLOR_PRESETS]
 
+BG_STRENGTH_PRESETS = [
+    {"value": "weak", "label": "弱", "hint": "背景をやさしく見せる"},
+    {"value": "medium", "label": "中", "hint": "見やすさと柄のバランス"},
+    {"value": "strong", "label": "強", "hint": "柄をしっかり見せる"},
+]
+BG_STRENGTH_OPTIONS = [x["value"] for x in BG_STRENGTH_PRESETS]
+
+
+def _normalize_bg_strength(value: str) -> str:
+    aliases = {
+        "弱": "weak",
+        "中": "medium",
+        "中（おすすめ）": "medium",
+        "強": "strong",
+        "weak": "weak",
+        "medium": "medium",
+        "strong": "strong",
+    }
+    v = str(value or "").strip().lower()
+    v = aliases.get(v, aliases.get(str(value or "").strip(), v))
+    return v if v in BG_STRENGTH_OPTIONS else "medium"
+
 # 色スウォッチ用（だいたいのイメージ色）
 COLOR_HEX = {
     "blue": "#1976d2",
@@ -4019,6 +3716,7 @@ COLOR_MIGRATION = {
     "indigo": "blue",
     "teal": "green",
     "deep-orange": "orange",
+    "gray": "grey",
 }
 
 
@@ -4553,6 +4251,7 @@ def normalize_project(p: dict) -> dict:
     if color not in COLOR_OPTIONS:
         color = "blue"
     step1["primary_color"] = color
+    step1["bg_strength"] = _normalize_bg_strength(step1.get("bg_strength") or "medium")
 
     # 福祉事業所だけ追加の分岐（入所/通所/児童など）
     if industry == "福祉事業所":
@@ -4577,8 +4276,6 @@ def normalize_project(p: dict) -> dict:
     step2.setdefault("company_name", "")
     step2.setdefault("favicon_url", "")
     step2.setdefault("favicon_filename", "")
-    step2.setdefault("logo_url", "")
-    step2.setdefault("logo_filename", "")
     step2.setdefault("catch_copy", "")
     step2.setdefault("catch_size", "中")
     step2.setdefault("sub_catch_size", "中")
@@ -5564,6 +5261,10 @@ PRIMARY_COLOR_HEX = {
     "pink": "#d81b60",
     "teal": "#00897b",
     "gray": "#546e7a",
+    "grey": "#546e7a",
+    "black": "#60a5fa",
+    "white": "#0f172a",
+    "yellow": "#f59e0b",
 }
 
 
@@ -5851,7 +5552,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "") -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -5863,7 +5564,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
-    is_dark = (primary_key == "black")
+    is_dark = primary_key in ("black", "navy")
 
     def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
         h = (hex_str or "").strip().lstrip("#")
@@ -5881,37 +5582,29 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     esc_company = html.escape(company_name)
     esc_email = html.escape(to_email)
 
-    favicon_href = (favicon_href or "").strip() or DEFAULT_FAVICON_DATA_URL
-    logo_href = (logo_href or "").strip()
+    favicon_href = (favicon_href or "").strip()
+    favicon_tags = ""
+    header_icon_html = ""
+    if favicon_href:
+        esc_fav = html.escape(favicon_href, quote=True)
 
-    # favicon タグ（必ず出す）
-    esc_fav = html.escape(favicon_href, quote=True)
-    icon_type = ""
-    if esc_fav.startswith("data:image/png") or esc_fav.endswith(".png"):
-        icon_type = "image/png"
-    elif esc_fav.startswith("data:image/svg+xml") or esc_fav.endswith(".svg"):
-        icon_type = "image/svg+xml"
-    elif esc_fav.startswith("data:image/x-icon") or esc_fav.endswith(".ico"):
-        icon_type = "image/x-icon"
-    type_attr = f' type="{icon_type}"' if icon_type else ""
-    favicon_tags = f'<link rel="icon"{type_attr} href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
+        # できるだけブラウザに伝わるように type も付ける（Safari対策）
+        low = favicon_href.lower().split("?", 1)[0]
+        icon_type = ""
+        if low.endswith(".png"):
+            icon_type = "image/png"
+        elif low.endswith(".ico"):
+            icon_type = "image/x-icon"
+        elif low.endswith(".svg"):
+            icon_type = "image/svg+xml"
+        elif low.endswith(".jpg") or low.endswith(".jpeg"):
+            icon_type = "image/jpeg"
+        elif low.endswith(".webp"):
+            icon_type = "image/webp"
 
-    # ヘッダー左上：favicon +（ロゴがあればロゴ / 無ければ会社名）
-    if logo_href:
-        esc_logo = html.escape(logo_href, quote=True)
-        brand_main = (
-            f'<img class="pv-brand-logo" src="{esc_logo}" alt="{esc_company}" '
-            f'style="height:28px;width:auto;max-width:52vw;object-fit:contain;display:block;">'
-        )
-    else:
-        brand_main = f'<span class="pv-brand-name">{esc_company}</span>'
-
-    brand_html = (
-        f'<a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">'
-        f'<img class="pv-favicon" src="{esc_fav}" alt="">'
-        f"{brand_main}"
-        f"</a>"
-    )
+        type_attr = f' type="{icon_type}"' if icon_type else ""
+        favicon_tags = f'<link rel="icon"{type_attr} href="{esc_fav}">\n  <link rel="shortcut icon" href="{esc_fav}">\n  <link rel="apple-touch-icon" href="{esc_fav}">'
+        header_icon_html = f'<img class="pv-favicon" src="{esc_fav}" alt="">'
 
     # ナビリンク（thanks はトップページ外なので、index.html へ戻す導線に揃える）
     sec = lambda sid: f"index.html#{sid}"
@@ -5956,7 +5649,10 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
-        {brand_html}
+        <a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">
+          {header_icon_html}
+          <span class="pv-brand-name">{esc_company}</span>
+        </a>
 
         <nav class="row pv-desktop-nav items-center no-wrap" aria-label="グローバルナビ">
           {desktop_nav_html}
@@ -6041,7 +5737,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", logo_href: str = "") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -6051,7 +5747,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -6346,14 +6042,14 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     favicon_url = str(step2.get("favicon_url") or "").strip()
     favicon_filename = str(step2.get("favicon_filename") or "").strip()
 
-    # v0.9.20: favicon 未設定でも必ずデフォルトを使う（プレビューと書き出しのズレ防止）
+    # v0.9.8: favicon未設定なら「ロゴ」をfaviconとして使う（管理者が迷わない）
     logo_url = str(step2.get("logo_url") or "").strip()
-    if not favicon_url:
-        favicon_url = DEFAULT_FAVICON_DATA_URL
+    if (not favicon_url) and logo_url:
+        favicon_url = logo_url
 
     primary_key = str(step1.get("primary_color") or "blue").strip()
     primary_hex = PRIMARY_COLOR_HEX.get(primary_key, "#1e5eff")
-    is_dark = (primary_key == "black")
+    is_dark = primary_key in ("black", "navy")
 
     def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
         h = (hex_str or "").strip().lstrip("#")
@@ -8378,314 +8074,9 @@ a:hover{text-decoration:none;}
 .pv-thanks-actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:16px;}
 .pv-thanks-mail{margin-top:18px; padding-top:14px; border-top:1px solid rgba(255,255,255,.20);}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
-
-/* =========================
-   Depth Background (v0.9.26)
-   5-layer (base / radial / blob / line / orb)
-   9-color mode + parallax
-   方針（重要）:
-   - 「霧っぽい」→「柄がわかる」へ（radial/blob/line/orb を必ず視認できる）
-   - ただし文章の読みやすさ最優先（必要なら opacity を下げて守る）
-   - 動作は軽く（Canvasなし / 15fps相当 / CSS + transformのみ）
-   ========================= */
-
-/* html/body は塗らない（背景は pv-depth-bg が担当） */
-html,body{
-  background: transparent !important;
-}
-
-/* ルートの背面に常駐する奥行き背景 */
-.pv-depth-bg{
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-/* 各レイヤー（transform はJSでパララックス制御） */
-.pv-depth-layer{
-  position: absolute;
-  inset: -12%;
-  will-change: transform;
-  transform: translate3d(0,0,0);
-}
-
-/* Layer1: ベースカラー（ここは「明るく上品」が軸） */
-.pv-depth-l1{
-  inset: 0;
-  background:
-    radial-gradient(1200px 900px at 18% 12%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.10) 0%,
-      transparent 62%),
-    radial-gradient(1100px 820px at 86% 8%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.08) 0%,
-      transparent 62%),
-    linear-gradient(150deg,
-      rgb(var(--pv-depth-base-1-rgb, 245,248,255)) 0%,
-      rgb(var(--pv-depth-base-2-rgb, 255,255,255)) 100%);
-}
-
-/* Layer2: radial gradient（柄の主役） */
-.pv-depth-l2{
-  opacity: var(--pv-depth-l2-opacity, 0.92);
-  background:
-    radial-gradient(820px 620px at 18% 22%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.62) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.26) 34%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.10) 48%,
-      transparent 70%),
-    radial-gradient(900px 700px at 86% 18%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.52) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.22) 38%,
-      transparent 72%),
-    radial-gradient(760px 560px at 72% 92%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.44) 0%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.18) 42%,
-      transparent 74%);
-}
-
-/* Layer3: organic blob（「霧」ではなく「形」が見えるブラー） */
-.pv-depth-l3{
-  opacity: var(--pv-depth-l3-opacity, 0.60);
-  filter: blur(12px);
-  transform: translateZ(0);
-}
-.pv-depth-blob{
-  position: absolute;
-  width: 54vmax;
-  height: 54vmax;
-  border-radius: 42% 58% 62% 38% / 46% 52% 48% 54%;
-  background:
-    radial-gradient(circle at 30% 32%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.72) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.26) 48%,
-      transparent 72%),
-    radial-gradient(circle at 70% 70%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.44) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.12) 54%,
-      transparent 76%);
-  will-change: transform;
-}
-.pv-depth-blob.blob-a{
-  left: -16vmax;
-  top: -20vmax;
-  animation: pvBlobFloatA 16s ease-in-out infinite;
-}
-.pv-depth-blob.blob-b{
-  right: -20vmax;
-  bottom: -24vmax;
-  width: 62vmax;
-  height: 62vmax;
-  border-radius: 55% 45% 40% 60% / 50% 55% 45% 50%;
-  background:
-    radial-gradient(circle at 60% 40%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.66) 0%,
-      rgba(var(--pv-depth-c3-rgb, 185,120,255), 0.22) 50%,
-      transparent 76%),
-    radial-gradient(circle at 22% 72%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.28) 0%,
-      transparent 72%);
-  animation: pvBlobFloatB 18s ease-in-out infinite;
-}
-@keyframes pvBlobFloatA{
-  0%,100%{ transform: translate3d(0,0,0) scale(1); }
-  50%{ transform: translate3d(4%,6%,0) scale(1.05); }
-}
-@keyframes pvBlobFloatB{
-  0%,100%{ transform: translate3d(0,0,0) scale(1); }
-  50%{ transform: translate3d(-5%,-4%,0) scale(1.04); }
-}
-
-/* Layer4: geometric line（柄としてわかる程度に） */
-.pv-depth-l4{
-  opacity: var(--pv-depth-l4-opacity, 0.26);
-  background-image:
-    repeating-linear-gradient(  35deg,
-      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.26) 0 1px,
-      transparent 1px 16px),
-    repeating-linear-gradient( 145deg,
-      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.20) 0 1px,
-      transparent 1px 22px),
-    repeating-linear-gradient(  90deg,
-      rgba(var(--pv-depth-line-rgb, 15,23,42), 0.14) 0 1px,
-      transparent 1px 32px);
-  mix-blend-mode: multiply;
-}
-.pv-dark .pv-depth-l4{
-  mix-blend-mode: screen;
-}
-
-/* Layer5: light orb（光の玉：lightでは通常合成、darkではスクリーン） */
-.pv-depth-l5{
-  opacity: var(--pv-depth-l5-opacity, 0.78);
-}
-.pv-depth-orb{
-  position: absolute;
-  width: 38vmax;
-  height: 38vmax;
-  border-radius: 999px;
-  filter: blur(10px);
-  transform: translateZ(0);
-  will-change: transform;
-  mix-blend-mode: normal;
-  background:
-    radial-gradient(circle at 32% 30%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.62) 0%,
-      rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.22) 40%,
-      transparent 72%),
-    radial-gradient(circle at 55% 60%,
-      rgba(255,255,255,0.22) 0%,
-      transparent 62%);
-}
-.pv-dark .pv-depth-orb{
-  mix-blend-mode: screen;
-}
-.pv-depth-orb.orb-a{
-  left: -12vmax;
-  top: 12vmax;
-  animation: pvOrbMoveA 12s ease-in-out infinite;
-}
-.pv-depth-orb.orb-b{
-  right: -14vmax;
-  bottom: -10vmax;
-  width: 46vmax;
-  height: 46vmax;
-  background:
-    radial-gradient(circle at 60% 42%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.56) 0%,
-      rgba(var(--pv-depth-c2-rgb, 72,223,255), 0.20) 44%,
-      transparent 74%),
-    radial-gradient(circle at 42% 58%,
-      rgba(255,255,255,0.18) 0%,
-      transparent 62%);
-  animation: pvOrbMoveB 14s ease-in-out infinite;
-}
-@keyframes pvOrbMoveA{
-  0%,100%{ transform: translate3d(0,0,0) scale(1); }
-  50%{ transform: translate3d(4%,-3%,0) scale(1.06); }
-}
-@keyframes pvOrbMoveB{
-  0%,100%{ transform: translate3d(0,0,0) scale(1); }
-  50%{ transform: translate3d(-4%,3%,0) scale(1.05); }
-}
-
-/* ほんのりビネット（暗くしすぎない） */
-.pv-depth-bg::after{
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(1200px 900px at 50% -10%,
-      rgba(0,0,0,0.10), transparent 70%),
-    radial-gradient(1200px 900px at 50% 110%,
-      rgba(0,0,0,0.08), transparent 70%);
-  opacity: var(--pv-depth-vignette, 0.13);
-}
-
-/* 動きが苦手な人向け（OS設定で減らす） */
-@media (prefers-reduced-motion: reduce){
-  .pv-depth-layer,
-  .pv-depth-blob,
-  .pv-depth-orb{
-    animation: none !important;
-    transition: none !important;
-    transform: none !important;
-  }
-}
-
-/* 背景を見せるために、シェル/スクロールの「塗り」を透明にする */
-.pv-shell,
-.pv-scroll{
-  background: transparent !important;
-}
-
-/* Root should be above background */
-#pv-root{
-  position: relative;
-  z-index: 1;
-  background: transparent;
-}
-
-/* =========================
-   PC Loading Overlay (v0.9.24)
-   - 体感速度の改善（読み込み中の印象を整える）
-   - PCのみ表示（pv-mode-pc）
-   ========================= */
-.pv-loader{
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .45s ease;
-  background: rgba(255,255,255,0.72);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-.pv-dark .pv-loader{
-  background: rgba(0,0,0,0.55);
-}
-.pv-loader.is-visible{
-  opacity: 1;
-  pointer-events: auto;
-}
-.pv-loader-inner{
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-.pv-loader-spinner{
-  width: 58px;
-  height: 58px;
-  border-radius: 999px;
-  border: 5px solid rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.22);
-  border-top-color: rgba(var(--pv-depth-c1-rgb, 80,140,255), 0.92);
-  animation: pvLoaderSpin .85s linear infinite;
-  box-shadow: 0 18px 40px rgba(15,23,42,0.18);
-}
-.pv-dark .pv-loader-spinner{
-  box-shadow: 0 18px 44px rgba(0,0,0,0.44);
-}
-@keyframes pvLoaderSpin{ to { transform: rotate(360deg); } }
-.pv-loader-text{
-  font-weight: 900;
-  letter-spacing: .08em;
-  opacity: .78;
-}
-
-/* =========================
-   v0.9.24 micro-tuning
-   ========================= */
-/* 業務内容リード文：少し大きめ + 太字 */
-.pv-layout-260218 .pv-services-lead{
-  font-size: 1.05rem;
-  font-weight: 800;
-}
-
-/* PCヒーローキャッチ：センター固定（どこかでズレても戻す） */
-.pv-layout-260218.pv-mode-pc .pv-hero-caption{
-  left: 50% !important;
-  right: auto !important;
-  transform: translateX(-50%) !important;
-}
-
-/* PCが重い端末向け：ガラスぼかしを少し軽く（見た目を保ったまま） */
-.pv-layout-260218.pv-mode-pc .pv-panel,
-.pv-layout-260218.pv-mode-pc .pv-panel-flat{
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
 """
 
-    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS + "\n" + DEPTH_BG_CSS
     # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
     #   ただし重複許容（sizeより一致優先）
 
@@ -8730,11 +8121,6 @@ html,body{
         u = str(url).strip()
         if _is_data_url(u):
             mime, bts = _data_url_meta(u)
-            if bts:
-                try:
-                    bts, mime = _maybe_reencode_image_bytes(bts, mime, jpeg_quality=82)
-                except Exception:
-                    pass
             ext = _mime_to_ext(mime).lstrip(".").lower()
             if not ext or ext == "bin":
                 ext = "jpg"
@@ -8748,7 +8134,7 @@ html,body{
             hero_urls.append(u)
 
     # 施設ロゴ（faviconとは別）
-    # logo_url は上で取得済み
+    # logo_url は上で取得済み（faviconのフォールバックにも使う）
     logo_href = ""
     if logo_url and _is_data_url(logo_url):
         mime, bts = _data_url_meta(logo_url)
@@ -8763,14 +8149,9 @@ html,body{
             logo_href = logo_url
     elif logo_url:
         logo_href = logo_url
-    # v0.9.20: logo もキャッシュされやすい → URL に版数を付けて更新がすぐ反映されるようにする
-    logo_href_html = logo_href
-    if logo_href_html and ("?" not in logo_href_html) and logo_href_html.startswith("assets/"):
-        logo_href_html = f"{logo_href_html}?v={VERSION}"
 
-    # v0.9.11: 互換用（旧テンプレ向け）: ヘッダー左の小アイコンは「ロゴ優先」。ロゴが無い場合は favicon を使う
-    header_icon_href = logo_href_html or favicon_href_html or ""
-
+    # v0.9.11: ヘッダー左の小アイコンは「ロゴ優先」。ロゴが無い場合は favicon を使う（現場で迷わない）
+    header_icon_href = logo_href or favicon_href_html or ""
 
     # philosophy / services の画像（プレビューと同じキー）
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
@@ -8778,11 +8159,6 @@ html,body{
     ph_img_href = ""
     if ph_img_url and _is_data_url(ph_img_url):
         mime, bts = _data_url_meta(ph_img_url)
-        if bts:
-            try:
-                bts, mime = _maybe_reencode_image_bytes(bts, mime, jpeg_quality=82)
-            except Exception:
-                pass
         ext = _mime_to_ext(mime).lstrip(".").lower()
         if not ext or ext == "bin":
             ext = "jpg"
@@ -8801,11 +8177,6 @@ html,body{
     svc_img_href = ""
     if svc_img_url and _is_data_url(svc_img_url):
         mime, bts = _data_url_meta(svc_img_url)
-        if bts:
-            try:
-                bts, mime = _maybe_reencode_image_bytes(bts, mime, jpeg_quality=82)
-            except Exception:
-                pass
         ext = _mime_to_ext(mime).lstrip(".").lower()
         if not ext or ext == "bin":
             ext = "jpg"
@@ -9023,570 +8394,63 @@ html,body{
   function initHeroSlider(root){
     var slider = document.getElementById('pv-hero-slider');
     if(!slider) return;
-
     var track = slider.querySelector('.pv-hero-track');
     if(!track) return;
 
-    var slides = Array.prototype.slice.call(slider.querySelectorAll('.pv-hero-slide'));
-    if(slides.length === 0) return;
+    var slides = Array.prototype.slice.call(track.children || []);
+    if(slides.length <= 1) return;
 
     var dotsBox = document.getElementById('pv-hero-slider-dots');
-    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10);
-
-    // 初期：アニメ無しで1枚目を表示
-    slider.classList.add('pv-hero-noanim');
-
+    var axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
     var idx = 0;
 
-    function updateDots(){
-      if(!dotsBox) return;
-      var dots = Array.prototype.slice.call(dotsBox.querySelectorAll('.pv-hero-dot'));
-      dots.forEach(function(d, i){
-        d.classList.toggle('is-active', i === idx);
-      });
+    function applyAxis(){
+      axis = root.classList.contains('pv-mode-pc') ? 'x' : 'y';
+      track.style.flexDirection = axis === 'y' ? 'column' : 'row';
+      slides.forEach(function(sl){ sl.style.flex = '0 0 100%'; });
+      update();
     }
 
-    function setActive(next){
-      idx = (next + slides.length) % slides.length;
-      slides.forEach(function(sl, i){
-        var on = (i === idx);
-        sl.classList.toggle('is-active', on);
-        sl.setAttribute('aria-hidden', on ? 'false' : 'true');
-      });
-      updateDots();
+    function update(){
+      track.style.transform = (axis === 'y')
+        ? ('translate3d(0,' + (-idx * 100) + '%,0)')
+        : ('translate3d(' + (-idx * 100) + '%,0,0)');
+      if(dotsBox){
+        dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(d, i){
+          d.classList.toggle('is-active', i === idx);
+        });
+      }
     }
 
-    setActive(0);
-
-    // 1フレーム後にアニメ ON
-    setTimeout(function(){
-      slider.classList.remove('pv-hero-noanim');
-    }, 80);
-
-    // キャッチ/サブキャッチ枠を「画像より少し遅れて」表示（ゆっくり）
-    var cap = root.querySelector('.pv-hero-caption');
-    if(cap){
-      cap.classList.remove('is-show');
-      setTimeout(function(){
-        cap.classList.add('is-show');
-      }, 450);
+    function set(i){
+      idx = (i + slides.length) % slides.length;
+      update();
     }
 
-    // Dot click
     if(dotsBox){
-      var dots = Array.prototype.slice.call(dotsBox.querySelectorAll('.pv-hero-dot'));
-      dots.forEach(function(d){
-        d.addEventListener('click', function(){
-          var n = parseInt(d.getAttribute('data-i') || '0', 10);
-          if(!isNaN(n)){
-            setActive(n);
-            // ユーザー操作が入ったらタイマーをリセット
-            stop(); 
-            start();
-          }
+      dotsBox.querySelectorAll('.pv-hero-dot').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var i = parseInt(btn.getAttribute('data-i') || '0', 10);
+          if(!isNaN(i)) set(i);
         });
       });
     }
 
-    // Auto play（prefers-reduced-motion を尊重）
-    var reduce = false;
-    try{
-      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    }catch(e){}
+    applyAxis();
 
-    var timer = null;
-    function start(){
-      if(reduce) return;
-      if(intervalMs > 0 && slides.length > 1){
-        timer = setInterval(function(){
-          setActive(idx + 1);
-        }, intervalMs);
-      }
-    }
-    function stop(){
-      if(timer){
-        clearInterval(timer);
-        timer = null;
-      }
+    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10);
+    if(intervalMs > 0){
+      var timer = setInterval(function(){ set(idx + 1); }, intervalMs);
+      slider.addEventListener('mouseenter', function(){ clearInterval(timer); });
+      slider.addEventListener('mouseleave', function(){ timer = setInterval(function(){ set(idx + 1); }, intervalMs); });
     }
 
-    slider.addEventListener('mouseenter', stop);
-    slider.addEventListener('mouseleave', function(){ stop(); start(); });
-
-    start();
-
-    slider.__cvhbReinit = function(){
-      setActive(idx);
-    };
-  }
-
-  function initScrollReveal(root){
-    // prefers-reduced-motion の人は「全部表示」でOK
-    var reduce = false;
-    try{
-      reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    }catch(e){}
-
-    var sections = Array.prototype.slice.call(document.querySelectorAll('.pv-section-260218'));
-    if(!sections.length) return;
-
-    // ヒーローは対象外
-    sections = sections.filter(function(sec){
-      return sec && sec.id && sec.id !== 'pv-top';
-    });
-
-    if(!sections.length) return;
-
-    // 仕込み：セクションにclass付与 / パネルの中身をwrapして「枠→中身」の順で出す
-    sections.forEach(function(sec){
-      sec.classList.add('pv-reveal');
-
-      var panels = Array.prototype.slice.call(sec.querySelectorAll('.pv-panel'));
-      panels.forEach(function(panel){
-        if(!panel) return;
-
-        // 既にwrap済みならスキップ
-        var first = panel.firstElementChild;
-        if(first && first.classList && first.classList.contains('pv-panel-inner')) return;
-
-        var inner = document.createElement('div');
-        inner.className = 'pv-panel-inner';
-
-        while(panel.firstChild){
-          inner.appendChild(panel.firstChild);
-        }
-        panel.appendChild(inner);
-      });
-
-      if(reduce){
-        sec.classList.add('is-in');
-      }
-    });
-
-    if(reduce) return;
-
-    if('IntersectionObserver' in window){
-      var io = new IntersectionObserver(function(entries){
-        entries.forEach(function(entry){
-          if(entry.isIntersecting){
-            entry.target.classList.add('is-in');
-            io.unobserve(entry.target);
-          }
-        });
-      }, { root: null, rootMargin: '0px 0px -12% 0px', threshold: 0.18 });
-
-      sections.forEach(function(sec){ io.observe(sec); });
-    }else{
-      // 古いブラウザは全部表示
-      sections.forEach(function(sec){ sec.classList.add('is-in'); });
-    }
-  }
-
-
-  // ===== Depth Background (5-layer / 9-color mode / parallax) =====
-// v0.9.24: Canvas粒子を廃止して軽量化（CSSレイヤーのみ）
-// Layer1  ベースカラー
-// Layer2  radial gradient
-// Layer3  organic blob
-// Layer4  geometric line
-// Layer5  light orb
-var DepthBg = (function(){
-  var bg = null;
-  var l1=null,l2=null,l3=null,l4=null,l5=null;
-  var _started = false;
-
-  // input (mouse/scroll)
-  var _tx = 0, _ty = 0; // target (-0.5..0.5)
-  var _x = 0, _y = 0;   // smoothed
-  var _scrollY = 0;
-
-  // mode tween
-  var _current = null;
-  var _from = null;
-  var _to = null;
-  var _tweening = false;
-  var _tweenStart = 0;
-  var _tweenDur = 650;
-
-  // perf throttle
-  var _fps = 15;
-  var _frameMs = 1000 / _fps;
-  var _lastFrame = 0;
-
-  function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
-  function lerp(a,b,t){ return a + (b-a)*t; }
-  function mix3(a,b,t){ return [ Math.round(lerp(a[0],b[0],t)), Math.round(lerp(a[1],b[1],t)), Math.round(lerp(a[2],b[2],t)) ]; }
-  function now(){ return (window.performance && performance.now) ? performance.now() : Date.now(); }
-
-  // 2〜3色（＋薄いベース）で上品に：各テーマは「明るめ」寄せ
-  var MODES = {
-    // b1/b2: ベース（明るめ）
-    // c1/c2/c3: 柄の色（2〜3色で上品に）
-    blue:   { b1:[232,244,255], b2:[252,254,255], c1:[59,130,246],  c2:[34,211,238], c3:[168,85,247],  ink:[15,23,42] },
-    red:    { b1:[255,232,240], b2:[255,252,253], c1:[244,63,94],   c2:[251,113,133], c3:[249,115,22],  ink:[15,23,42] },
-    green:  { b1:[230,255,245], b2:[252,255,253], c1:[34,197,94],   c2:[45,212,191], c3:[163,230,53],  ink:[15,23,42] },
-    orange: { b1:[255,242,230], b2:[255,252,246], c1:[249,115,22],  c2:[251,191,36], c3:[236,72,153],  ink:[15,23,42] },
-    purple: { b1:[245,238,255], b2:[255,252,255], c1:[168,85,247],  c2:[99,102,241], c3:[236,72,153],  ink:[15,23,42] },
-    gray:   { b1:[242,244,248], b2:[253,253,255], c1:[100,116,139], c2:[148,163,184], c3:[71,85,105],  ink:[15,23,42] },
-    white:  { b1:[255,255,255], b2:[244,248,255], c1:[59,130,246],  c2:[34,197,94],  c3:[234,179,8],   ink:[15,23,42] },
-    yellow: { b1:[255,248,226], b2:[255,253,244], c1:[234,179,8],   c2:[250,204,21], c3:[249,115,22],  ink:[15,23,42] },
-    black:  { b1:[6,9,18],      b2:[0,0,0],       c1:[56,189,248],  c2:[167,139,250], c3:[34,197,94],  ink:[255,255,255], dark:true }
-  };
-
-  function ensureDom(){
-    if(bg) return;
-    bg = document.getElementById('pv-depth-bg');
-    if(!bg){
-      bg = document.createElement('div');
-      bg.id = 'pv-depth-bg';
-      bg.className = 'pv-depth-bg';
-      // 背景は一番最初に置く
-      document.body.insertBefore(bg, document.body.firstChild);
-    }
-
-    // レイヤー構成（役割固定）
-    bg.innerHTML = ''
-      + '<div class="pv-depth-layer pv-depth-l1"></div>'
-      + '<div class="pv-depth-layer pv-depth-l2"></div>'
-      + '<div class="pv-depth-layer pv-depth-l3">'
-        + '<div class="pv-depth-blob blob-a"></div>'
-        + '<div class="pv-depth-blob blob-b"></div>'
-      + '</div>'
-      + '<div class="pv-depth-layer pv-depth-l4"></div>'
-      + '<div class="pv-depth-layer pv-depth-l5">'
-        + '<div class="pv-depth-orb orb-a"></div>'
-        + '<div class="pv-depth-orb orb-b"></div>'
-      + '</div>';
-
-    l1 = bg.querySelector('.pv-depth-l1');
-    l2 = bg.querySelector('.pv-depth-l2');
-    l3 = bg.querySelector('.pv-depth-l3');
-    l4 = bg.querySelector('.pv-depth-l4');
-    l5 = bg.querySelector('.pv-depth-l5');
-  }
-
-  function setCssVars(p){
-    var el = document.documentElement;
-    try{
-      var dark = !!p.dark;
-
-      el.style.setProperty('--pv-depth-base-1-rgb', p.b1.join(','));
-      el.style.setProperty('--pv-depth-base-2-rgb', p.b2.join(','));
-      el.style.setProperty('--pv-depth-c1-rgb', p.c1.join(','));
-      el.style.setProperty('--pv-depth-c2-rgb', p.c2.join(','));
-      el.style.setProperty('--pv-depth-c3-rgb', p.c3.join(','));
-
-      // 線: 「霧」にならないよう、lightでも柄が見える程度に色を混ぜる
-      // - light: インク寄り（読みやすさ優先）だけど少し色を足す
-      // - dark : 白寄りだけど派手すぎない
-      var inkW = dark ? 0.52 : 0.64;
-      var colW = 1 - inkW;
-      var line = [
-        Math.round(p.ink[0]*inkW + p.c1[0]*colW),
-        Math.round(p.ink[1]*inkW + p.c1[1]*colW),
-        Math.round(p.ink[2]*inkW + p.c1[2]*colW)
-      ];
-      el.style.setProperty('--pv-depth-line-rgb', line.join(','));
-
-      // opacity（文章の読みやすさ優先：でも柄は見える）
-      el.style.setProperty('--pv-depth-l2-opacity', dark ? 0.72 : 0.94);
-      el.style.setProperty('--pv-depth-l3-opacity', dark ? 0.48 : 0.62);
-      el.style.setProperty('--pv-depth-l4-opacity', dark ? 0.20 : 0.28);
-      el.style.setProperty('--pv-depth-l5-opacity', dark ? 0.66 : 0.80);
-      el.style.setProperty('--pv-depth-vignette',   dark ? 0.28 : 0.13);
-    }catch(e){}
-  }
-
-  function guessModeFromRoot(root){
-    if(!root) return 'blue';
-    try{
-      var k = getComputedStyle(root).getPropertyValue('--pv-primary-key').trim();
-      if(k && MODES[k]) return k;
-    }catch(e){}
-    return 'blue';
-  }
-
-  function setMode(key, doTween){
-    if(!MODES[key]) key = 'blue';
-
-    if(!_current){
-      _current = MODES[key];
-      setCssVars(_current);
-      return;
-    }
-
-    if(doTween === false){
-      _current = MODES[key];
-      setCssVars(_current);
-      return;
-    }
-
-    _from = _current;
-    _to = MODES[key];
-    _tweening = true;
-    _tweenStart = now();
-  }
-
-  function applyTween(ts){
-    if(!_tweening || !_from || !_to) return _current;
-
-    var t = (ts - _tweenStart) / _tweenDur;
-    if(t >= 1){
-      _tweening = false;
-      _current = _to;
-      setCssVars(_current);
-      return _current;
-    }
-    t = clamp(t, 0, 1);
-
-    var p = {
-      b1: mix3(_from.b1, _to.b1, t),
-      b2: mix3(_from.b2, _to.b2, t),
-      c1: mix3(_from.c1, _to.c1, t),
-      c2: mix3(_from.c2, _to.c2, t),
-      c3: mix3(_from.c3, _to.c3, t),
-      ink: mix3(_from.ink, _to.ink, t),
-      // dark は「黒テーマ」判定（中間はどちらでもOK）
-      dark: (_to && _to.dark) ? (t > 0.35) : ((_from && _from.dark) ? (t < 0.65) : false)
-    };
-
-    setCssVars(p);
-    return p;
-  }
-
-  function onPointerMove(e){
-    var w = window.innerWidth || 1;
-    var h = window.innerHeight || 1;
-    _tx = (e.clientX / w) - 0.5;
-    _ty = (e.clientY / h) - 0.5;
-  }
-
-  function onScroll(){
-    _scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-  }
-
-  function setT(el, x, y, r, s){
-    if(!el) return;
-    el.style.transform = 'translate3d(' + x.toFixed(2) + 'px,' + y.toFixed(2) + 'px,0) rotate(' + r.toFixed(3) + 'deg) scale(' + s.toFixed(3) + ')';
-  }
-
-  function applyTransforms(ts){
-    // input smoothing
-    _x += (_tx - _x) * 0.08;
-    _y += (_ty - _y) * 0.08;
-
-    var t = ts * 0.001;
-    var driftX = Math.sin(t*0.35) * 6 + Math.cos(t*0.21) * 4;
-    var driftY = Math.cos(t*0.33) * 6 + Math.sin(t*0.18) * 4;
-
-    var amp = 64; // 視差の強さ（見えるけど重くしない）
-    var px = _x * amp;
-    var py = _y * amp;
-
-    var sc = (_scrollY || 0) * 0.03;
-
-    // レイヤーごとに深度差（大きいほど手前）
-    setT(l1, px*0.04 + driftX*0.10,  py*0.04 + driftY*0.10 - sc*0.02,  0.000, 1.000);
-    setT(l2, px*0.10 + driftX*0.18,  py*0.10 + driftY*0.18 - sc*0.05,  0.002, 1.010);
-    setT(l3, px*0.18 + driftX*0.24,  py*0.18 + driftY*0.24 - sc*0.08, -0.003, 1.020);
-    setT(l4, px*0.24 + driftX*0.30,  py*0.24 + driftY*0.30 - sc*0.10,  0.004, 1.030);
-    setT(l5, px*0.30 + driftX*0.36,  py*0.30 + driftY*0.36 - sc*0.12, -0.005, 1.040);
-  }
-
-  function step(ts){
-    if(!_started) return;
-
-    // 可視でないときは軽くする（保険）
-    if(document.hidden){
-      _lastFrame = ts;
-      requestAnimationFrame(step);
-      return;
-    }
-
-    if(!_lastFrame) _lastFrame = ts;
-    var elapsed = ts - _lastFrame;
-
-    if(elapsed < _frameMs){
-      requestAnimationFrame(step);
-      return;
-    }
-
-    // フレーム補正
-    _lastFrame = ts - (elapsed % _frameMs);
-
-    // tween
-    applyTween(ts);
-
-    // transforms
-    applyTransforms(ts);
-
-    requestAnimationFrame(step);
-  }
-
-  function init(root){
-    ensureDom();
-    var key = guessModeFromRoot(root);
-    _current = MODES[key] || MODES.blue;
-    setCssVars(_current);
-
-    onScroll();
-
-    window.addEventListener('scroll', onScroll, {passive:true});
-    window.addEventListener('pointermove', onPointerMove, {passive:true});
-    window.addEventListener('resize', function(){
-      // resize時は入力を中心へ戻す（ガタつきを抑える）
-      _tx = 0; _ty = 0;
-    }, {passive:true});
-
-    _started = true;
-    _lastFrame = 0;
-    requestAnimationFrame(step);
-  }
-
-  return { init:init, setMode:setMode };
-})();
-
-try{ window.cvhbDepthBg = DepthBg; }catch(e){}
-
-
-  function pvInitLoading(root){
-    try{
-      if(!root) return;
-
-      // PCのみ（幅で判定）
-      var isPC = (window.innerWidth || 0) >= 981;
-      if(!isPC) return;
-
-      var loader = document.getElementById('pv-loader');
-      if(!loader){
-        loader = document.createElement('div');
-        loader.id = 'pv-loader';
-        loader.className = 'pv-loader';
-        loader.innerHTML = ''
-          + '<div class="pv-loader-inner">'
-            + '<div class="pv-loader-spinner"></div>'
-            + '<div class="pv-loader-text">LOADING</div>'
-          + '</div>';
-        // root配下に置いてテーマ（pv-dark等）を自然に継承
-        root.appendChild(loader);
-      }
-
-      // 表示
-      try{ loader.classList.add('is-visible'); }catch(e){}
-
-      var start = (window.performance && performance.now) ? performance.now() : Date.now();
-      var minVisible = 1500; // 体感チューニング（目標: 〜2秒の「落ち着き」）
-      var maxVisible = 9000; // 保険（ネットワークが遅い時も「読み込み完了」まで待つ）
-      var done = false;
-
-      function hide(){
-        if(done) return;
-        done = true;
-
-        try{ loader.classList.remove('is-visible'); }catch(e){}
-
-        setTimeout(function(){
-          try{
-            if(loader && loader.parentNode){ loader.parentNode.removeChild(loader); }
-          }catch(e){}
-        }, 650);
-      }
-
-      function scheduleHide(){
-        var nowt = (window.performance && performance.now) ? performance.now() : Date.now();
-        var elapsed = nowt - start;
-        var wait = Math.max(0, minVisible - elapsed);
-        setTimeout(hide, wait);
-      }
-
-      // load完了に合わせて自然に消す
-      if(document.readyState === 'complete'){
-        scheduleHide();
-      }else{
-        window.addEventListener('load', scheduleHide, {once:true});
-      }
-
-      // 保険（通信や拡張機能で load が遅延するケース）
-      setTimeout(hide, maxVisible);
-    }catch(e){}
-    try{
-
-      // style (once)
-      try{
-        if(!document.getElementById('pv-loading-style')){
-          var st = document.createElement('style');
-          st.id = 'pv-loading-style';
-          st.textContent = '@keyframes pvSpin{to{transform:rotate(360deg)}}';
-          document.head.appendChild(st);
-        }
-      }catch(e){}
-
-      var isDark = false;
-      try{ isDark = !!(root && root.classList && root.classList.contains('pv-dark')); }catch(e){}
-
-      var overlay = document.createElement('div');
-      overlay.id = 'pv-loading';
-      overlay.setAttribute('aria-hidden','true');
-
-      overlay.style.position = 'fixed';
-      overlay.style.inset = '0';
-      overlay.style.zIndex = '99999';
-      overlay.style.display = 'flex';
-      overlay.style.alignItems = 'center';
-      overlay.style.justifyContent = 'center';
-      overlay.style.pointerEvents = 'none';
-      overlay.style.opacity = '1';
-      overlay.style.transition = 'opacity 450ms ease';
-
-      overlay.style.background = isDark ? 'rgba(0,0,0,0.46)' : 'rgba(255,255,255,0.62)';
-      try{ overlay.style.backdropFilter = 'blur(10px)'; }catch(e){}
-
-      var card = document.createElement('div');
-      card.style.display = 'flex';
-      card.style.alignItems = 'center';
-      card.style.gap = '12px';
-      card.style.padding = '14px 16px';
-      card.style.borderRadius = '14px';
-      card.style.border = isDark ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(15,23,42,0.12)';
-      card.style.background = isDark ? 'rgba(17,24,39,0.55)' : 'rgba(255,255,255,0.72)';
-      card.style.boxShadow = isDark ? '0 24px 60px rgba(0,0,0,0.35)' : '0 24px 60px rgba(15,23,42,0.10)';
-      card.style.color = isDark ? '#ffffff' : '#0f172a';
-      card.style.fontFamily = 'inherit';
-
-      var spin = document.createElement('div');
-      spin.style.width = '28px';
-      spin.style.height = '28px';
-      spin.style.borderRadius = '999px';
-      spin.style.border = isDark ? '3px solid rgba(255,255,255,0.55)' : '3px solid rgba(15,23,42,0.25)';
-      spin.style.borderTopColor = 'rgba(0,0,0,0)';
-      spin.style.animation = 'pvSpin 900ms linear infinite';
-
-      var txt = document.createElement('div');
-      txt.innerHTML = '<div style="font-weight:700; line-height:1.1;">読み込み中…</div><div style="font-size:12px; opacity:0.75; margin-top:3px;">少しだけ待ってください</div>';
-
-      card.appendChild(spin);
-      card.appendChild(txt);
-      overlay.appendChild(card);
-
-      document.body.appendChild(overlay);
-
-      // 約2秒で自動で消す（体感を整える）
-      setTimeout(function(){
-        try{ overlay.style.opacity = '0'; }catch(e){}
-      }, 1600);
-      setTimeout(function(){
-        try{
-          if(overlay && overlay.parentNode){ overlay.parentNode.removeChild(overlay); }
-        }catch(e){}
-      }, 2200);
-    }catch(e){}
+    slider.__cvhbReinit = applyAxis;
   }
 
   ready(function(){
     var root = document.getElementById('pv-root');
     if(!root) return;
-    try{ root.classList.add('pv-js'); }catch(e){}
-    pvInitLoading(root);
 
     function applyMode(){
       setMode(root);
@@ -9597,9 +8461,6 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
     }
 
     applyMode();
-    // depth background
-    DepthBg.init(root);
-
     window.addEventListener('resize', function(){
       clearTimeout(window.__cvhbModeTimer);
       window.__cvhbModeTimer = setTimeout(applyMode, 150);
@@ -9620,7 +8481,6 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
     initNav();
     initSmoothScroll();
     initHeroSlider(root);
-    initScrollReveal(root);
 
     // フォント読み込み後にもう一度フィット（iPhone等で幅が変わることがある）
     try{
@@ -9649,7 +8509,7 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
     def _favicon_head_tags(href: str) -> str:
         h = str(href or "").strip()
         if not h:
-            h = DEFAULT_FAVICON_DATA_URL
+            return ""
         esc_h = _esc(h)
 
         # できるだけブラウザに伝わるように type も付ける（Safari対策）
@@ -9668,46 +8528,6 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
 
         type_attr = f' type="{icon_type}"' if icon_type else ""
         return f'<link rel="icon"{type_attr} href="{esc_h}">\n  <link rel="shortcut icon" href="{esc_h}">\n  <link rel="apple-touch-icon" href="{esc_h}">'
-
-
-    # ----
-    # v0.9.20: 「戻らない仕組み化」
-    # - ヘッダー（favicon / ロゴ / 会社名）のHTMLはここを唯一の正解にして、ページ間の差分をなくす
-    # - root_prefix を渡すだけで、/news/ 配下でもパスがズレない
-    # ----
-    def _is_abs_like(h: str) -> bool:
-        hh = str(h or "").strip()
-        return hh.startswith(("http://", "https://", "data:", "//", "/"))
-
-    def _prefix_href(h: str, root_prefix: str) -> str:
-        hh = str(h or "").strip()
-        if not hh:
-            return ""
-        rp = str(root_prefix or "")
-        if not rp:
-            return hh
-        if _is_abs_like(hh):
-            return hh
-        if hh.startswith(rp):
-            return hh
-        return rp + hh
-
-    def _brand_html(*, company_name: str, brand_href: str, favicon_src: str, logo_src: str) -> str:
-        # favicon は未設定でも必ず出す（デフォルトを使う）
-        fav = str(favicon_src or "").strip() or DEFAULT_FAVICON_DATA_URL
-        logo = str(logo_src or "").strip()
-        fav_esc = _esc(fav)
-        name_esc = _esc(company_name)
-        href_esc = _esc(brand_href)
-
-        # ロゴは CSS が無くても崩れにくいように inline で最小限のサイズ指定をする
-        if logo:
-            logo_esc = _esc(logo)
-            main = f'<img class="pv-brand-logo" src="{logo_esc}" alt="{name_esc}" style="height:28px;width:auto;max-width:52vw;object-fit:contain;display:block;">'
-        else:
-            main = f'<span class="pv-brand-name">{name_esc}</span>'
-
-        return f'<a class="row items-center no-wrap pv-brand" href="{href_esc}" aria-label="トップへ"><img class="pv-favicon" src="{fav_esc}" alt="">{main}</a>'
 
 
     def _paras(text: str) -> str:
@@ -9769,11 +8589,11 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
     slides_html = ""
     if hero_urls:
         slides = []
-        for i, u in enumerate(hero_urls):
-            slides.append(f'<div class="pv-hero-slide{(" is-active" if i == 0 else "")}"><img class="pv-hero-img" src="{_esc(u)}" alt="" decoding="async"></div>')
+        for u in hero_urls:
+            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt=""></div>')
         slides_html = "".join(slides)
     else:
-        slides_html = '<div class="pv-hero-slide is-active"><div class="pv-hero-img pv-hero-img-placeholder"></div></div>'
+        slides_html = '<div class="pv-hero-slide"><div class="pv-hero-img pv-hero-img-placeholder"></div></div>'
 
     dots_html = ""
     if len(hero_urls) >= 2:
@@ -9861,15 +8681,6 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
         mnav_html += f'<a class="pv-nav-item" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
 
         brand_href = sec_href("pv-top")
-        favicon_src = _prefix_href(favicon_href_ or favicon_href_html, root_prefix)
-        logo_src = _prefix_href(logo_href_html, root_prefix)
-        brand_html = _brand_html(
-            company_name=company_name,
-            brand_href=brand_href,
-            favicon_src=favicon_src,
-            logo_src=logo_src,
-        )
-
 
         return f"""<!doctype html>
 <html lang=\"ja\">
@@ -9884,7 +8695,10 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
-        {brand_html}
+        <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
+          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
+        </a>
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
           {nav_html}
@@ -9959,7 +8773,7 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
         title=f"{company_name}｜お知らせ一覧",
         css_href="../assets/site.css",
         js_href="../assets/site.js",
-        favicon_href_=_prefix_href(favicon_href_html, "../"),
+        favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
         body_inner=news_index_body,
         root_prefix="../",
     ).encode("utf-8")
@@ -9991,7 +8805,7 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
             title=f"{company_name}｜{title or 'お知らせ'}",
             css_href="../assets/site.css",
             js_href="../assets/site.js",
-            favicon_href_=_prefix_href(favicon_href_html, "../"),
+            favicon_href_=f"../{favicon_href}" if favicon_href and not favicon_href.startswith("http") else favicon_href,
             body_inner=detail_body,
             root_prefix="../",
         ).encode("utf-8")
@@ -10010,7 +8824,7 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
             points_cards.append(f'<div class="pv-point-card">{_esc(pt)}</div>')
         points_html = f'<div class="pv-points">{"".join(points_cards)}</div>'
 
-    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="" loading="lazy" decoding="async">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
+    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
 
     about_body_html = _paras(ph_body)
 
@@ -10037,7 +8851,7 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
     svc_lead_html = _paras(svc_lead)
     svc_items = [it for it in (svc.get("items") or []) if isinstance(it, dict)]
 
-    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="" loading="lazy" decoding="async">' if svc_img_href else ''
+    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="">' if svc_img_href else ''
 
     svc_cards = []
     for it in svc_items:
@@ -10207,19 +9021,12 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=logo_href_html))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html))
 
     # --------------------
     # index.html
     # --------------------
     favicon_tag = _favicon_head_tags(favicon_href_html)
-    brand_html_root = _brand_html(
-        company_name=company_name,
-        brand_href="#pv-top",
-        favicon_src=favicon_href_html,
-        logo_src=logo_href_html,
-    )
-
 
     index_html = f"""<!doctype html>
 <html lang=\"ja\">
@@ -10234,7 +9041,10 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
-        {brand_html_root}
+        <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
+          {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if logo_href else ''}
+          <span class=\"pv-brand-name\">{_esc(company_name)}</span>
+        </a>
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
           {desktop_nav_html}
@@ -10305,7 +9115,7 @@ try{ window.cvhbDepthBg = DepthBg; }catch(e){}
         title=f"{company_name}｜プライバシーポリシー",
         css_href="assets/site.css",
         js_href="assets/site.js",
-        favicon_href_=favicon_href_html,
+        favicon_href_=favicon_href,
         body_inner=privacy_page_body,
         root_prefix="",
     )
@@ -11709,8 +10519,10 @@ def _preview_accent2_hex(primary: str, accent_hex: str) -> str:
         "orange": "#f59e0b",  # amber-500
         "purple": "#ec4899",  # pink-500
         "grey": "#64748b",    # slate-500
+        "gray": "#64748b",    # alias
         "black": "#a78bfa",   # violet-400
         "white": "#60a5fa",   # blue-400
+        "yellow": "#f97316",  # orange-500
     }
     if primary in presets:
         return presets[primary]
@@ -11723,141 +10535,146 @@ def _preview_accent2_hex(primary: str, accent_hex: str) -> str:
 
 
 def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, **_ignore) -> str:
-    """プレビュー/書き出しのガラス風テーマに使うCSS変数一式
+    """Return inline CSS variables for the preview/export theme.
 
-    目的（今回の0.1）:
-      - 「見える」の定義を満たす背景にする
-        radial / blob / line / orb が、スクショ1枚でも “存在が分かる”
-        ただし本文の可読性は落とさない（文字が負けない）
+    背景ルール（固定）
+    - Layer1: ベースカラー（面）
+    - Layer2: radial gradient（光の中心）
+    - Layer3: organic blob（有機的な塊）
+    - Layer4: geometric line（線のアクセント）
+    - Layer5: light orb（小さめの光球）
 
-    背景は「役割固定の5レイヤー」で作る:
-      Layer1: ベースカラー
-      Layer2: radial gradient
-      Layer3: organic blob
-      Layer4: geometric line
-      Layer5: light orb
+    重要:
+    - 「柄が見える」のに「本文は読みやすい」を優先する
+    - 背景の濃さは step1.bg_strength（weak / medium / strong）で制御する
     """
 
-    # 旧版互換：呼び出し側が dict を渡してきても primary だけ拾えるようにする
-    if isinstance(step1_or_primary, dict):
-        primary = (step1_or_primary.get("primary_color") or step1_or_primary.get("primary") or "blue")
-        forced_dark = step1_or_primary.get("dark", None)
-    else:
-        primary = (step1_or_primary or "blue")
-        forced_dark = None
+    primary = "blue"
+    strength = "medium"
+    try:
+        if isinstance(step1_or_primary, dict):
+            primary = str(step1_or_primary.get("primary_color") or "blue").strip() or "blue"
+            strength = _normalize_bg_strength(step1_or_primary.get("bg_strength") or "medium")
+        elif isinstance(step1_or_primary, str) and step1_or_primary:
+            primary = str(step1_or_primary).strip() or "blue"
+    except Exception:
+        primary = "blue"
+        strength = "medium"
+
+    primary = COLOR_MIGRATION.get(primary, primary)
+    if primary not in COLOR_OPTIONS:
+        primary = "blue"
 
     accent = _preview_accent_hex(primary)
     accent2 = _preview_accent2_hex(primary, accent)
+    accent3 = _blend_hex(accent, accent2, 0.5)
 
-    r1, g1, b1 = _hex_to_rgb(accent)
-    r2, g2, b2 = _hex_to_rgb(accent2)
-
-    # dark 判定（引数 > dictの指定 > テーマ名）
     if dark is None:
-        dark = forced_dark
-    is_dark = bool(dark) if dark is not None else (primary == "black")
+        dark = (primary == "black")
+    is_dark = bool(dark)
+
+    def _rgba(hex_color: str, alpha: float) -> str:
+        r, g, b = _hex_to_rgb(hex_color)
+        a = max(0.0, min(1.0, float(alpha)))
+        return f"rgba({r}, {g}, {b}, {a:.3f})"
+
+    def _alpha(base: float) -> float:
+        scale = {"weak": 0.82, "medium": 1.00, "strong": 1.22}.get(strength, 1.00)
+        return max(0.0, min(0.98, float(base) * scale))
 
     if not is_dark:
-        # ---- Light (明るいテーマ) ----
-        # ここが今回の主戦場：
-        # 「薄すぎて柄が消える」→ ほんの少しだけ彩度を上げて、柄の存在を出す
-        bg1 = _blend_hex(accent, "#ffffff", 0.88)
-        bg2 = _blend_hex(accent2, "#ffffff", 0.90)
+        base1 = _blend_hex(accent, "#ffffff", 0.82)
+        base2 = _blend_hex(accent2, "#ffffff", 0.88)
+        base3 = _blend_hex(accent3, "#ffffff", 0.92)
 
-        q_primary = accent
-        q_secondary = accent2
         text = "#0f172a"
         muted = "rgba(15, 23, 42, 0.74)"
         border = "rgba(255, 255, 255, 0.34)"
-        line = "rgba(15, 23, 42, 0.12)"
-        shadow = "0 20px 60px rgba(15, 23, 42, 0.12)"
-        card = "linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0.20))"
-        chip_bg = "rgba(255, 255, 255, 0.28)"
-        chip_border = "rgba(255, 255, 255, 0.26)"
-        primary_weak = f"rgba({r1}, {g1}, {b1}, 0.14)"
+        line = "rgba(15, 23, 42, 0.10)"
+        card = "linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.24))"
+        chip_bg = "rgba(255, 255, 255, 0.32)"
+        chip_border = "rgba(255, 255, 255, 0.30)"
+        shadow = "0 22px 64px rgba(15, 23, 42, 0.10)"
+        primary_weak = _rgba(accent, 0.14)
 
-        # blob の 3色目（淡いハイライト色）
-        blob4_hex = _blend_hex(accent2, "#ffffff", 0.55)
-        r4, g4, b4 = _hex_to_rgb(blob4_hex)
-        blob4 = f"rgba({r4}, {g4}, {b4}, 0.22)"
+        panel_guard = "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.68))"
+        panel_border = "rgba(255,255,255,0.42)"
+        topbar_bg = "linear-gradient(180deg, rgba(255,255,255,0.76), rgba(255,255,255,0.58))"
+        topbar_border = "rgba(255,255,255,0.34)"
+        surface_bg = "linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.38))"
+        surface_border = "rgba(255,255,255,0.30)"
 
-        # 5レイヤー合成（上→下 の順）
-        layers = [
-            # Layer4: geometric line（本文に勝たないように低不透明度）
-            "repeating-linear-gradient(135deg, rgba(15, 23, 42, 0.055) 0px, rgba(15, 23, 42, 0.055) 1px, rgba(15, 23, 42, 0.0) 1px, rgba(15, 23, 42, 0.0) 16px)",
-            "repeating-linear-gradient(45deg, rgba(15, 23, 42, 0.040) 0px, rgba(15, 23, 42, 0.040) 1px, rgba(15, 23, 42, 0.0) 1px, rgba(15, 23, 42, 0.0) 22px)",
+        radial_1 = _rgba(accent, _alpha(0.44))
+        radial_2 = _rgba(accent2, _alpha(0.36))
+        blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.36), _alpha(0.46))
+        blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.30), _alpha(0.34))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.14), _alpha(0.18))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.18), _alpha(0.14))
+        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.24), _alpha(0.08))
+        orb_1 = _rgba("#ffffff", _alpha(0.84))
+        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.18), _alpha(0.38))
+        orb_ring = _rgba(accent, _alpha(0.30))
 
-            # Layer5: light orb（白ハイライト + 色付きオーブ + リング）
-            "radial-gradient(260px 260px at 82% 22%, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.0) 74%)",
-            f"radial-gradient(220px 220px at 16% 34%, rgba({r2}, {g2}, {b2}, 0.22) 0%, rgba({r2}, {g2}, {b2}, 0.0) 68%)",
-            "radial-gradient(240px 240px at 86% 78%, rgba(255, 255, 255, 0.0) 52%, rgba(255, 255, 255, 0.62) 56%, rgba(255, 255, 255, 0.0) 72%)",
-
-            # Layer3: organic blob（“霧”にならないように止め位置を作る）
-            f"radial-gradient(760px 560px at 22% 60%, rgba({r1}, {g1}, {b1}, 0.20) 0%, rgba({r1}, {g1}, {b1}, 0.10) 44%, rgba({r1}, {g1}, {b1}, 0.0) 76%)",
-            f"radial-gradient(720px 540px at 78% 72%, rgba({r2}, {g2}, {b2}, 0.18) 0%, rgba({r2}, {g2}, {b2}, 0.09) 46%, rgba({r2}, {g2}, {b2}, 0.0) 78%)",
-            f"radial-gradient(560px 420px at 54% 40%, rgba({r4}, {g4}, {b4}, 0.16) 0%, rgba({r4}, {g4}, {b4}, 0.0) 72%)",
-
-            # Layer2: radial gradient（奥の大きい光）
-            f"radial-gradient(1200px 860px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.28) 0%, rgba({r1}, {g1}, {b1}, 0.0) 62%)",
-            f"radial-gradient(1100px 820px at 92% 12%, rgba({r2}, {g2}, {b2}, 0.22) 0%, rgba({r2}, {g2}, {b2}, 0.0) 62%)",
-            f"radial-gradient(980px 760px at 18% 92%, rgba({r2}, {g2}, {b2}, 0.14) 0%, rgba({r2}, {g2}, {b2}, 0.0) 66%)",
-
-            # Layer1: base（下地）
-            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)",
-        ]
-        bg_img = ",".join(layers)
+        radial_opacity = {"weak": 0.82, "medium": 1.00, "strong": 1.18}.get(strength, 1.00)
+        blob_opacity = {"weak": 0.72, "medium": 0.94, "strong": 1.16}.get(strength, 0.94)
+        line_opacity = {"weak": 0.66, "medium": 0.96, "strong": 1.22}.get(strength, 0.96)
+        orb_opacity = {"weak": 0.74, "medium": 0.98, "strong": 1.18}.get(strength, 0.98)
+        panel_show_opacity = {"weak": 0.16, "medium": 0.23, "strong": 0.31}.get(strength, 0.23)
 
     else:
-        # ---- Dark (黒テーマ) ----
-        bg1 = _blend_hex("#0b1220", accent, 0.10)
-        bg2 = _blend_hex("#060913", accent2, 0.10)
+        base1 = _blend_hex("#0b1220", accent, 0.10)
+        base2 = _blend_hex("#111827", accent2, 0.08)
+        base3 = "#04070d"
 
-        q_primary = accent
-        q_secondary = accent2
-        text = "#f8fafc"
-        muted = "rgba(248, 250, 252, 0.72)"
-        border = "rgba(255, 255, 255, 0.18)"
-        line = "rgba(255, 255, 255, 0.14)"
-        shadow = "0 22px 70px rgba(0, 0, 0, 0.55)"
-        card = "linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.06))"
+        text = "rgba(248, 250, 252, 0.94)"
+        muted = "rgba(226, 232, 240, 0.80)"
+        border = "rgba(255, 255, 255, 0.16)"
+        line = "rgba(255, 255, 255, 0.12)"
+        card = "linear-gradient(180deg, rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0.40))"
         chip_bg = "rgba(255, 255, 255, 0.10)"
-        chip_border = "rgba(255, 255, 255, 0.14)"
-        primary_weak = f"rgba({r1}, {g1}, {b1}, 0.18)"
+        chip_border = "rgba(255, 255, 255, 0.16)"
+        shadow = "0 24px 72px rgba(0, 0, 0, 0.42)"
+        primary_weak = _rgba(accent, 0.20)
 
-        blob4_hex = _blend_hex(accent2, "#0b1220", 0.35)
-        r4, g4, b4 = _hex_to_rgb(blob4_hex)
-        blob4 = f"rgba({r4}, {g4}, {b4}, 0.16)"
+        panel_guard = "linear-gradient(180deg, rgba(7,12,20,0.74), rgba(7,12,20,0.58))"
+        panel_border = "rgba(255,255,255,0.14)"
+        topbar_bg = "linear-gradient(180deg, rgba(8,12,19,0.82), rgba(8,12,19,0.66))"
+        topbar_border = "rgba(255,255,255,0.14)"
+        surface_bg = "linear-gradient(180deg, rgba(9,13,21,0.70), rgba(9,13,21,0.52))"
+        surface_border = "rgba(255,255,255,0.14)"
 
-        layers = [
-            # Layer4: lines
-            "repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.060) 0px, rgba(255, 255, 255, 0.060) 1px, rgba(255, 255, 255, 0.0) 1px, rgba(255, 255, 255, 0.0) 18px)",
-            "repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.040) 0px, rgba(255, 255, 255, 0.040) 1px, rgba(255, 255, 255, 0.0) 1px, rgba(255, 255, 255, 0.0) 26px)",
+        radial_1 = _rgba(accent, _alpha(0.28))
+        radial_2 = _rgba(accent2, _alpha(0.22))
+        blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.10), _alpha(0.24))
+        blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.14), _alpha(0.18))
+        line_1 = _rgba("#ffffff", _alpha(0.11))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.18), _alpha(0.12))
+        line_1_soft = _rgba("#ffffff", _alpha(0.05))
+        orb_1 = _rgba("#ffffff", _alpha(0.34))
+        orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.12), _alpha(0.22))
+        orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.18), _alpha(0.20))
 
-            # Layer5: orbs（暗い背景なので “光” を少しだけ強め）
-            "radial-gradient(280px 280px at 78% 20%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.0) 74%)",
-            f"radial-gradient(240px 240px at 22% 32%, rgba({r1}, {g1}, {b1}, 0.18) 0%, rgba({r1}, {g1}, {b1}, 0.0) 72%)",
-            "radial-gradient(240px 240px at 86% 78%, rgba(255, 255, 255, 0.0) 54%, rgba(255, 255, 255, 0.28) 58%, rgba(255, 255, 255, 0.0) 74%)",
+        radial_opacity = {"weak": 0.78, "medium": 0.98, "strong": 1.18}.get(strength, 0.98)
+        blob_opacity = {"weak": 0.74, "medium": 0.96, "strong": 1.16}.get(strength, 0.96)
+        line_opacity = {"weak": 0.88, "medium": 1.08, "strong": 1.26}.get(strength, 1.08)
+        orb_opacity = {"weak": 0.78, "medium": 1.00, "strong": 1.18}.get(strength, 1.00)
+        panel_show_opacity = {"weak": 0.14, "medium": 0.20, "strong": 0.28}.get(strength, 0.20)
 
-            # Layer3: blobs
-            f"radial-gradient(900px 660px at 22% 60%, rgba({r2}, {g2}, {b2}, 0.14) 0%, rgba({r2}, {g2}, {b2}, 0.0) 72%)",
-            f"radial-gradient(980px 720px at 90% 18%, rgba({r1}, {g1}, {b1}, 0.16) 0%, rgba({r1}, {g1}, {b1}, 0.0) 70%)",
-            f"radial-gradient(640px 520px at 52% 48%, rgba({r4}, {g4}, {b4}, 0.12) 0%, rgba({r4}, {g4}, {b4}, 0.0) 72%)",
-
-            # Layer2: radials
-            f"radial-gradient(1200px 860px at 12% 10%, rgba({r1}, {g1}, {b1}, 0.16) 0%, rgba({r1}, {g1}, {b1}, 0.0) 64%)",
-            f"radial-gradient(1100px 820px at 92% 12%, rgba({r2}, {g2}, {b2}, 0.12) 0%, rgba({r2}, {g2}, {b2}, 0.0) 66%)",
-
-            # Layer1: base
-            f"linear-gradient(160deg, {bg1} 0%, {bg2} 45%, {bg1} 100%)",
-        ]
-        bg_img = ",".join(layers)
+    bg_img = (
+        f"radial-gradient(1200px 780px at 14% 10%, {radial_1} 0%, transparent 58%),"
+        f"radial-gradient(980px 720px at 88% 12%, {radial_2} 0%, transparent 60%),"
+        f"linear-gradient(160deg, {base1} 0%, {base2} 46%, {base3} 100%)"
+    )
+    bg_img_str = "".join(bg_img)
 
     return (
-        f"--q-primary: {q_primary};"
-        f"--q-secondary: {q_secondary};"
+        f"--q-primary: {accent};"
+        f"--q-secondary: {accent2};"
         f"--pv-accent: {accent};"
         f"--pv-accent-2: {accent2};"
         f"--pv-primary: {accent};"
+        f"--pv-primary-key: {primary};"
+        f"--pv-bg-strength-key: {strength};"
         f"--pv-primary-weak: {primary_weak};"
         f"--pv-text: {text};"
         f"--pv-muted: {muted};"
@@ -11867,9 +10684,197 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         f"--pv-chip-bg: {chip_bg};"
         f"--pv-chip-border: {chip_border};"
         f"--pv-shadow: {shadow};"
-        f"--pv-blob4: {blob4};"
-        f"--pv-bg-img: {bg_img};"
+        f"--pv-blob4: {blob_2};"
+        f"--pv-bg-img: {bg_img_str};"
+        f"--pv-base-1: {base1};"
+        f"--pv-base-2: {base2};"
+        f"--pv-base-3: {base3};"
+        f"--pv-radial-1: {radial_1};"
+        f"--pv-radial-2: {radial_2};"
+        f"--pv-blob-1: {blob_1};"
+        f"--pv-blob-2: {blob_2};"
+        f"--pv-line-1: {line_1};"
+        f"--pv-line-2: {line_2};"
+        f"--pv-line-1-soft: {line_1_soft};"
+        f"--pv-orb-1: {orb_1};"
+        f"--pv-orb-2: {orb_2};"
+        f"--pv-orb-ring: {orb_ring};"
+        f"--pv-radial-opacity: {radial_opacity:.3f};"
+        f"--pv-blob-opacity: {blob_opacity:.3f};"
+        f"--pv-line-opacity: {line_opacity:.3f};"
+        f"--pv-orb-opacity: {orb_opacity:.3f};"
+        f"--pv-panel-show-opacity: {panel_show_opacity:.3f};"
+        f"--pv-panel-guard: {panel_guard};"
+        f"--pv-panel-border: {panel_border};"
+        f"--pv-surface-bg: {surface_bg};"
+        f"--pv-surface-border: {surface_border};"
+        f"--pv-topbar-bg: {topbar_bg};"
+        f"--pv-topbar-border: {topbar_border};"
     )
+
+
+DEPTH_BG_CSS = r"""
+/* ===== Depth Background Rebuild (v0.9.29) ===== */
+.pv-shell.pv-layout-260218{
+  position: relative;
+  isolation: isolate;
+  background-image: var(--pv-bg-img) !important;
+  background-color: var(--pv-base-1);
+  background-size: cover;
+  background-position: center;
+}
+
+.pv-shell.pv-layout-260218 > *{
+  position: relative;
+  z-index: 2;
+}
+
+.pv-shell.pv-layout-260218 .pv-scroll{
+  position: relative;
+  background: transparent !important;
+}
+.pv-shell.pv-layout-260218 .pv-scroll > *{
+  position: relative;
+  z-index: 2;
+}
+
+.pv-shell.pv-layout-260218::before,
+.pv-shell.pv-layout-260218::after,
+.pv-shell.pv-layout-260218 .pv-scroll::before,
+.pv-shell.pv-layout-260218 .pv-scroll::after{
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Layer2: radial gradient */
+.pv-shell.pv-layout-260218::before{
+  z-index: 0;
+  background:
+    radial-gradient(1200px 780px at 14% 10%, var(--pv-radial-1) 0%, transparent 58%),
+    radial-gradient(980px 720px at 88% 12%, var(--pv-radial-2) 0%, transparent 60%);
+  opacity: var(--pv-radial-opacity);
+  transform: translate3d(0,0,0);
+  animation: pvDepthRadial 20s ease-in-out infinite alternate;
+}
+
+/* Layer4: geometric line */
+.pv-shell.pv-layout-260218::after{
+  z-index: 1;
+  background:
+    repeating-linear-gradient(125deg,
+      transparent 0 16px,
+      var(--pv-line-1) 16px 18px,
+      transparent 18px 48px),
+    repeating-linear-gradient(-125deg,
+      transparent 0 22px,
+      var(--pv-line-2) 22px 23px,
+      transparent 23px 62px);
+  opacity: var(--pv-line-opacity);
+  animation: pvDepthLine 34s linear infinite;
+}
+
+/* Layer3: organic blob */
+.pv-shell.pv-layout-260218 .pv-scroll::before{
+  z-index: 0;
+  background:
+    radial-gradient(560px 420px at 18% 26%, var(--pv-blob-1) 0%, transparent 64%),
+    radial-gradient(420px 340px at 84% 72%, var(--pv-blob-2) 0%, transparent 66%);
+  opacity: var(--pv-blob-opacity);
+  filter: blur(20px);
+  animation: pvDepthBlob 26s ease-in-out infinite alternate;
+}
+
+/* Layer5: light orb */
+.pv-shell.pv-layout-260218 .pv-scroll::after{
+  z-index: 1;
+  background:
+    radial-gradient(180px 180px at 82% 18%, var(--pv-orb-1) 0%, transparent 62%),
+    radial-gradient(140px 140px at 18% 74%, var(--pv-orb-2) 0%, transparent 64%),
+    radial-gradient(210px 210px at 78% 24%, transparent 56%, var(--pv-orb-ring) 58%, transparent 66%);
+  opacity: var(--pv-orb-opacity);
+  filter: blur(2px);
+  animation: pvDepthOrb 18s ease-in-out infinite alternate;
+}
+
+@keyframes pvDepthRadial{
+  from{ transform: translate3d(-1.6%, -0.8%, 0) scale(1.00); }
+  to{ transform: translate3d(1.6%, 1.1%, 0) scale(1.05); }
+}
+@keyframes pvDepthBlob{
+  from{ transform: translate3d(-1.2%, 0.8%, 0) scale(1.00); }
+  to{ transform: translate3d(1.8%, -1.2%, 0) scale(1.08); }
+}
+@keyframes pvDepthLine{
+  from{ transform: translate3d(0, 0, 0) scale(1.02) rotate(0deg); }
+  to{ transform: translate3d(1.2%, -1.6%, 0) scale(1.08) rotate(0.8deg); }
+}
+@keyframes pvDepthOrb{
+  from{ transform: translate3d(-1.0%, 0, 0) scale(0.98); }
+  to{ transform: translate3d(1.2%, -1.0%, 0) scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .pv-shell.pv-layout-260218::before,
+  .pv-shell.pv-layout-260218::after,
+  .pv-shell.pv-layout-260218 .pv-scroll::before,
+  .pv-shell.pv-layout-260218 .pv-scroll::after{
+    animation: none !important;
+  }
+}
+
+/* 背景を見せる枠 */
+.pv-layout-260218 .pv-panel{
+  background: transparent !important;
+  border-color: var(--pv-panel-border) !important;
+}
+.pv-layout-260218 .pv-panel::before{
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(360px 240px at 10% 12%, var(--pv-radial-1) 0%, transparent 68%),
+    radial-gradient(240px 180px at 86% 18%, var(--pv-orb-2) 0%, transparent 70%),
+    repeating-linear-gradient(135deg,
+      transparent 0 20px,
+      var(--pv-line-1-soft) 20px 21px,
+      transparent 21px 52px);
+  opacity: var(--pv-panel-show-opacity) !important;
+}
+/* 文字を守る枠 */
+.pv-layout-260218 .pv-panel::after{
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background: var(--pv-panel-guard);
+  border: 1px solid var(--pv-panel-border);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+.pv-layout-260218 .pv-panel > *{
+  position: relative;
+  z-index: 2;
+}
+
+.pv-layout-260218 .pv-topbar-260218{
+  background: var(--pv-topbar-bg) !important;
+  border-bottom-color: var(--pv-topbar-border) !important;
+  box-shadow: 0 12px 30px rgba(15,23,42,0.08);
+}
+.pv-layout-260218 .pv-panel-flat,
+.pv-layout-260218 .pv-surface-white,
+.pv-layout-260218 .pv-companybar-inner{
+  background: var(--pv-surface-bg) !important;
+  border-color: var(--pv-surface-border) !important;
+}
+.pv-layout-260218.pv-dark .pv-footer{
+  background: rgba(6, 10, 18, 0.92);
+}
+"""
 
 def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
@@ -11893,7 +10898,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
     # -------- theme --------
     primary_key = str(step1.get("primary_color") or "blue")
-    is_dark = (primary_key == "black")
+    is_dark = primary_key in ("black", "navy")
 
     # mode / root id（プレビュー統合のため、root_id を外から差し替え可能にする）
     mode = str(mode or "mobile").strip() or "mobile"
@@ -12788,6 +11793,36 @@ def render_main(u: User) -> None:
 
 
 
+                                        with ui.card().classes("q-pa-sm rounded-borders w-full q-mb-sm").props("flat bordered"):
+                                            ui.label("背景の濃さを選んでください").classes("text-subtitle1")
+                                            ui.label("柄の見え方を 弱 / 中 / 強 で選べます。迷ったら「中」がおすすめです。" ).classes("cvhb-muted q-mb-sm")
+
+                                            @ui.refreshable
+                                            def bg_strength_selector():
+                                                current_strength = _normalize_bg_strength(step1.get("bg_strength") or "medium")
+
+                                                def set_bg_strength(value: str) -> None:
+                                                    step1["bg_strength"] = _normalize_bg_strength(value)
+                                                    update_and_refresh()
+                                                    bg_strength_selector.refresh()
+
+                                                for opt in BG_STRENGTH_PRESETS:
+                                                    selected = (opt["value"] == current_strength)
+                                                    card = ui.card().classes(
+                                                        "q-pa-sm q-mb-xs cvhb-choice " + ("is-selected" if selected else "")
+                                                    ).props("flat bordered").style("width: 100%;")
+                                                    with card:
+                                                        with ui.row().classes("items-center justify-between"):
+                                                            with ui.row().classes("items-center q-gutter-sm"):
+                                                                ui.label(opt["label"]).classes("text-body1")
+                                                            with ui.row().classes("items-center q-gutter-sm"):
+                                                                ui.label(opt["hint"]).classes("cvhb-muted")
+                                                                if selected:
+                                                                    ui.icon("check_circle").classes("text-primary")
+                                                    card.on("click", lambda e, v=opt["value"]: set_bg_strength(v))
+
+                                            bg_strength_selector()
+
                                         # Color
                                         with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                             ui.label("ページカラー（テーマ色）を選んでください").classes("text-subtitle1")
@@ -12872,49 +11907,6 @@ def render_main(u: User) -> None:
                                                 ui.label(f"現在: {'デフォルト' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
 
                                             favicon_editor()
-                                            ui.label("会社ロゴ（任意）").classes("text-body1 q-mt-md")
-                                            ui.label("ヘッダー左上：会社名の代わりに表示されます。").classes("cvhb-muted")
-                                            ui.label("推奨：横長PNG 320×96（背景が透明だと綺麗です）").classes("cvhb-muted")
-                                            ui.label("大きい/小さい画像でも、自動でちょうど良いサイズにフィットします。").classes("cvhb-muted")
-
-                                            async def _on_upload_logo(e):
-                                                try:
-                                                    data_url, fname = await _upload_event_to_data_url(e, max_w=320, max_h=96, force_png=True, mode="contain")
-                                                    if not data_url:
-                                                        return
-                                                    step2["logo_url"] = data_url
-                                                    step2["logo_filename"] = _short_name(fname)
-                                                    update_and_refresh()
-                                                    logo_editor.refresh()
-                                                except Exception as ex:
-                                                    print(f"[UPLOAD:logo] unexpected error: {ex}", flush=True)
-
-                                            def _clear_logo():
-                                                try:
-                                                    step2["logo_url"] = ""
-                                                    step2["logo_filename"] = ""
-                                                except Exception:
-                                                    pass
-                                                update_and_refresh()
-                                                logo_editor.refresh()
-
-                                            @ui.refreshable
-                                            def logo_editor():
-                                                cur = str(step2.get("logo_url") or "").strip()
-                                                name = str(step2.get("logo_filename") or "").strip()
-                                                with ui.row().classes("items-center q-gutter-sm"):
-                                                    if cur:
-                                                        ui.image(pv_img_src(cur)).style("width:160px;height:48px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,0.75);border:1px solid rgba(0,0,0,0.08);")
-                                                    else:
-                                                        ui.label("未設定（会社名を表示）").classes("cvhb-muted")
-                                                    ui.upload(on_upload=_on_upload_logo, auto_upload=True).props("accept=image/*")
-                                                    ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props("color=primary unelevated dense no-caps")
-                                                    ui.button("クリア", on_click=_clear_logo).props("outline dense")
-                                                if cur:
-                                                    ui.label(f"現在: オリジナル({name or 'アップロード'})").classes("cvhb-muted")
-
-                                            logo_editor()
-
                                             bind_step2_input("電話番号", "phone")
                                             bind_step2_input("メール（任意）", "email")
                                             bind_step2_input("住所（地図リンクは自動生成）", "address", hint="住所を入力すると、プレビューの「地図を開く」が使えるようになります。")
@@ -14155,7 +13147,17 @@ def render_main(u: User) -> None:
                                                 ui.label("公開（ConoHa WING：ファイルマネージャー）").classes("text-subtitle1")
                                                 ui.label("ZIPを書き出して、ConoHaの管理画面からアップロードします。").classes("cvhb-muted")
 
-                                                ui.html(CONOHA_PUBLISH_STEPS_HTML).classes("q-mt-sm")
+                                                ui.markdown(
+                                                    """**最短手順（迷ったらこの順番）**
+1. 上の「ZIPを書き出す」で ZIP を作って、パソコンにダウンロードする
+2. ZIPを右クリック → 「すべて展開」で展開する（中に **index.html** が見える状態にする）
+3. ConoHa WING → **WING** → **サイト管理** → **ファイルマネージャー** を開く
+4. 左の **public_html** → **あなたのドメイン名のフォルダ** を開く
+5. 展開したフォルダの **中身（index.html など）** を全部ドラッグ＆ドロップでアップロードする
+6. ConoHaの **動作確認URL**（テスト用URL）で表示確認 → OKなら本番ドメインで確認する
+7. 最後に ConoHa の **無料独自SSL** をONにして、httpsで開けるようにする
+"""
+                                                ).classes("q-mt-sm")
 
                                                 ui.label("ポイント：『フォルダごと』ではなく『中身』をアップロードすると、トップ（/）で表示されます。").classes("text-caption text-grey q-mt-xs")
                                                 ui.label("※ ConoHa側の画面は変わることがあります。迷ったら公開マニュアル（ConoHa WING版）を見てください。").classes("text-caption text-grey q-mt-xs")
@@ -14475,22 +13477,8 @@ def render_main(u: User) -> None:
                                             ui.label(pre).classes("cvhb-muted q-pa-md")
                                             return
 
-                                        # 右プレビュー本体：書き出し(完成形HP)と同じファイルをそのまま表示（iframe）
-                                        user = current_user()
-                                        if not user:
-                                            ui.label("ログインが必要です").classes("text-negative q-pa-md")
-                                            return
-                                        try:
-                                            files_raw = build_static_site_files(p)
-                                            files = _normalize_static_site_files(files_raw)
-                                            pv_key = _preview_site_cache_put(int(user.id), files)
-                                            ui.element("iframe").props(
-                                                f'id="pv-root" src="/pv_site/{pv_key}/index.html"'
-                                            ).style("width: 100%; height: 100%; border: 0; background: transparent;")
-                                        except Exception:
-                                            # フォールバック：旧プレビュー（NiceGUI描画）
-                                            render_preview(p, mode=mode, root_id="pv-root")
-
+                                        # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
+                                        render_preview(p, mode=mode, root_id="pv-root")
 
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
