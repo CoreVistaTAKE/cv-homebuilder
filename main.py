@@ -2839,6 +2839,37 @@ def inject_global_styles() -> None:
   padding: 16px;
 }
 
+.pv-layout-260218 .pv-contact-details{
+  width: 100%;
+}
+.pv-layout-260218 .pv-contact-summary{
+  list-style: none;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 1.02rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pv-layout-260218 .pv-contact-summary::-webkit-details-marker{
+  display: none;
+}
+.pv-layout-260218 .pv-contact-summary::after{
+  content: '＋';
+  flex: 0 0 auto;
+  opacity: 0.62;
+}
+.pv-layout-260218 .pv-contact-details[open] .pv-contact-summary::after{
+  content: '−';
+}
+.pv-layout-260218 .pv-contact-fold{
+  margin-top: 14px;
+}
+.pv-layout-260218 .pv-contact-fold > :first-child{
+  margin-top: 0 !important;
+}
+
 .pv-layout-260218 .pv-contact-actions{
   gap: 10px;
   flex-wrap: wrap;
@@ -6593,13 +6624,19 @@ def build_contact_section_html(
 """.strip()
 
     # 最終組み立て（カード）
+    summary_html = "お問い合わせを開く"
     card_html = f"""
 <div class="pv-panel pv-panel-glass pv-contact-card">
-  <div class="pv-contact-message">{message_html}</div>
-  {hours_html}
-  <div class="pv-error-box" id="pvContactError" style="display:none"></div>
-  {action_html}
-  {contact_warn_html}
+  <details class="pv-contact-details">
+    <summary class="pv-contact-summary">{summary_html}</summary>
+    <div class="pv-contact-fold">
+      <div class="pv-contact-message">{message_html}</div>
+      {hours_html}
+      <div class="pv-error-box" id="pvContactError" style="display:none"></div>
+      {action_html}
+      {contact_warn_html}
+    </div>
+  </details>
 </div>
 {action_script}
 """.strip()
@@ -8651,7 +8688,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;min-height:100%;}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; line-height:1.7; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility;}
-body.pv-page-body{min-height:100vh; min-height:100dvh; width:100%; max-width:100%; overflow-x:hidden; background:var(--pv-bg-img); background-color:var(--pv-base-1, #f8fafc); color:var(--pv-text);} 
+body.pv-page-body{min-height:100vh; min-height:100dvh; width:100%; max-width:100vw; overflow-x:hidden; overflow-y:auto; overscroll-behavior-x:none; position:relative; background:var(--pv-bg-img); background-color:var(--pv-base-1, #f8fafc); color:var(--pv-text);} 
 a{color:inherit;text-decoration:none;}
 a:hover{text-decoration:none;}
 
@@ -8813,7 +8850,7 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218.pv-mode-mobile,
 .pv-shell.pv-layout-260218.pv-mode-pc{
   width:100% !important;
-  max-width:100% !important;
+  max-width:100vw !important;
   height:auto !important;
   min-height:100vh;
   min-height:100dvh;
@@ -8823,8 +8860,10 @@ body.pv-page-body{
   border-radius:0 !important;
   box-sizing:border-box;
   position:relative;
+  isolation:isolate;
   contain:layout paint style;
-  overflow-x:clip !important;
+  overflow:hidden !important;
+  overflow-x:hidden !important;
   overflow-y:hidden !important;
   clip-path: inset(0);
 }
@@ -8838,8 +8877,10 @@ body.pv-page-body{
   max-width:100%;
   position:relative;
   contain:layout paint style;
-  overflow-x:clip !important;
-  overflow-y:auto;
+  overflow:hidden !important;
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
+  overscroll-behavior-x:none;
   clip-path: inset(0);
 }
 
@@ -8847,6 +8888,7 @@ body.pv-page-body{
 .pv-layout-260218 .pv-section,
 .pv-layout-260218 .pv-footer{
   max-width:100%;
+  overflow-x:hidden;
 }
 .pv-layout-260218 .pv-footer{
   margin-top:auto;
@@ -9638,7 +9680,7 @@ body.pv-page-body{
   <link rel=\"stylesheet\" href=\"{_esc(css_href)}\">
   {icon_tag}
 </head>
-<body class=\"pv-page-body\" style=\"{theme_style};width:100%;overflow-x:hidden;\">
+<body class=\"pv-page-body\" style=\"{theme_style};width:100%;max-width:100vw;overflow-x:hidden;overflow-y:auto;\">
   <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}\" style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
@@ -9984,7 +10026,7 @@ body.pv-page-body{
     # Contact
     # --------------------
     contact = blocks.get("contact") or {}
-    contact_mode = str(contact.get("mode") or "php").strip().lower()
+    contact_mode = _normalize_contact_form_mode(str(contact.get("form_mode") or contact.get("mode") or ""))
     external_form_url = str(contact.get("external_form_url") or "").strip()
     contact_message = str(contact.get("message") or "").strip() or _contact_message_hint(step1)
     contact_hours = str(contact.get("hours") or "").strip()
@@ -10223,7 +10265,7 @@ def _static_site_selfcheck(p: dict, files: dict[str, bytes]) -> None:
         data = p.get("data") if isinstance(p, dict) else {}
         blocks = data.get("blocks") if isinstance(data, dict) else {}
         contact = blocks.get("contact") if isinstance(blocks, dict) else {}
-        contact_mode = str(contact.get("mode") or "php").strip().lower()
+        contact_mode = _normalize_contact_form_mode(str(contact.get("form_mode") or contact.get("mode") or ""))
     except Exception:
         contact_mode = ""
 
@@ -12450,49 +12492,53 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                                 ui.label("地図を開く（Googleマップ）")
 
 
-                # CONTACT
+                # CONTACT（v1.0.0: 強制折りたたみ）
                 with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-contact"'):
                     with ui.element("div").classes("pv-section-head"):
                         ui.label(contact_btn or "お問い合わせ").classes("pv-section-title")
                         ui.label("CONTACT").classes("pv-section-en")
 
                     with ui.element("div").classes("pv-panel pv-panel-glass pv-contact-card"):
-                        if contact_message:
-                            ui.label(contact_message).classes("pv-bodytext")
-                        if contact_hours:
-                            ui.label(contact_hours).classes("pv-muted q-mt-sm")
+                        with ui.element("details").classes("pv-contact-details"):
+                            with ui.element("summary").classes("pv-contact-summary"):
+                                ui.label("お問い合わせを開く")
+                            with ui.element("div").classes("pv-contact-fold"):
+                                if contact_message:
+                                    ui.label(contact_message).classes("pv-bodytext")
+                                if contact_hours:
+                                    ui.label(contact_hours).classes("pv-muted q-mt-sm")
 
-                        # v0.8: お問い合わせ方式のプレビュー
-                        if contact_mode == "external":
-                            if contact_external_url:
-                                ui.button("フォームを開く").props(
-                                    f'no-caps unelevated color=primary type=a href="{contact_external_url}" target="_blank" rel="noopener"'
-                                ).classes("pv-btn pv-btn-primary q-mt-sm")
-                                ui.label("※ 外部フォームが別タブで開きます（送信前にプライバシーポリシー同意が必要です）").classes(
-                                    "pv-muted q-mt-sm"
-                                )
-                            else:
-                                ui.label("外部フォームURLが未入力です（左の入力で設定）").classes("pv-muted q-mt-sm")
+                                # v0.8: お問い合わせ方式のプレビュー
+                                if contact_mode == "external":
+                                    if contact_external_url:
+                                        ui.button("フォームを開く").props(
+                                            f'no-caps unelevated color=primary type=a href="{contact_external_url}" target="_blank" rel="noopener"'
+                                        ).classes("pv-btn pv-btn-primary q-mt-sm")
+                                        ui.label("※ 外部フォームが別タブで開きます（送信前にプライバシーポリシー同意が必要です）").classes(
+                                            "pv-muted q-mt-sm"
+                                        )
+                                    else:
+                                        ui.label("外部フォームURLが未入力です（左の入力で設定）").classes("pv-muted q-mt-sm")
 
-                        elif contact_mode == "mail":
-                            ui.label("メール対応（メール作成フォーム）").classes("pv-muted q-mt-sm")
-                            ui.label("※ 送信ボタンでメールアプリが開きます（PHP不要）").classes("pv-muted")
-                            if not email:
-                                ui.label("⚠ 基本情報のメールが未入力なので、メール作成できません").classes("pv-muted q-mt-sm")
-                            ui.button("メールを作成（プレビューでは無効）").props(
-                                "no-caps unelevated color=primary disable"
-                            ).classes("pv-btn pv-btn-primary q-mt-sm")
+                                elif contact_mode == "mail":
+                                    ui.label("メール対応（メール作成フォーム）").classes("pv-muted q-mt-sm")
+                                    ui.label("※ 送信ボタンでメールアプリが開きます（PHP不要）").classes("pv-muted")
+                                    if not email:
+                                        ui.label("⚠ 基本情報のメールが未入力なので、メール作成できません").classes("pv-muted q-mt-sm")
+                                    ui.button("メールを作成（プレビューでは無効）").props(
+                                        "no-caps unelevated color=primary disable"
+                                    ).classes("pv-btn pv-btn-primary q-mt-sm")
 
-                        else:
-                            ui.label("フォーム方式（おすすめ / PHP対応サーバー向け）").classes("pv-muted q-mt-sm")
-                            ui.label("※ メールと内容は必須。送信前にプライバシーポリシー同意が必要です。").classes("pv-muted")
-                            if not email:
-                                ui.label("⚠ 基本情報のメールが未入力なので、フォーム送信できません").classes("pv-muted q-mt-sm")
-                            ui.button("送信（プレビューでは無効）").props(
-                                "no-caps unelevated color=primary disable"
-                            ).classes("pv-btn pv-btn-primary q-mt-sm")
+                                else:
+                                    ui.label("フォーム方式（おすすめ / PHP対応サーバー向け）").classes("pv-muted q-mt-sm")
+                                    ui.label("※ メールと内容は必須。送信前にプライバシーポリシー同意が必要です。").classes("pv-muted")
+                                    if not email:
+                                        ui.label("⚠ 基本情報のメールが未入力なので、フォーム送信できません").classes("pv-muted q-mt-sm")
+                                    ui.button("送信（プレビューでは無効）").props(
+                                        "no-caps unelevated color=primary disable"
+                                    ).classes("pv-btn pv-btn-primary q-mt-sm")
 
-                        # 電話ボタンは出さない（フォーム/メール導線に統一）
+                                # 電話ボタンは出さない（フォーム/メール導線に統一）
 
             # LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
             privacy_contact = ""
