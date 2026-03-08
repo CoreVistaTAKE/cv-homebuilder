@@ -1121,6 +1121,41 @@ def inject_global_styles() -> None:
   .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
   .cvhb-left-col .q-field__bottom { padding-left: 0; }
 
+  /* v1.0.6: 左入力UIを少しだけ見やすく（見た目は大きく変えない） */
+  .cvhb-left-col .q-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,251,255,0.98));
+    border-color: rgba(25,118,210,0.10);
+    box-shadow: 0 10px 28px rgba(15,23,42,0.05);
+  }
+  .cvhb-left-col .q-field--outlined .q-field__control {
+    background: rgba(248,250,255,0.72);
+    transition: background .12s ease, box-shadow .12s ease;
+  }
+  .cvhb-left-col .q-field__label {
+    color: rgba(31,41,55,0.82);
+    font-weight: 700;
+  }
+  .cvhb-left-col .q-field--focused .q-field__control,
+  .cvhb-left-col .q-field--highlighted .q-field__control {
+    background: rgba(255,255,255,0.98);
+    box-shadow: 0 0 0 3px rgba(25,118,210,0.10);
+  }
+  .cvhb-edit-card {
+    background: linear-gradient(180deg, rgba(251,253,255,0.98), rgba(246,250,255,0.98));
+    border-color: rgba(25,118,210,0.14) !important;
+  }
+  .cvhb-entry-card {
+    background: linear-gradient(180deg, rgba(248,251,255,0.96), rgba(255,255,255,0.98));
+    border-color: rgba(25,118,210,0.18) !important;
+    border-left: 4px solid rgba(25,118,210,0.28);
+  }
+  .cvhb-loading-card {
+    min-width: 280px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
+    border: 1px solid rgba(25,118,210,0.16);
+    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
+  }
+
 
 
   /* 右プレビューはデスクトップ時に追従 */
@@ -1175,20 +1210,32 @@ def inject_global_styles() -> None:
     line-height: 1.3;
   }
   .cvhb-step-tabs .q-tab--active {
-    background: rgba(25,118,210,0.08);
-    border-color: rgba(25,118,210,0.35);
+    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
+    border-color: rgba(25,118,210,0.42);
+    box-shadow: 0 8px 22px rgba(25,118,210,0.12);
     font-weight: 700;
   }
 
   /* ====== Step3 block tabs ====== */
   .cvhb-block-tabs .q-tabs__content { flex-wrap: wrap; }
   .cvhb-block-tabs .q-tab {
-    min-height: 34px;
+    min-height: 36px;
     padding: 0 12px;
+    margin: 0 8px 8px 0;
+    border-radius: 999px;
+    background: rgba(15,23,42,0.04);
+    border: 1px solid rgba(15,23,42,0.08);
   }
   .cvhb-block-tabs .q-tab__label {
     white-space: normal;
     line-height: 1.2;
+  }
+  .cvhb-block-tabs .q-tab--active {
+    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
+    border-color: rgba(25,118,210,0.42);
+    box-shadow: 0 6px 18px rgba(25,118,210,0.10);
+    color: var(--q-primary);
+    font-weight: 700;
   }
 
   /* ====== Choice cards (industry/color) ====== */
@@ -2957,6 +3004,25 @@ def inject_global_styles() -> None:
 
 .pv-layout-260218.pv-mode-pc .pv-mapshot-img{
   height: 280px;
+}
+
+/* ===== PC section media fit (v1.0.6) ===== */
+.pv-layout-260218.pv-mode-pc .pv-about-img,
+.pv-layout-260218.pv-mode-pc .pv-services-img,
+.pv-layout-260218.pv-mode-pc .pv-mapframe,
+.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
+  display: block;
+  width: min(100%, 760px);
+  margin-left: auto;
+  margin-right: auto;
+}
+.pv-layout-260218.pv-mode-pc .pv-about-img,
+.pv-layout-260218.pv-mode-pc .pv-services-img{
+  max-height: clamp(220px, 32vw, 360px);
+}
+.pv-layout-260218.pv-mode-pc .pv-mapframe,
+.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
+  height: clamp(220px, 30vw, 300px);
 }
 
 .pv-layout-260218.pv-dark .pv-mapshot-img{
@@ -6737,6 +6803,41 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
   .cvhb-left-col .q-field__bottom { padding-left: 0; }
 
+  /* v1.0.6: 左入力UIを少しだけ見やすく（見た目は大きく変えない） */
+  .cvhb-left-col .q-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,251,255,0.98));
+    border-color: rgba(25,118,210,0.10);
+    box-shadow: 0 10px 28px rgba(15,23,42,0.05);
+  }
+  .cvhb-left-col .q-field--outlined .q-field__control {
+    background: rgba(248,250,255,0.72);
+    transition: background .12s ease, box-shadow .12s ease;
+  }
+  .cvhb-left-col .q-field__label {
+    color: rgba(31,41,55,0.82);
+    font-weight: 700;
+  }
+  .cvhb-left-col .q-field--focused .q-field__control,
+  .cvhb-left-col .q-field--highlighted .q-field__control {
+    background: rgba(255,255,255,0.98);
+    box-shadow: 0 0 0 3px rgba(25,118,210,0.10);
+  }
+  .cvhb-edit-card {
+    background: linear-gradient(180deg, rgba(251,253,255,0.98), rgba(246,250,255,0.98));
+    border-color: rgba(25,118,210,0.14) !important;
+  }
+  .cvhb-entry-card {
+    background: linear-gradient(180deg, rgba(248,251,255,0.96), rgba(255,255,255,0.98));
+    border-color: rgba(25,118,210,0.18) !important;
+    border-left: 4px solid rgba(25,118,210,0.28);
+  }
+  .cvhb-loading-card {
+    min-width: 280px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
+    border: 1px solid rgba(25,118,210,0.16);
+    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
+  }
+
 
 
   /* 右プレビューはデスクトップ時に追従 */
@@ -6791,20 +6892,32 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     line-height: 1.3;
   }
   .cvhb-step-tabs .q-tab--active {
-    background: rgba(25,118,210,0.08);
-    border-color: rgba(25,118,210,0.35);
+    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
+    border-color: rgba(25,118,210,0.42);
+    box-shadow: 0 8px 22px rgba(25,118,210,0.12);
     font-weight: 700;
   }
 
   /* ====== Step3 block tabs ====== */
   .cvhb-block-tabs .q-tabs__content { flex-wrap: wrap; }
   .cvhb-block-tabs .q-tab {
-    min-height: 34px;
+    min-height: 36px;
     padding: 0 12px;
+    margin: 0 8px 8px 0;
+    border-radius: 999px;
+    background: rgba(15,23,42,0.04);
+    border: 1px solid rgba(15,23,42,0.08);
   }
   .cvhb-block-tabs .q-tab__label {
     white-space: normal;
     line-height: 1.2;
+  }
+  .cvhb-block-tabs .q-tab--active {
+    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
+    border-color: rgba(25,118,210,0.42);
+    box-shadow: 0 6px 18px rgba(25,118,210,0.10);
+    color: var(--q-primary);
+    font-weight: 700;
   }
 
   /* ====== Choice cards (industry/color) ====== */
@@ -8542,6 +8655,25 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
 .pv-layout-260218.pv-mode-pc .pv-mapshot-img{
   height: 280px;
+}
+
+/* ===== PC section media fit (v1.0.6) ===== */
+.pv-layout-260218.pv-mode-pc .pv-about-img,
+.pv-layout-260218.pv-mode-pc .pv-services-img,
+.pv-layout-260218.pv-mode-pc .pv-mapframe,
+.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
+  display: block;
+  width: min(100%, 760px);
+  margin-left: auto;
+  margin-right: auto;
+}
+.pv-layout-260218.pv-mode-pc .pv-about-img,
+.pv-layout-260218.pv-mode-pc .pv-services-img{
+  max-height: clamp(220px, 32vw, 360px);
+}
+.pv-layout-260218.pv-mode-pc .pv-mapframe,
+.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
+  height: clamp(220px, 30vw, 300px);
 }
 
 .pv-layout-260218.pv-dark .pv-mapshot-img{
@@ -12076,7 +12208,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.5) ===== */
+/* ===== Export final viewport clamp (v1.0.6) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -13202,7 +13334,7 @@ def render_main(u: User) -> None:
                                             bg_motion_selector()
 
                                         # Color
-                                        with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                        with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
                                             ui.label("ページカラー（テーマ色）を選んでください").classes("text-subtitle1")
                                             ui.label("ヘッダー・ボタン・アイコンなどの雰囲気が変わります。").classes("cvhb-muted q-mb-sm")
 
@@ -13241,7 +13373,7 @@ def render_main(u: User) -> None:
                                         ui.label("2. 基本情報設定").classes("text-h6 q-mb-sm")
                                         ui.label("入力すると右のプレビューに反映されます。").classes("cvhb-muted q-mb-md")
 
-                                        with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                        with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
                                             ui.label("会社の基本情報").classes("text-subtitle1 q-mb-sm")
 
                                             bind_step2_input("会社名", "company_name")
@@ -13349,7 +13481,7 @@ def render_main(u: User) -> None:
 
                                         @ui.refreshable
                                         def block_editor_panel():
-                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
                                                 ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
                                                 ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
 
@@ -13791,7 +13923,7 @@ def render_main(u: User) -> None:
                                                             if not items:
                                                                 ui.label("まだお知らせがありません").classes("cvhb-muted")
                                                             for i, it in enumerate(items):
-                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders cvhb-entry-card").props("flat bordered"):
                                                                     with ui.row().classes("items-center justify-between"):
                                                                         ui.label(f"お知らせ #{i+1}").classes("text-body1")
                                                                         ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
@@ -13836,7 +13968,7 @@ def render_main(u: User) -> None:
                                                             if not items:
                                                                 ui.label("まだFAQがありません").classes("cvhb-muted")
                                                             for i, it in enumerate(items):
-                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
+                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders cvhb-entry-card").props("flat bordered"):
                                                                     with ui.row().classes("items-center justify-between"):
                                                                         ui.label(f"FAQ #{i+1}").classes("text-body1")
                                                                         ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
@@ -13968,7 +14100,7 @@ def render_main(u: User) -> None:
                                                         ui.label(f"  → {it.get('hint')}").classes("cvhb-muted q-ml-md")
 
                                             # 承認アクション
-                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
                                                 ui.label("承認フロー").classes("text-subtitle1")
                                                 ui.label("編集者：承認依頼 → 管理者：OK/差戻し").classes("cvhb-muted q-mb-sm")
 
@@ -14656,7 +14788,7 @@ def render_main(u: User) -> None:
                                             # -----------------
                                             # 3) 公開（SFTP / 上級者向け）
                                             # -----------------
-                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
                                                 ui.label("上級者向け：SFTPで自動公開").classes("text-subtitle1")
                                                 ui.label("※ ここは管理者（admin）のみ。ConoHaのファイルマネージャーで公開する場合は、上の手順を使ってください。").classes("cvhb-muted")
 
@@ -15124,6 +15256,15 @@ def projects_page():
                 ui.button("キャンセル", on_click=new_project_dialog.close).props("flat")
                 ui.button("作成", on_click=create_new_project).props("color=primary unelevated")
 
+        # --- 案件を開くときの読込中表示 ---
+        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
+            with ui.column().classes("items-center"):
+                ui.spinner(size="lg").classes("text-primary")
+                open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm")
+                ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs")
+
+        open_project_state = {"busy": False}
+
         # --- ヘッダー ---
         with ui.row().classes("items-start justify-between q-mb-md"):
             with ui.column():
@@ -15395,15 +15536,25 @@ def projects_page():
             delete_prepare_dialog.open()
 
         # --- 案件を開く ---
-        async def open_project(project_id: str) -> None:
+        async def open_project(project_id: str, project_name: str = "") -> None:
+            if open_project_state["busy"]:
+                return
+            open_project_state["busy"] = True
+            open_project_label.text = f"「{project_name or '案件'}」を読み込んでいます..."
+            open_project_dialog.open()
             try:
-                ui.notify("案件を読み込み中...", type="info")
                 p = await asyncio.to_thread(load_project_from_sftp, project_id, u)
                 set_current_project(p, u)
                 ui.notify("案件を開きました", type="positive")
                 navigate_to("/")
             except Exception as e:
                 ui.notify(f"開けませんでした: {sanitize_error_text(e)}", type="negative")
+            finally:
+                open_project_state["busy"] = False
+                try:
+                    open_project_dialog.close()
+                except Exception:
+                    pass
 
         @ui.refreshable
         def list_refresh():
@@ -15435,8 +15586,8 @@ def projects_page():
                         ui.label(f"更新担当者: {updated_by}").classes("cvhb-project-meta")
                     ui.label(f"ID: {pid}").classes("cvhb-project-meta q-mt-xs")
 
-                    async def _open(project_id=pid):
-                        await open_project(project_id)
+                    async def _open(project_id=pid, project_name=pname):
+                        await open_project(project_id, project_name)
 
                     with ui.row().classes("q-gutter-sm q-mt-md"):
                         ui.button("開く", on_click=_open).props("color=primary unelevated")
@@ -15635,4 +15786,3 @@ if __name__ in {"__main__", "__mp_main__"}:
         port=int(os.getenv("PORT", "8080")),
         show=False,
     )
-    
