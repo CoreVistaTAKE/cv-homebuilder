@@ -6243,7 +6243,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     desktop_nav_html = "".join(
         [f'<a class="pv-desktop-nav-btn" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-    )
+    ) + '<a class="pv-desktop-nav-btn" href="privacy.html">プライバシーポリシー</a>'
 
     mobile_nav_items_html = "".join(
         [f'<a class="pv-nav-item" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
@@ -9134,18 +9134,38 @@ body.pv-page-body{
     # v0.9.5: 完成品HPの「見出し文言」をビルダーと完全一致させる（重要）
     #   - ここがズレると「プレビューと公開結果が違う」事故になる
     about_nav_label = str(ph.get("title") or "").strip() or "私たちの想い"
-    # 会社概要 / 会社沿革 は表示時のみナビへ追加する
-    _profile_meta = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
-    _profile_mode_nav = str(_profile_meta.get("mode") or "unused").strip() or "unused"
-    if _profile_mode_nav not in COMPANY_PROFILE_MODE_OPTIONS:
-        _profile_mode_nav = "unused"
-    _profile_kind_nav = str(_profile_meta.get("kind") or "overview").strip() or "overview"
-    if _profile_kind_nav not in COMPANY_PROFILE_KIND_OPTIONS:
-        _profile_kind_nav = "overview"
-    profile_nav_label = COMPANY_PROFILE_KIND_OPTIONS.get(_profile_kind_nav, "会社概要") if _profile_mode_nav != "unused" else ""
     services_nav_label = str(svc.get("title") or "").strip() or "業務内容"
     _contact_meta = blocks.get("contact") if isinstance(blocks.get("contact"), dict) else {}
     contact_nav_label = str(_contact_meta.get("button_text") or "").strip() or "お問い合わせ"
+
+    # 会社概要 / 会社沿革 は「実際に表示される内容」がある時だけ各ページのナビへ出す
+    # 参照順を先に確定して、書き出し時の NameError とページ間ズレを防ぐ
+    profile = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
+    profile_mode = str(profile.get("mode") or "unused").strip() or "unused"
+    if profile_mode not in COMPANY_PROFILE_MODE_OPTIONS:
+        profile_mode = "unused"
+    profile_kind = str(profile.get("kind") or "overview").strip() or "overview"
+    if profile_kind not in COMPANY_PROFILE_KIND_OPTIONS:
+        profile_kind = "overview"
+    profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(profile_kind, "会社概要")
+    profile_rows = []
+    for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        _val = _company_profile_effective_value(step2, profile, _key)
+        if not _val:
+            continue
+        if _key == "site_url":
+            _safe_url = html.escape(_val or "")
+            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{html.escape(_val or "")}</a>'
+        else:
+            _cell_html = html.escape(_val or "").replace("\n", "<br>")
+        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label or "")}</div><div class="pv-company-profile-value">{_cell_html}</div></div>')
+    for _row in _company_profile_visible_extra_rows(profile):
+        _lbl = str(_row.get("label") or "").strip() or "補足"
+        _val = str(_row.get("value") or "").strip()
+        if not _val:
+            continue
+        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_lbl)}</div><div class="pv-company-profile-value">{html.escape(_val).replace("\n", "<br>")}</div></div>')
+    profile_nav_label = profile_title if profile_mode != "unused" and profile_rows else ""
 
     # --------------------
     # JS
@@ -9568,7 +9588,7 @@ body.pv-page-body{
         ("pv-news", "お知らせ"),
         ("pv-about", about_nav_label),
     ]
-    if profile_nav_label and profile_mode != "unused" and profile_rows:
+    if profile_nav_label:
         nav_items.append(("pv-company-profile", profile_nav_label))
     nav_items += [
         ("pv-services", services_nav_label),
@@ -9583,6 +9603,22 @@ body.pv-page-body{
     mobile_nav_items_html = "".join([
         f'<a class="pv-nav-item" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items
     ]) + '<a class="pv-nav-item" href="privacy.html">プライバシーポリシー</a>'
+
+    footer_links = [
+        ("#pv-top", "トップ"),
+        ("news/index.html", "お知らせ一覧"),
+        ("#pv-about", about_nav_label),
+    ]
+    if profile_nav_label:
+        footer_links.append(("#pv-company-profile", profile_nav_label))
+    footer_links += [
+        ("#pv-services", services_nav_label),
+        ("#pv-faq", "よくある質問"),
+        ("#pv-access", "アクセス"),
+        ("#pv-contact", contact_nav_label),
+        ("privacy.html", "プライバシーポリシー"),
+    ]
+    footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links])
 
     # --------------------
     # hero
@@ -9676,15 +9712,31 @@ body.pv-page-body{
         esc_title = _esc(title)
         icon_tag = _favicon_head_tags(favicon_href_)
 
-        # ルート外ページは index.html#... へのリンクにする
+        # index 以外のページは、常にトップページ（index.html）の各セクションへ戻す
         def sec_href(sid: str) -> str:
-            return f"#{sid}" if not root_prefix else f"{root_prefix}index.html#{sid}"
+            return f"{root_prefix}index.html#{sid}"
 
         nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
         nav_html += f'<a class="pv-desktop-nav-btn" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
 
         mnav_html = "".join([f'<a class="pv-nav-item" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
         mnav_html += f'<a class="pv-nav-item" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
+
+        footer_links = [
+            (sec_href("pv-top"), "トップ"),
+            (f"{root_prefix}news/index.html", "お知らせ一覧"),
+            (sec_href("pv-about"), about_nav_label),
+        ]
+        if profile_nav_label:
+            footer_links.append((sec_href("pv-company-profile"), profile_nav_label))
+        footer_links += [
+            (sec_href("pv-services"), services_nav_label),
+            (sec_href("pv-faq"), "よくある質問"),
+            (sec_href("pv-access"), "アクセス"),
+            (sec_href("pv-contact"), contact_nav_label),
+            (f"{root_prefix}privacy.html", "プライバシーポリシー"),
+        ]
+        footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links])
 
         brand_href = sec_href("pv-top")
 
@@ -9726,16 +9778,7 @@ body.pv-page-body{
       <main class=\"pv-main\">{body_inner}</main>
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-links\">
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
-            <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">{_esc(about_nav_label)}</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">{_esc(services_nav_label)}</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
-            <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
-            <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
-          </div>
+          <div class=\"pv-footer-links\">{footer_links_html}</div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
       </footer>
@@ -9834,31 +9877,6 @@ body.pv-page-body{
 
     about_body_html = _paras(ph_body)
 
-    profile = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
-    profile_mode = str(profile.get("mode") or "unused").strip() or "unused"
-    if profile_mode not in COMPANY_PROFILE_MODE_OPTIONS:
-        profile_mode = "unused"
-    profile_kind = str(profile.get("kind") or "overview").strip() or "overview"
-    if profile_kind not in COMPANY_PROFILE_KIND_OPTIONS:
-        profile_kind = "overview"
-    profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(profile_kind, "会社概要")
-    profile_rows = []
-    for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
-        _val = _company_profile_effective_value(step2, profile, _key)
-        if not _val:
-            continue
-        if _key == "site_url":
-            _safe_url = _esc(_val)
-            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{_esc(_val)}</a>'
-        else:
-            _cell_html = _esc(_val).replace("\n", "<br>")
-        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>')
-    for _row in _company_profile_visible_extra_rows(profile):
-        _lbl = str(_row.get("label") or "").strip() or "補足"
-        _val = str(_row.get("value") or "").strip()
-        if not _val:
-            continue
-        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(_lbl)}</div><div class="pv-company-profile-value">{_esc(_val).replace("\n", "<br>")}</div></div>')
     profile_section_html = ""
     if profile_mode != "unused" and profile_rows:
         profile_rows_html = ''.join(profile_rows)
@@ -10076,7 +10094,7 @@ body.pv-page-body{
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=(profile_title if profile_mode != "unused" and profile_rows else ""), services_label=services_nav_label, contact_label=contact_button_text))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=profile_nav_label, services_label=services_nav_label, contact_label=contact_button_text))
 
     # --------------------
     # index.html
@@ -10131,16 +10149,7 @@ body.pv-page-body{
 
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-links\">
-            <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
-            <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
-            <a class=\"pv-footer-link\" href=\"#pv-about\">{_esc(about_nav_label)}</a>
-            <a class=\"pv-footer-link\" href=\"#pv-services\">{_esc(services_nav_label)}</a>
-            <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
-            <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
-            <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
-            <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
-          </div>
+          <div class=\"pv-footer-links\">{footer_links_html}</div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
       </footer>
@@ -12067,7 +12076,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.4) ===== */
+/* ===== Export final viewport clamp (v1.0.5) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -15626,3 +15635,4 @@ if __name__ in {"__main__", "__mp_main__"}:
         port=int(os.getenv("PORT", "8080")),
         show=False,
     )
+    
