@@ -2022,6 +2022,10 @@ def inject_global_styles() -> None:
 .pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
   height: auto;
 }
+.pv-layout-260218.pv-mode-pc .pv-hero-wide{
+  width: min(100%, 1280px);
+  margin: 0 auto 44px;
+}
 .pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
   height: auto;
 }
@@ -2035,9 +2039,6 @@ def inject_global_styles() -> None:
 }
 
 /* PC: dots are shown "below" the hero image, so we keep some space under the hero */
-.pv-layout-260218.pv-mode-pc .pv-hero-wide{
-  margin-bottom: 44px;
-}
 
 .pv-layout-260218 .pv-hero-dots{
   position: absolute;
@@ -4024,6 +4025,40 @@ def navigate_to(path: str) -> None:
         pass
 
 
+PENDING_OPEN_PROJECT_ID_KEY = "pending_open_project_id"
+PENDING_OPEN_PROJECT_NAME_KEY = "pending_open_project_name"
+
+
+def set_pending_open_project(project_id: str, project_name: str = "") -> None:
+    try:
+        app.storage.user[PENDING_OPEN_PROJECT_ID_KEY] = str(project_id or "")
+        app.storage.user[PENDING_OPEN_PROJECT_NAME_KEY] = str(project_name or "")
+    except Exception:
+        pass
+
+
+def pop_pending_open_project() -> tuple[str, str]:
+    project_id = ""
+    project_name = ""
+    try:
+        project_id = str(app.storage.user.pop(PENDING_OPEN_PROJECT_ID_KEY, "") or "")
+    except Exception:
+        project_id = ""
+    try:
+        project_name = str(app.storage.user.pop(PENDING_OPEN_PROJECT_NAME_KEY, "") or "")
+    except Exception:
+        project_name = ""
+    return project_id, project_name
+
+
+def clear_pending_open_project() -> None:
+    try:
+        app.storage.user.pop(PENDING_OPEN_PROJECT_ID_KEY, None)
+        app.storage.user.pop(PENDING_OPEN_PROJECT_NAME_KEY, None)
+    except Exception:
+        pass
+
+
 # =========================
 # [BLK-05] Session / Project state (avoid storing big dict in cookie)
 # =========================
@@ -4041,6 +4076,7 @@ def clear_current_project(user: Optional[User]) -> None:
         app.storage.user.pop("project", None)  # 念のため
     except Exception:
         pass
+    clear_pending_open_project()
     if user:
         PROJECT_CACHE.pop(user.id, None)
 
@@ -7704,6 +7740,10 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
   height: auto;
 }
+.pv-layout-260218.pv-mode-pc .pv-hero-wide{
+  width: min(100%, 1280px);
+  margin: 0 auto 44px;
+}
 .pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
   height: auto;
 }
@@ -7717,9 +7757,6 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 /* PC: dots are shown "below" the hero image, so we keep some space under the hero */
-.pv-layout-260218.pv-mode-pc .pv-hero-wide{
-  margin-bottom: 44px;
-}
 
 .pv-layout-260218 .pv-hero-dots{
   position: absolute;
@@ -12208,7 +12245,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.6) ===== */
+/* ===== Export final viewport clamp (v1.0.7) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -15540,21 +15577,12 @@ def projects_page():
             if open_project_state["busy"]:
                 return
             open_project_state["busy"] = True
-            open_project_label.text = f"「{project_name or '案件'}」を読み込んでいます..."
-            open_project_dialog.open()
             try:
-                p = await asyncio.to_thread(load_project_from_sftp, project_id, u)
-                set_current_project(p, u)
-                ui.notify("案件を開きました", type="positive")
+                set_pending_open_project(project_id, project_name)
                 navigate_to("/")
-            except Exception as e:
-                ui.notify(f"開けませんでした: {sanitize_error_text(e)}", type="negative")
+                await asyncio.sleep(0)
             finally:
                 open_project_state["busy"] = False
-                try:
-                    open_project_dialog.close()
-                except Exception:
-                    pass
 
         @ui.refreshable
         def list_refresh():
@@ -15654,12 +15682,23 @@ def audit_page():
         ).classes("w-full")
 
 
-@ui.page("/")
-def index():
+@ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
+async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
 
     root = ui.element("div").classes("w-full")
+
+    def render_startup_loading(title: str, detail: str = "少しお待ちください。") -> None:
+        root.clear()
+        with root:
+            with ui.element("div").classes("w-full").style("min-height: calc(100vh - 0px); background:#f5f7fb;"):
+                with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
+                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 420px; max-width: 92vw;").props("bordered"):
+                        with ui.column().classes("items-center"):
+                            ui.spinner(size="lg").classes("text-primary")
+                            ui.label(title).classes("text-subtitle1 q-mt-sm")
+                            ui.label(detail).classes("cvhb-muted q-mt-xs")
 
     @ui.refreshable
     def root_refresh():
@@ -15767,7 +15806,53 @@ try {{
                             ui.label(sanitize_error_text(e4)).classes("text-caption")
                             traceback.print_exc()
 
+    needs_builder_loading = False
+    try:
+        cleanup_user_storage()
+        needs_builder_loading = HELP_MODE or (current_user() is not None)
+    except Exception:
+        needs_builder_loading = HELP_MODE
+
+    startup_notice_type = ""
+    startup_notice_message = ""
+
+    if needs_builder_loading:
+        pending_project_id = ""
+        pending_project_name = ""
+        try:
+            pending_project_id = str(app.storage.user.get(PENDING_OPEN_PROJECT_ID_KEY, "") or "")
+            pending_project_name = str(app.storage.user.get(PENDING_OPEN_PROJECT_NAME_KEY, "") or "")
+        except Exception:
+            pending_project_id = ""
+            pending_project_name = ""
+
+        title = "ビルダーを準備しています..."
+        detail = "入力画面とプレビューを読み込んでいます。"
+        if pending_project_id:
+            title = f"「{pending_project_name or '案件'}」を開いています..."
+            detail = "案件を読み込んでからビルダーを表示します。"
+
+        render_startup_loading(title, detail)
+        await ui.context.client.connected()
+        await asyncio.sleep(0.05)
+
+        pending_project_id, pending_project_name = pop_pending_open_project()
+        if pending_project_id:
+            try:
+                u_pending = current_user()
+                if u_pending:
+                    p_pending = await asyncio.to_thread(load_project_from_sftp, pending_project_id, u_pending)
+                    set_current_project(p_pending, u_pending)
+                    startup_notice_type = "positive"
+                    startup_notice_message = "案件を開きました"
+            except Exception as e:
+                startup_notice_type = "negative"
+                startup_notice_message = f"開けませんでした: {sanitize_error_text(e)}"
+
     root_refresh()
+
+    if startup_notice_message:
+        ui.notify(startup_notice_message, type=startup_notice_type or "info")
 
 
 # =========================
