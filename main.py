@@ -274,16 +274,27 @@ def _company_profile_effective_value(step2: Optional[dict], profile: Optional[di
 
 
 def _company_profile_editor_value(step2: Optional[dict], profile: Optional[dict], key: str, sample: str) -> str:
-    """編集欄に出す値。手入力値 > 基本情報の自動反映 > 空欄（プレースホルダーで例表示）。"""
+    """編集欄に出す値。未入力欄は空欄のままにし、手入力値だけを返す。"""
     prof = profile if isinstance(profile, dict) else {}
     raw = str(prof.get(key) or "").strip()
     sample = str(sample or "").strip()
-    auto_val = str(_company_profile_autofill_values(step2).get(key) or "").strip()
     if raw and raw != sample:
         return raw
-    if auto_val:
-        return auto_val
     return ""
+
+
+def _company_profile_cell_html(key: str, value: str) -> str:
+    """会社概要/沿革セルの表示HTML。改行を保ちつつ、URL欄は安全にリンク化する。"""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if key == "site_url":
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        href = lines[0] if lines else raw
+        label_html = "<br>".join(html.escape(line) for line in lines) if lines else html.escape(raw)
+        safe_href = html.escape(href, quote=True)
+        return f'<a class="pv-inline-link" href="{safe_href}" target="_blank" rel="noreferrer noopener">{label_html}</a>'
+    return html.escape(raw).replace("\n", "<br>")
 
 
 def _normalize_company_profile_extra_rows(profile: Optional[dict]) -> list[dict]:
@@ -1087,13 +1098,31 @@ def inject_global_styles() -> None:
   /* ====== Page base ====== */
   .cvhb-page {
     background: #f5f5f5;
-    min-height: calc(100vh - 64px);
+    min-height: calc(100dvh - 64px);
   }
   .cvhb-container {
     width: 100%;
     max-width: none;
     margin: 0;
     padding: 16px;
+  }
+
+  @media (min-width: 761px) {
+    html.cvhb-builder-lock,
+    html.cvhb-builder-lock body {
+      height: 100dvh;
+      overflow: hidden !important;
+    }
+    body.cvhb-builder-page,
+    body.cvhb-builder-page #app,
+    body.cvhb-builder-page .nicegui-content,
+    body.cvhb-builder-page .q-layout,
+    body.cvhb-builder-page .q-page-container,
+    body.cvhb-builder-page .q-page {
+      height: 100%;
+      min-height: 0;
+      overflow: hidden !important;
+    }
   }
 
   /* ====== Split layout (PC builder) ====== */
@@ -1112,7 +1141,9 @@ def inject_global_styles() -> None:
   /* v1.0.10: PCでは左右を独立スクロールにして、全体スクロールを止める */
   @media (min-width: 761px) {
     .cvhb-page {
-      height: calc(100vh - 64px);
+      height: calc(100dvh - 64px);
+      max-height: calc(100dvh - 64px);
+      min-height: 0;
       overflow: hidden;
     }
     .cvhb-container {
@@ -1120,11 +1151,13 @@ def inject_global_styles() -> None:
       min-height: 0;
       box-sizing: border-box;
       padding-bottom: 8px;
+      overflow: hidden;
     }
     .cvhb-split {
       height: 100%;
       min-height: 0;
       align-items: stretch;
+      overflow: hidden;
     }
     .cvhb-left-col,
     .cvhb-right-col {
@@ -1140,6 +1173,9 @@ def inject_global_styles() -> None:
       position: static;
       top: auto;
       align-self: stretch;
+    }
+    .cvhb-right-col > .q-card {
+      min-height: 0;
     }
   }
 
@@ -3575,13 +3611,33 @@ def inject_global_styles() -> None:
     try{
       const root = document.getElementById(rootId);
       if(!root) return;
-      const sc = root.querySelector('.pv-scroll');
       const el = root.querySelector('#' + targetId);
-      if(!sc || !el) return;
-      const scRect = sc.getBoundingClientRect();
+      if(!el) return;
+
+      const sc = root.querySelector('.pv-scroll');
+      const scStyle = sc ? window.getComputedStyle(sc) : null;
+      const canUseInnerScroll = !!(
+        sc &&
+        sc.scrollHeight > (sc.clientHeight + 2) &&
+        scStyle &&
+        scStyle.overflowY !== 'visible' &&
+        scStyle.overflowY !== 'hidden'
+      );
+
+      if(canUseInnerScroll){
+        const scRect = sc.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const top = sc.scrollTop + (elRect.top - scRect.top) - 72;
+        sc.scrollTo({top: top, behavior: 'smooth'});
+        return;
+      }
+
+      const outer = root.closest('.cvhb-right-col') || root.closest('.cvhb-preview-stage') || root.parentElement;
+      if(!outer) return;
+      const outerRect = outer.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      const top = sc.scrollTop + (elRect.top - scRect.top) - 72;
-      sc.scrollTo({top: top, behavior: 'smooth'});
+      const top = outer.scrollTop + (elRect.top - outerRect.top) - 72;
+      outer.scrollTo({top: top, behavior: 'smooth'});
     } catch(e){}
   };
 
@@ -9602,11 +9658,7 @@ body.pv-page-body{
         _val = _company_profile_effective_value(step2, profile, _key)
         if not _val:
             continue
-        if _key == "site_url":
-            _safe_url = html.escape(_val or "")
-            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{html.escape(_val or "")}</a>'
-        else:
-            _cell_html = html.escape(_val or "").replace("\n", "<br>")
+        _cell_html = _company_profile_cell_html(_key, _val)
         profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label or "")}</div><div class="pv-company-profile-value">{_cell_html}</div></div>')
     for _row in _company_profile_visible_extra_rows(profile):
         _lbl = str(_row.get("label") or "").strip() or "補足"
@@ -12329,7 +12381,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.0.9) ===== */
+/* ===== Depth Background Rebuild (v1.0.12) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12341,7 +12393,7 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
 }
-/* ===== Depth Background Rebuild (v1.0.9) ===== */
+/* ===== Depth Background Rebuild (v1.0.12) ===== */
 .pv-shell.pv-layout-260218{
   --pv-depth-overscan-x: max(9vw, 112px);
   --pv-depth-overscan-y: max(9vh, 80px);
@@ -12401,6 +12453,26 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before,
 .pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
   will-change: auto;
+}
+
+/* v1.0.12: builder previewは右カラムの1スクロールだけに統一 */
+.pv-shell.pv-layout-260218.pv-preview-live{
+  height: auto !important;
+  min-height: 0 !important;
+}
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll{
+  display: block !important;
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: auto !important;
+  padding-bottom: 0 !important;
+  background: transparent !important;
+}
+.pv-shell.pv-layout-260218.pv-preview-live .pv-main{
+  flex: 0 0 auto !important;
 }
 
 /* Layer2: radial gradient */
@@ -12560,7 +12632,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.10) ===== */
+/* ===== Export final viewport clamp (v1.0.12) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -12768,11 +12840,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         _val = _clean(_company_profile_effective_value(step2, company_profile, _key))
         if not _val:
             continue
-        if _key == "site_url":
-            _safe_url = html.escape(_val, quote=True)
-            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{html.escape(_val)}</a>'
-        else:
-            _cell_html = html.escape(_val).replace("\n", "<br>")
+        _cell_html = _company_profile_cell_html(_key, _val)
         company_profile_rows.append(
             f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>'
         )
@@ -13246,6 +13314,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
 def render_main(u: User) -> None:
     inject_global_styles()
     cleanup_user_storage()
+    sync_builder_shell(True)
 
     render_header(u)
 
@@ -14101,8 +14170,8 @@ def render_main(u: User) -> None:
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
                                                         ui.label("会社沿革 / 会社概要（任意）").classes("text-body1")
-                                                        ui.label("本文と業務内容の間に表示されます。例が入っているので、上書きして使えます。不要なら「使用しない」のままでOKです。").classes("cvhb-muted q-mb-sm")
-                                                        ui.label("商号・所在地・連絡先は、基本情報の会社名 / 住所 / 電話番号 / メールアドレスが自動で入ります。必要ならここで上書きしてください。").classes("cvhb-muted q-mb-sm")
+                                                        ui.label("本文と業務内容の間に表示されます。未入力欄は空欄のままです。不要なら「使用しない」のままでOKです。").classes("cvhb-muted q-mb-sm")
+                                                        ui.label("完成ページには基本情報の会社名 / 住所 / 電話番号 / メールアドレス / URL が自動反映されます。ここは必要な項目だけ上書きしてください。").classes("cvhb-muted q-mb-sm")
 
                                                         profile = ph.setdefault("company_profile", {})
                                                         if not isinstance(profile, dict):
@@ -14135,10 +14204,7 @@ def render_main(u: User) -> None:
 
                                                         for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
                                                             _editor_val = _company_profile_editor_value(step2, profile, _key, _sample)
-                                                            if _key == "business":
-                                                                ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow").classes("w-full q-mb-xs")
-                                                            else:
-                                                                ui.input(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined dense").classes("w-full q-mb-xs")
+                                                            ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow dense rows=1").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{_sample}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-sm q-mb-sm")
@@ -14148,9 +14214,9 @@ def render_main(u: User) -> None:
                                                         for _i, _row in enumerate(_extra_rows):
                                                             with ui.row().classes("w-full q-col-gutter-sm"): 
                                                                 with ui.column().classes("col-12 col-md-4"):
-                                                                    ui.input(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or "")).props("outlined dense").classes("w-full q-mb-xs")
+                                                                    ui.textarea(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or "")).props("outlined autogrow dense rows=1").classes("w-full q-mb-xs")
                                                                 with ui.column().classes("col-12 col-md-8"):
-                                                                    ui.textarea(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or "")).props("outlined autogrow dense").classes("w-full q-mb-xs")
+                                                                    ui.textarea(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or "")).props("outlined autogrow dense rows=1").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{COMPANY_PROFILE_EXTRA_LABEL_SAMPLE} / {COMPANY_PROFILE_EXTRA_VALUE_SAMPLE}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
@@ -15522,6 +15588,7 @@ def help_page():
     """HELP_MODE専用: ローカルでヘルプ（手順書）を作るためのページ。"""
     inject_global_styles()
     cleanup_user_storage()
+    sync_builder_shell(False)
     ui.page_title("HELP MODE | CV-HomeBuilder")
 
     if not HELP_MODE:
@@ -15604,6 +15671,7 @@ def help_page():
 def projects_page():
     inject_global_styles()
     cleanup_user_storage()
+    sync_builder_shell(False)
     ui.page_title("案件一覧 | CV-HomeBuilder")
 
     u = current_user()
@@ -15979,6 +16047,7 @@ def projects_page():
 def audit_page():
     inject_global_styles()
     cleanup_user_storage()
+    sync_builder_shell(False)
     ui.page_title("操作ログ | CV-HomeBuilder")
 
     u = current_user()
@@ -16030,6 +16099,37 @@ def audit_page():
         ).classes("w-full")
 
 
+def sync_builder_shell(enabled: bool) -> None:
+    """/ ページのPCビルダーだけ outer scroll を止める。"""
+    flag = "true" if enabled else "false"
+    try:
+        ui.run_javascript(
+            f"""
+(function(){{
+  window.__cvhbBuilderShell = window.__cvhbBuilderShell || {{
+    enabled: false,
+    bound: false,
+    apply: function(){{
+      try{{
+        var on = !!window.__cvhbBuilderShell.enabled && window.matchMedia('(min-width: 761px)').matches;
+        document.documentElement.classList.toggle('cvhb-builder-lock', on);
+        if(document.body) document.body.classList.toggle('cvhb-builder-page', on);
+      }}catch(e){{}}
+    }}
+  }};
+  window.__cvhbBuilderShell.enabled = {flag};
+  if(!window.__cvhbBuilderShell.bound){{
+    window.__cvhbBuilderShell.bound = true;
+    window.addEventListener('resize', window.__cvhbBuilderShell.apply, {{passive:true}});
+  }}
+  window.__cvhbBuilderShell.apply();
+}})();
+"""
+        )
+    except Exception:
+        pass
+
+
 @ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
@@ -16076,6 +16176,7 @@ async def index():
                     return
 
                 if not u:
+                    sync_builder_shell(False)
                     render_login(root_refresh)
                     return
 
