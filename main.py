@@ -1155,7 +1155,134 @@ def inject_global_styles() -> None:
     border: 1px solid rgba(25,118,210,0.16);
     box-shadow: 0 18px 48px rgba(15,23,42,0.12);
   }
-
+  .cvhb-loader-scene {
+    position: relative;
+    width: 220px;
+    height: 152px;
+    margin: 0 auto 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cvhb-loader-scene.is-compact {
+    width: 188px;
+    height: 136px;
+  }
+  .cvhb-loader-glow {
+    position: absolute;
+    inset: auto;
+    width: 160px;
+    height: 160px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(30,94,255,0.24) 0%, rgba(139,92,246,0.12) 40%, rgba(255,255,255,0) 74%);
+    filter: blur(8px);
+    animation: cvhbLoaderGlow 2.8s ease-in-out infinite;
+  }
+  .cvhb-loader-stage {
+    position: relative;
+    width: 190px;
+    height: 110px;
+  }
+  .cvhb-loader-scene.is-compact .cvhb-loader-stage {
+    width: 166px;
+    height: 96px;
+  }
+  .cvhb-loader-card-mini {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 124px;
+    height: 78px;
+    margin-left: -62px;
+    margin-top: -39px;
+    border-radius: 19px;
+    border: 1px solid rgba(103, 125, 255, 0.20);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.98), rgba(240,247,255,0.95)),
+      linear-gradient(135deg, rgba(30,94,255,0.08), rgba(139,92,246,0.06));
+    box-shadow: 0 18px 40px rgba(15,23,42,0.10);
+    overflow: hidden;
+    transform-origin: center center;
+  }
+  .cvhb-loader-scene.is-compact .cvhb-loader-card-mini {
+    width: 108px;
+    height: 70px;
+    margin-left: -54px;
+    margin-top: -35px;
+  }
+  .cvhb-loader-card-mini::before {
+    content: "";
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    top: 14px;
+    height: 11px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(30,94,255,0.26), rgba(96,165,250,0.20), rgba(139,92,246,0.14));
+  }
+  .cvhb-loader-card-mini::after {
+    content: "";
+    position: absolute;
+    left: 14px;
+    right: 24px;
+    bottom: 14px;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(148,163,184,0.26);
+    box-shadow:
+      0 -17px 0 rgba(148,163,184,0.18),
+      26px -34px 0 rgba(30,94,255,0.12);
+  }
+  .cvhb-loader-card-a {
+    transform: translate(-34px, 16px) rotate(-8deg) scale(0.96);
+    animation: cvhbLoaderCardA 2.8s ease-in-out infinite;
+  }
+  .cvhb-loader-card-b {
+    transform: translate(0, -4px) rotate(0deg) scale(1.02);
+    animation: cvhbLoaderCardB 2.8s ease-in-out infinite;
+  }
+  .cvhb-loader-card-c {
+    transform: translate(34px, 16px) rotate(8deg) scale(0.96);
+    animation: cvhbLoaderCardC 2.8s ease-in-out infinite;
+  }
+  .cvhb-loader-dots {
+    position: absolute;
+    bottom: 6px;
+    display: inline-flex;
+    gap: 9px;
+    align-items: center;
+    justify-content: center;
+  }
+  .cvhb-loader-dots span {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(96,165,250,0.96), rgba(59,130,246,0.82));
+    box-shadow: 0 0 0 4px rgba(96,165,250,0.10);
+    animation: cvhbLoaderDot 1.45s ease-in-out infinite;
+  }
+  .cvhb-loader-dots span:nth-child(2) { animation-delay: 0.18s; }
+  .cvhb-loader-dots span:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes cvhbLoaderGlow {
+    0%, 100% { transform: scale(0.96); opacity: 0.86; }
+    50% { transform: scale(1.06); opacity: 1; }
+  }
+  @keyframes cvhbLoaderCardA {
+    0%, 100% { transform: translate(-34px, 16px) rotate(-8deg) scale(0.96); }
+    50% { transform: translate(-38px, 10px) rotate(-10deg) scale(1.00); }
+  }
+  @keyframes cvhbLoaderCardB {
+    0%, 100% { transform: translate(0, -4px) rotate(0deg) scale(1.02); }
+    50% { transform: translate(0, -12px) rotate(0deg) scale(1.06); }
+  }
+  @keyframes cvhbLoaderCardC {
+    0%, 100% { transform: translate(34px, 16px) rotate(8deg) scale(0.96); }
+    50% { transform: translate(38px, 10px) rotate(10deg) scale(1.00); }
+  }
+  @keyframes cvhbLoaderDot {
+    0%, 100% { transform: translateY(0); opacity: 0.46; }
+    50% { transform: translateY(-6px); opacity: 1; }
+  }
 
 
   /* 右プレビューはデスクトップ時に追従 */
@@ -2254,7 +2381,7 @@ def inject_global_styles() -> None:
   flex: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 1000ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: opacity 1400ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
@@ -3263,7 +3390,7 @@ def inject_global_styles() -> None:
       } catch(e){}
 
       let idx = 0;
-      const ms = (intervalMs && intervalMs > 0) ? intervalMs : 4500;
+      const ms = (intervalMs && intervalMs > 0) ? intervalMs : 6000;
       let timer = null;
       let reduce = false;
       try{
@@ -3332,7 +3459,7 @@ def inject_global_styles() -> None:
           hero.classList.remove('is-caption-in');
           window.setTimeout(function(){
             hero.classList.add('is-caption-in');
-          }, reduce ? 0 : 260);
+          }, reduce ? 0 : 360);
         }
       }catch(e){}
 
@@ -7972,7 +8099,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   flex: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 1000ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: opacity 1400ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
@@ -9549,7 +9676,7 @@ body.pv-page-body{
     var dots = dotsBox ? Array.prototype.slice.call(dotsBox.querySelectorAll('.pv-hero-dot')) : [];
     var idx = 0;
     var timer = null;
-    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10) || 4500;
+    var intervalMs = parseInt(slider.getAttribute('data-interval') || '6000', 10) || 6000;
     var reduce = false;
 
     try{
@@ -9600,7 +9727,7 @@ body.pv-page-body{
       var hero = slider.closest('.pv-hero') || slider.closest('.pv-hero-wide') || slider.closest('section');
       if(hero){
         hero.classList.remove('is-caption-in');
-        setTimeout(function(){ hero.classList.add('is-caption-in'); }, reduce ? 0 : 260);
+        setTimeout(function(){ hero.classList.add('is-caption-in'); }, reduce ? 0 : 360);
       }
     }catch(_e){}
 
@@ -9818,7 +9945,7 @@ body.pv-page-body{
     hero_html = f"""
 <section class=\"pv-hero pv-hero-wide pv-hero-260218\" id=\"pv-top\">
   <div class=\"pv-hero-stage\">
-    <div class=\"pv-hero-slider pv-hero-slider-wide\" id=\"pv-hero-slider\" data-interval=\"4500\">
+    <div class=\"pv-hero-slider pv-hero-slider-wide\" id=\"pv-hero-slider\" data-interval=\"6000\">
       <div class=\"pv-hero-track\">{slides_html}</div>
     </div>
     {dots_html}
@@ -11745,18 +11872,23 @@ def _preview_accent_hex(primary: str) -> str:
     return COLOR_HEX.get(primary, "#1976d2")
 
 def _preview_accent2_hex(primary: str, accent_hex: str) -> str:
-    """プレビュー用のアクセント2（グラデーション用の2色目）"""
+    """プレビュー用のアクセント2（グラデーション用の2色目）
+
+    v1.0.8:
+    - 各テーマが「その色らしく」見えるように、補助色も同系色へ寄せる
+    - blue → 青系、purple → 紫系、yellow → 黄〜金系 を維持する
+    """
     presets = {
-        "blue": "#7c3aed",    # violet-600
-        "green": "#14b8a6",   # teal-500
-        "red": "#fb7185",     # rose-400
-        "orange": "#f59e0b",  # amber-500
-        "purple": "#ec4899",  # pink-500
-        "grey": "#64748b",    # slate-500
-        "gray": "#64748b",    # alias
-        "black": "#a78bfa",   # violet-400
-        "white": "#60a5fa",   # blue-400
-        "yellow": "#f97316",  # orange-500
+        "blue": "#60a5fa",    # blue-400
+        "green": "#34d399",   # emerald-400
+        "red": "#f87171",     # red-400
+        "orange": "#fb923c",  # orange-400
+        "purple": "#8b5cf6",  # violet-500
+        "grey": "#94a3b8",    # slate-400
+        "gray": "#94a3b8",    # alias
+        "black": "#38bdf8",   # sky-400
+        "white": "#2563eb",   # blue-600
+        "yellow": "#facc15",  # yellow-400
     }
     if primary in presets:
         return presets[primary]
@@ -11857,16 +11989,16 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.62))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.42), _alpha(0.60))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.40), _alpha(0.48))
-        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.56), _alpha(0.006))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.60), _alpha(0.0048))
-        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.72), _alpha(0.0022))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.44), _alpha(0.11))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.48), _alpha(0.10))
+        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.72), _alpha(0.052))
         orb_1 = _rgba("#ffffff", _alpha(0.76))
         orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.54), _alpha(0.28))
         orb_ring = _rgba(_blend_hex(accent3, "#ffffff", 0.74), _alpha(0.028))
 
         radial_opacity = {"weak": 0.42, "medium": 0.86, "strong": 1.24}.get(strength, 0.86)
         blob_opacity = {"weak": 0.28, "medium": 0.66, "strong": 1.02}.get(strength, 0.66)
-        line_opacity = {"weak": 0.0012, "medium": 0.0046, "strong": 0.013}.get(strength, 0.0046)
+        line_opacity = {"weak": 0.095, "medium": 0.155, "strong": 0.215}.get(strength, 0.155)
         orb_opacity = {"weak": 0.42, "medium": 0.78, "strong": 1.02}.get(strength, 0.78)
         panel_show_opacity = {"weak": 0.02, "medium": 0.10, "strong": 0.20}.get(strength, 0.10)
     else:
@@ -11907,16 +12039,16 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.36))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.16), _alpha(0.38))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.22), _alpha(0.30))
-        line_1 = _rgba("#ffffff", _alpha(0.0046))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.56), _alpha(0.0064))
-        line_1_soft = _rgba("#ffffff", _alpha(0.0022))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.70), _alpha(0.095))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.58), _alpha(0.11))
+        line_1_soft = _rgba("#ffffff", _alpha(0.040))
         orb_1 = _rgba("#ffffff", _alpha(0.42))
         orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.50), _alpha(0.24))
         orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.66), _alpha(0.034))
 
         radial_opacity = {"weak": 0.40, "medium": 0.80, "strong": 1.12}.get(strength, 0.80)
         blob_opacity = {"weak": 0.28, "medium": 0.62, "strong": 0.92}.get(strength, 0.62)
-        line_opacity = {"weak": 0.0016, "medium": 0.0048, "strong": 0.014}.get(strength, 0.0048)
+        line_opacity = {"weak": 0.085, "medium": 0.145, "strong": 0.205}.get(strength, 0.145)
         orb_opacity = {"weak": 0.40, "medium": 0.72, "strong": 0.94}.get(strength, 0.72)
         panel_show_opacity = {"weak": 0.02, "medium": 0.09, "strong": 0.18}.get(strength, 0.09)
 
@@ -12043,7 +12175,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v0.9.38) ===== */
+/* ===== Depth Background Rebuild (v1.0.8) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12055,8 +12187,10 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
 }
-/* ===== Depth Background Rebuild (v0.9.38) ===== */
+/* ===== Depth Background Rebuild (v1.0.8) ===== */
 .pv-shell.pv-layout-260218{
+  --pv-depth-overscan-x: max(10vw, 120px);
+  --pv-depth-overscan-y: max(10vh, 84px);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -12096,9 +12230,13 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218 .pv-scroll::after{
   content: "";
   position: absolute;
-  inset: 0;
+  top: calc(-1 * var(--pv-depth-overscan-y));
+  right: calc(-1 * var(--pv-depth-overscan-x));
+  bottom: calc(-1 * var(--pv-depth-overscan-y));
+  left: calc(-1 * var(--pv-depth-overscan-x));
   pointer-events: none;
   will-change: transform, opacity, background-position;
+  transform-origin: center center;
 }
 
 /* Layer2: radial gradient */
@@ -12119,16 +12257,16 @@ body.pv-page-body{
   background:
     repeating-linear-gradient(126deg,
       transparent 0 108px,
-      var(--pv-line-1) 108px 108.4px,
-      transparent 108.4px 320px),
+      var(--pv-line-1) 108px 109.2px,
+      transparent 109.2px 320px),
     repeating-linear-gradient(-126deg,
       transparent 0 158px,
-      var(--pv-line-2) 158px 158.5px,
-      transparent 158.5px 396px),
+      var(--pv-line-2) 158px 159.2px,
+      transparent 159.2px 396px),
     linear-gradient(134deg,
-      transparent 0 48.9%,
-      var(--pv-line-1-soft) 49.2%,
-      transparent 49.6%,
+      transparent 0 48.7%,
+      var(--pv-line-1-soft) 49.1%,
+      transparent 49.9%,
       transparent 100%);
   opacity: var(--pv-line-opacity);
   transform: var(--pv-line-from);
@@ -12210,8 +12348,8 @@ body.pv-page-body{
     radial-gradient(360px 280px at 86% 18%, var(--pv-orb-2) 0%, transparent 78%),
     repeating-linear-gradient(136deg,
       transparent 0 96px,
-      var(--pv-line-1-soft) 96px 96.35px,
-      transparent 96.35px 248px);
+      var(--pv-line-1-soft) 96px 97.10px,
+      transparent 97.10px 248px);
   opacity: var(--pv-panel-show-opacity) !important;
 }
 /* 文字を守る枠 */
@@ -12245,7 +12383,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.7) ===== */
+/* ===== Export final viewport clamp (v1.0.8) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -12264,10 +12402,10 @@ body.pv-page-body{
 body.pv-page-body::before{
   content:"";
   position:fixed;
-  top:0;
-  right:0;
-  bottom:0;
-  left:0;
+  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
+  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
+  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
+  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
   pointer-events:none;
   z-index:0;
   background-image:var(--pv-bg-img);
@@ -12293,11 +12431,12 @@ body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
   position:fixed !important;
-  top:0 !important;
-  right:0 !important;
-  bottom:0 !important;
-  left:0 !important;
+  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
+  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
+  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
+  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
   pointer-events:none;
+  transform-origin:center center;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   position:relative;
@@ -12585,7 +12724,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
                 # init slider (auto)
                 axis = "y" if mode == "mobile" else "x"
                 ui.run_javascript(
-                    f"setTimeout(function(){{try{{window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',4500);}}catch(e){{}}}},0);"
+                    f"setTimeout(function(){{try{{window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',6000);}}catch(e){{}}}},0);"
                 )
 
             # ----- main -----
@@ -15169,6 +15308,24 @@ def render_main(u: User) -> None:
 # [BLK-12] Pages
 # =========================
 
+def render_loading_visual(*, compact: bool = False) -> None:
+    """ローディング中に小さなビルダーが組み上がるような見た目を出す。"""
+    size_class = "is-compact" if compact else ""
+    ui.html(
+        f"""
+<div class="cvhb-loader-scene {size_class}" aria-hidden="true">
+  <div class="cvhb-loader-glow"></div>
+  <div class="cvhb-loader-stage">
+    <span class="cvhb-loader-card-mini cvhb-loader-card-a"></span>
+    <span class="cvhb-loader-card-mini cvhb-loader-card-b"></span>
+    <span class="cvhb-loader-card-mini cvhb-loader-card-c"></span>
+  </div>
+  <div class="cvhb-loader-dots"><span></span><span></span><span></span></div>
+</div>
+"""
+    )
+
+
 @ui.page("/help")
 def help_page():
     """HELP_MODE専用: ローカルでヘルプ（手順書）を作るためのページ。"""
@@ -15296,9 +15453,9 @@ def projects_page():
         # --- 案件を開くときの読込中表示 ---
         with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
             with ui.column().classes("items-center"):
-                ui.spinner(size="lg").classes("text-primary")
-                open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm")
-                ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs")
+                render_loading_visual(compact=True)
+                open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm text-center")
+                ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs text-center")
 
         open_project_state = {"busy": False}
 
@@ -15692,13 +15849,16 @@ async def index():
     def render_startup_loading(title: str, detail: str = "少しお待ちください。") -> None:
         root.clear()
         with root:
-            with ui.element("div").classes("w-full").style("min-height: calc(100vh - 0px); background:#f5f7fb;"):
+            with ui.element("div").classes("w-full").style(
+                "min-height: calc(100vh - 0px);"
+                "background: linear-gradient(180deg, rgba(245,247,251,1), rgba(238,244,255,1));"
+            ):
                 with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
-                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 420px; max-width: 92vw;").props("bordered"):
+                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw;").props("bordered"):
                         with ui.column().classes("items-center"):
-                            ui.spinner(size="lg").classes("text-primary")
-                            ui.label(title).classes("text-subtitle1 q-mt-sm")
-                            ui.label(detail).classes("cvhb-muted q-mt-xs")
+                            render_loading_visual()
+                            ui.label(title).classes("text-subtitle1 q-mt-sm text-center")
+                            ui.label(detail).classes("cvhb-muted q-mt-xs text-center")
 
     @ui.refreshable
     def root_refresh():
