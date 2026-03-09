@@ -1304,8 +1304,30 @@ def inject_global_styles() -> None:
   }
 
 
-  /* 右プレビューはデスクトップ時に追従 */
+  /* v1.0.10: PCでは左入力だけを独立スクロールにし、右プレビューをずらさない */
   @media (min-width: 761px) {
+    .cvhb-left-col,
+    .cvhb-right-col {
+      min-height: calc(100dvh - 104px);
+    }
+    .cvhb-left-col {
+      position: sticky;
+      top: 88px;
+      align-self: start;
+      max-height: calc(100dvh - 104px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      padding-right: 4px;
+    }
+    .cvhb-left-col::-webkit-scrollbar {
+      width: 10px;
+    }
+    .cvhb-left-col::-webkit-scrollbar-thumb {
+      background: rgba(148,163,184,0.42);
+      border-radius: 999px;
+    }
     .cvhb-right-col {
       position: sticky;
       top: 88px;
@@ -1317,7 +1339,14 @@ def inject_global_styles() -> None:
   @media (max-width: 760px) {
     .cvhb-container { padding: 8px; }
     .cvhb-split { grid-template-columns: 1fr; }
-    .cvhb-right-col { position: static; }
+    .cvhb-left-col,
+    .cvhb-right-col {
+      position: static;
+      max-height: none;
+      min-height: 0;
+      overflow: visible;
+      padding-right: 0;
+    }
   }
 
   /* ====== Common ====== */
@@ -1335,6 +1364,7 @@ def inject_global_styles() -> None:
     display: flex;
     flex-direction: column;
     gap: 14px;
+    padding-bottom: 12px;
   }
 
   /* ====== Step menu (left) ====== */
@@ -12731,6 +12761,14 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         company_profile_rows.append(
             f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>'
         )
+    for _row in _company_profile_visible_extra_rows(company_profile):
+        _lbl = _clean(_row.get("label"), "補足")
+        _val = _clean(_row.get("value"))
+        if not _val:
+            continue
+        company_profile_rows.append(
+            f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_lbl)}</div><div class="pv-company-profile-value">{html.escape(_val).replace("\n", "<br>")}</div></div>'
+        )
 
     profile_nav_label = company_profile_title if company_profile_mode != "unused" and company_profile_rows else ""
 
@@ -14067,6 +14105,11 @@ def render_main(u: User) -> None:
                                                             except Exception:
                                                                 pass
                                                             update_and_refresh()
+                                                            if key == "kind":
+                                                                try:
+                                                                    editor_ref["refresh"]()
+                                                                except Exception:
+                                                                    pass
 
                                                         def _set_profile_extra(index: int, field: str, value: str) -> None:
                                                             try:
@@ -14080,12 +14123,19 @@ def render_main(u: User) -> None:
                                                         ui.select(COMPANY_PROFILE_KIND_OPTIONS, value=profile.get("kind", "overview"), label="表示タイトル", on_change=lambda e: _set_profile_value("kind", e.value or "overview")).props("outlined dense").classes("w-full q-mb-sm")
                                                         ui.select(COMPANY_PROFILE_MODE_OPTIONS, value=profile.get("mode", "unused"), label="表示方法", on_change=lambda e: _set_profile_value("mode", e.value or "unused")).props("outlined dense").classes("w-full q-mb-sm")
 
+                                                        _profile_kind_now = str(profile.get("kind") or "overview").strip() or "overview"
+                                                        if _profile_kind_now not in COMPANY_PROFILE_KIND_OPTIONS:
+                                                            _profile_kind_now = "overview"
+                                                        _history_mode = (_profile_kind_now == "history")
+                                                        _profile_placeholder_off = "" if _history_mode else None
+
                                                         for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
                                                             _editor_val = _company_profile_editor_value(step2, profile, _key, _sample)
+                                                            _placeholder = _profile_placeholder_off if _history_mode else _sample
                                                             if _key == "business":
-                                                                ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_sample).props("outlined autogrow").classes("w-full q-mb-xs")
+                                                                ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_placeholder).props("outlined autogrow").classes("w-full q-mb-xs")
                                                             else:
-                                                                ui.input(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_sample).props("outlined dense").classes("w-full q-mb-xs")
+                                                                ui.input(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_placeholder).props("outlined dense").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{_sample}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-sm q-mb-sm")
@@ -14093,11 +14143,16 @@ def render_main(u: User) -> None:
                                                         ui.label("他の入力欄にない項目だけを追加してください。内容が空の行は完成ページに表示されません。入力がない行はグレーの例だけ表示されます。" ).classes("cvhb-muted q-mb-sm")
                                                         _extra_rows = _normalize_company_profile_extra_rows(profile)
                                                         for _i, _row in enumerate(_extra_rows):
-                                                            with ui.row().classes("w-full q-col-gutter-sm"): 
+                                                            _extra_label_placeholder = _profile_placeholder_off if _history_mode else COMPANY_PROFILE_EXTRA_LABEL_SAMPLE
+                                                            _extra_value_placeholder = _profile_placeholder_off if _history_mode else COMPANY_PROFILE_EXTRA_VALUE_SAMPLE
+                                                            with ui.row().classes("w-full q-col-gutter-sm"):
                                                                 with ui.column().classes("col-12 col-md-4"):
-                                                                    ui.input(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or ""), placeholder=COMPANY_PROFILE_EXTRA_LABEL_SAMPLE).props("outlined dense").classes("w-full q-mb-xs")
+                                                                    ui.input(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or ""), placeholder=_extra_label_placeholder).props("outlined dense").classes("w-full q-mb-xs")
                                                                 with ui.column().classes("col-12 col-md-8"):
-                                                                    ui.input(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or ""), placeholder=COMPANY_PROFILE_EXTRA_VALUE_SAMPLE).props("outlined dense").classes("w-full q-mb-xs")
+                                                                    if _history_mode:
+                                                                        ui.textarea(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or ""), placeholder=_extra_value_placeholder).props("outlined autogrow").classes("w-full q-mb-xs")
+                                                                    else:
+                                                                        ui.input(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or ""), placeholder=_extra_value_placeholder).props("outlined dense").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{COMPANY_PROFILE_EXTRA_LABEL_SAMPLE} / {COMPANY_PROFILE_EXTRA_VALUE_SAMPLE}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
