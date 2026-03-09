@@ -1458,6 +1458,27 @@ def inject_global_styles() -> None:
 
   /* ====== Preview inside builder ====== */
   .cvhb-preview .q-card { width: 100%; }
+
+  /* v1.0.11: 右プレビューは「1つのスクロール」に寄せる */
+  .cvhb-preview-card {
+    width: 100%;
+    overflow: hidden;
+  }
+  .cvhb-preview-stage {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: hidden;
+    position: relative;
+    background: transparent;
+  }
+  .cvhb-preview-stage-mobile {
+    height: clamp(680px, 82dvh, 1120px);
+  }
+  .cvhb-preview-stage-pc {
+    height: clamp(640px, 78dvh, 980px);
+  }
+
 /* ====== Preview PC（実サイト寄り） ====== */
 .cvhb-preview-pc { background: #f5f5f5; }
 .cvhb-pc-header {
@@ -1845,6 +1866,10 @@ def inject_global_styles() -> None:
   width: 100%;
   max-width: none;
   margin: 0;
+}
+.pv-layout-260218.pv-mode-pc .pv-topbar-inner{
+  max-width: 1280px;
+  margin: 0 auto;
 }
 
 /* ヘッダー内：会社名は左、メニューは右に固定 */
@@ -15443,13 +15468,12 @@ def render_main(u: User) -> None:
                             max_scale = 1.00 if mode == "mobile" else 0.75
                             radius = 22 if mode == "mobile" else 14
 
+                            frame_height = "clamp(680px, 82dvh, 1120px)" if mode == "mobile" else "clamp(640px, 78dvh, 980px)"
                             frame_style = (
-                                f"width: 100%; {'min-height: 860px;' if mode == 'pc' else 'height: 2400px;'} overflow: hidden; border-radius: {radius}px; margin: 0;"
+                                f"width: 100%; height: {frame_height}; overflow: hidden; border-radius: {radius}px; margin: 0;"
                             )
-                            fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == 'pc' else 'id="pv-fit"'
+                            fit_props = 'id="pv-fit"'
                             fit_style = (
-                                "min-height: 860px; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
-                                if mode == 'pc' else
                                 "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
                             )
                             with ui.card().classes(f"cvhb-preview-card cvhb-preview-card-{mode}").style(frame_style).props("flat bordered"):
@@ -16124,24 +16148,18 @@ async def index():
                         try:
                             mode = app.storage.user.get("preview_mode", "mobile")
                             design_w = 720 if mode == "mobile" else 1920
-                            fit_min_w = 720 if mode == "mobile" else 1280
-                            fit_max_w = 720 if mode == "mobile" else 1920
+                            min_scale = 0.01 if mode == "mobile" else 0.50
+                            max_scale = 1.00 if mode == "mobile" else 0.75
+                            radius = 22 if mode == "mobile" else 14
+                            frame_height = "clamp(680px, 82dvh, 1120px)" if mode == "mobile" else "clamp(640px, 78dvh, 980px)"
 
-                            with ui.card().classes("w-full").props("bordered"):
-                                with ui.element("div").classes("w-full").style(
-                                    f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
-                                    "margin:0 auto; overflow:hidden; padding:12px;"
+                            with ui.card().classes("w-full cvhb-preview-card").props("bordered"):
+                                with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").style(
+                                    f"width:100%; height:{frame_height}; overflow:hidden; border-radius:{radius}px; margin:0;"
                                 ):
-                                    fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == "pc" else 'id="pv-fit"'
-                                    fit_style = (
-                                        f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
-                                        + ("min-height:860px;" if mode == "pc" else "")
-                                        + "margin:0 auto; overflow:hidden;"
-                                        + "border-radius:18px;"
-                                        + "border:1px solid rgba(0,0,0,0.10);"
-                                        + "background:rgba(255,255,255,0.35);"
-                                    )
-                                    with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
+                                    with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props('id="pv-fit"').style(
+                                        "height:100%; width:100%; display:block; overflow:hidden; position:relative; background:transparent;"
+                                    ):
                                         try:
                                             render_preview(p_fallback, mode=mode, root_id="pv-root", in_builder=True)
                                         except Exception as e3:
@@ -16152,7 +16170,7 @@ async def index():
                             ui.run_javascript(
                                 f"""
 try {{
-  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w});
+  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},0,0,{min_scale},{max_scale});
   window.cvhbFitApply && window.cvhbFitApply('pv');
 }} catch (e) {{ console.warn('[cvhb] fit error', e); }}
 """
