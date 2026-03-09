@@ -1155,6 +1155,25 @@ def inject_global_styles() -> None:
     border: 1px solid rgba(25,118,210,0.16);
     box-shadow: 0 18px 48px rgba(15,23,42,0.12);
   }
+  .cvhb-preview-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.28));
+    border-color: rgba(148,163,184,0.22) !important;
+  }
+  .cvhb-preview-stage {
+    width: 100%;
+    display: block;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    position: relative;
+    background: transparent;
+    contain: paint;
+  }
+  .cvhb-preview-card.cvhb-preview-card-pc {
+    min-height: 860px;
+  }
+  .cvhb-preview-stage.cvhb-preview-stage-pc {
+    min-height: 860px;
+  }
   .cvhb-loader-scene {
     position: relative;
     width: 220px;
@@ -3467,10 +3486,17 @@ def inject_global_styles() -> None:
     } catch(e){}
   };
 
+  window.__cvhbRevealObservers = window.__cvhbRevealObservers || {};
   window.cvhbInitScrollReveal = window.cvhbInitScrollReveal || function(rootId){
     try{
       const root = document.getElementById(rootId);
       if(!root) return;
+      try{
+        if(window.__cvhbRevealObservers[rootId]){
+          window.__cvhbRevealObservers[rootId].disconnect();
+          delete window.__cvhbRevealObservers[rootId];
+        }
+      }catch(e){}
       try{ root.classList.add('pv-js'); }catch(e){}
       const targets = root.querySelectorAll('section.pv-section, section.pv-section-260218');
       if(!targets || targets.length <= 0) return;
@@ -3497,6 +3523,7 @@ def inject_global_styles() -> None:
       }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
 
       targets.forEach(function(el){ io.observe(el); });
+      try{ window.__cvhbRevealObservers[rootId] = io; }catch(e){}
     }catch(e){}
   };
 
@@ -3517,7 +3544,7 @@ def inject_global_styles() -> None:
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, gen: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, gen: {}, last: {} };
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -3596,17 +3623,58 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     }catch(e){}
     const myGen = (window.__cvhbFit.gen && window.__cvhbFit.gen[key]) ? window.__cvhbFit.gen[key] : 0;
 
-    // 古いタイマーは無効化
+    // 古いタイマー / RAF は無効化
     try{
       if(window.__cvhbFit.timers && window.__cvhbFit.timers[key]){
         clearTimeout(window.__cvhbFit.timers[key]);
         delete window.__cvhbFit.timers[key];
+      }
+      if(window.__cvhbFit.rafs && window.__cvhbFit.rafs[key]){
+        cancelAnimationFrame(window.__cvhbFit.rafs[key]);
+        delete window.__cvhbFit.rafs[key];
       }
     }catch(e){}
 
     let tries = 0;
     const MAX_TRIES = 60;
     const DELAY_MS = 80;
+
+    const queueApply = function(delay){
+      try{
+        try{
+          if(window.__cvhbFit.gen && window.__cvhbFit.gen[key] !== myGen) return;
+        }catch(e){}
+        if(window.__cvhbFit.timers && window.__cvhbFit.timers[key]){
+          clearTimeout(window.__cvhbFit.timers[key]);
+          delete window.__cvhbFit.timers[key];
+        }
+        const run = function(){
+          try{
+            if(window.__cvhbFit.rafs && window.__cvhbFit.rafs[key]){
+              cancelAnimationFrame(window.__cvhbFit.rafs[key]);
+            }
+          }catch(e){}
+          try{
+            window.__cvhbFit.rafs[key] = requestAnimationFrame(function(){
+              try{ apply(); }catch(e){}
+              try{ delete window.__cvhbFit.rafs[key]; }catch(e){}
+            });
+          }catch(e){
+            try{ apply(); }catch(e){}
+          }
+        };
+        if((delay || 0) > 0){
+          window.__cvhbFit.timers[key] = setTimeout(function(){
+            try{ delete window.__cvhbFit.timers[key]; }catch(e){}
+            run();
+          }, delay);
+        }else{
+          run();
+        }
+      }catch(e){
+        try{ apply(); }catch(e){}
+      }
+    };
 
     const apply = function(){
       try{
@@ -3639,14 +3707,14 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           safeNum(outer.clientHeight, 0),
           safeNum(outer.offsetHeight, 0)
         );
+        const autoHeight = !!(outer.dataset && outer.dataset.cvhbFitAutoHeight === '1');
 
         // not ready / hidden (0px になりがち) -> 少し待って再計測
-        if(ow <= 0 || oh <= 0){
+        if(ow <= 0 || (!autoHeight && oh <= 0)){
           try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, oh:oh, tries:tries}); }catch(e){}
           if(tries < MAX_TRIES){
             tries++;
-            try{ clearTimeout(window.__cvhbFit.timers[key]); }catch(e){}
-            window.__cvhbFit.timers[key] = setTimeout(apply, DELAY_MS);
+            queueApply(DELAY_MS);
           }else{
             // fallback: とにかく見える状態に戻す（scale は諦める）
             try{
@@ -3700,10 +3768,37 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           scale = Math.max(0.01, Math.min(1, rawScale));
         }
 
-        // 重要: 縦も「枠いっぱい」に見えるように、inner の高さを scale で補正する
-        // outer 高さ = oh
-        // inner 高さ = oh / scale  にすると、縮小後の見た目がちょうど oh になる
-        const innerH = Math.max(1, oh / Math.max(0.01, scale));
+        const readContentHeight = function(){
+          try{
+            inner.style.height = 'auto';
+          }catch(e){}
+          try{
+            const header = inner.querySelector('.pv-topbar-260218');
+            const scroller = inner.querySelector('.pv-scroll');
+            const headerH = header ? Math.max(
+              safeNum(header.scrollHeight, 0),
+              safeNum(header.offsetHeight, 0),
+              safeNum(header.getBoundingClientRect().height, 0)
+            ) : 0;
+            const scrollH = scroller ? Math.max(
+              safeNum(scroller.scrollHeight, 0),
+              safeNum(scroller.offsetHeight, 0),
+              safeNum(scroller.getBoundingClientRect().height, 0)
+            ) : 0;
+            const ownH = Math.max(
+              safeNum(inner.scrollHeight, 0),
+              safeNum(inner.offsetHeight, 0)
+            );
+            return Math.max(1, ownH, headerH + scrollH);
+          }catch(e){
+            return Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
+          }
+        };
+
+        // PCプレビューだけは「実際のコンテンツ高」に合わせて、フッター下の余白を出さない
+        const innerH = autoHeight
+          ? readContentHeight()
+          : Math.max(1, oh / Math.max(0.01, scale));
         inner.style.height = innerH + 'px';
 
         inner.style.transform = 'scale(' + scale + ')';
@@ -3718,11 +3813,26 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           outer.style.overflowX = (visualW > ow + 1) ? 'auto' : 'hidden';
         }catch(e){}
 
-        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, oh:oh, dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0, scale:scale, left:left}); }catch(e){}
+        const visualH = innerH * scale;
+        if(autoHeight){
+          try{
+            const nextH = Math.max(1, Math.ceil(visualH));
+            if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
+              outer.style.height = nextH + 'px';
+            }
+          }catch(e){}
+        }
+
+        try{
+          window.__cvhbFit.last = window.__cvhbFit.last || {};
+          window.__cvhbFit.last[key] = { ow: ow, oh: autoHeight ? visualH : oh, scale: scale, left: left, innerH: innerH };
+        }catch(e){}
+
+        try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, oh:(autoHeight ? visualH : oh), dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0, scale:scale, left:left, autoHeight:autoHeight}); }catch(e){}
       }catch(e){}
     };
 
-    window.__cvhbFit.regs[key] = apply;
+    window.__cvhbFit.regs[key] = function(){ queueApply(0); };
 
     // ResizeObserver (一番安定)
     const ensureObserver = function(){
@@ -3735,7 +3845,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
-        const obs = new ResizeObserver(function(){ try{ apply(); }catch(e){} });
+        const obs = new ResizeObserver(function(){ try{ queueApply(0); }catch(e){} });
         obs.observe(outer);
         window.__cvhbFit.observers[key] = obs;
       }catch(e){}
@@ -3757,11 +3867,9 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     }
 
     // first runs (layout settle)
-    apply();
-    try{ requestAnimationFrame(apply); }catch(e){}
-    setTimeout(apply, 60);
-    setTimeout(apply, 240);
-    setTimeout(apply, 600);
+    queueApply(0);
+    queueApply(120);
+    queueApply(320);
   }catch(e){}
 };
 
@@ -11874,9 +11982,10 @@ def _preview_accent_hex(primary: str) -> str:
 def _preview_accent2_hex(primary: str, accent_hex: str) -> str:
     """プレビュー用のアクセント2（グラデーション用の2色目）
 
-    v1.0.8:
+    v1.0.9:
     - 各テーマが「その色らしく」見えるように、補助色も同系色へ寄せる
     - blue → 青系、purple → 紫系、yellow → 黄〜金系 を維持する
+    - 背景の幾何学模様でもテーマ色がきれいに見えるよう、線色の彩度を少しだけ上げる
     """
     presets = {
         "blue": "#60a5fa",    # blue-400
@@ -11989,17 +12098,17 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.62))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.42), _alpha(0.60))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.40), _alpha(0.48))
-        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.44), _alpha(0.11))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.48), _alpha(0.10))
-        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.72), _alpha(0.052))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.26), _alpha(0.18))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.30), _alpha(0.16))
+        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.58), _alpha(0.078))
         orb_1 = _rgba("#ffffff", _alpha(0.76))
         orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.54), _alpha(0.28))
         orb_ring = _rgba(_blend_hex(accent3, "#ffffff", 0.74), _alpha(0.028))
 
-        radial_opacity = {"weak": 0.42, "medium": 0.86, "strong": 1.24}.get(strength, 0.86)
-        blob_opacity = {"weak": 0.28, "medium": 0.66, "strong": 1.02}.get(strength, 0.66)
-        line_opacity = {"weak": 0.095, "medium": 0.155, "strong": 0.215}.get(strength, 0.155)
-        orb_opacity = {"weak": 0.42, "medium": 0.78, "strong": 1.02}.get(strength, 0.78)
+        radial_opacity = {"weak": 0.38, "medium": 0.84, "strong": 1.10}.get(strength, 0.84)
+        blob_opacity = {"weak": 0.24, "medium": 0.62, "strong": 0.88}.get(strength, 0.62)
+        line_opacity = {"weak": 0.16, "medium": 0.26, "strong": 0.36}.get(strength, 0.26)
+        orb_opacity = {"weak": 0.36, "medium": 0.70, "strong": 0.90}.get(strength, 0.70)
         panel_show_opacity = {"weak": 0.02, "medium": 0.10, "strong": 0.20}.get(strength, 0.10)
     else:
         base1 = _blend_hex("#0b1220", accent, 0.18)
@@ -12039,73 +12148,73 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.36))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.16), _alpha(0.38))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.22), _alpha(0.30))
-        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.70), _alpha(0.095))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.58), _alpha(0.11))
-        line_1_soft = _rgba("#ffffff", _alpha(0.040))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.56), _alpha(0.15))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.48), _alpha(0.15))
+        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.72), _alpha(0.064))
         orb_1 = _rgba("#ffffff", _alpha(0.42))
         orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.50), _alpha(0.24))
         orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.66), _alpha(0.034))
 
-        radial_opacity = {"weak": 0.40, "medium": 0.80, "strong": 1.12}.get(strength, 0.80)
-        blob_opacity = {"weak": 0.28, "medium": 0.62, "strong": 0.92}.get(strength, 0.62)
-        line_opacity = {"weak": 0.085, "medium": 0.145, "strong": 0.205}.get(strength, 0.145)
-        orb_opacity = {"weak": 0.40, "medium": 0.72, "strong": 0.94}.get(strength, 0.72)
+        radial_opacity = {"weak": 0.36, "medium": 0.76, "strong": 1.02}.get(strength, 0.76)
+        blob_opacity = {"weak": 0.24, "medium": 0.58, "strong": 0.84}.get(strength, 0.58)
+        line_opacity = {"weak": 0.14, "medium": 0.24, "strong": 0.34}.get(strength, 0.24)
+        orb_opacity = {"weak": 0.34, "medium": 0.66, "strong": 0.86}.get(strength, 0.66)
         panel_show_opacity = {"weak": 0.02, "medium": 0.09, "strong": 0.18}.get(strength, 0.09)
 
     motion = {
         "weak": {
-            "base_size": "126% 126%",
-            "base_duration": "22s",
-            "radial_from": "translate3d(-4.0%, -2.0%, 0) scale(1.00)",
-            "radial_to": "translate3d(5.2%, 3.0%, 0) scale(1.12)",
-            "radial_duration": "11.5s",
-            "blob_from": "translate3d(-3.0%, 1.6%, 0) scale(1.00)",
-            "blob_to": "translate3d(4.2%, -2.6%, 0) scale(1.14)",
-            "blob_duration": "14.0s",
-            "blob_blur": "22px",
-            "line_from": "translate3d(0, 0, 0) scale(1.01) rotate(0deg)",
-            "line_to": "translate3d(1.6%, -1.2%, 0) scale(1.05) rotate(0.28deg)",
-            "line_duration": "18s",
-            "orb_from": "translate3d(-2.0%, 0.2%, 0) scale(0.98)",
-            "orb_to": "translate3d(4.8%, -2.4%, 0) scale(1.12)",
-            "orb_duration": "10.5s",
-            "orb_blur": "36px",
+            "base_size": "122% 122%",
+            "base_duration": "30s",
+            "radial_from": "translate3d(-2.2%, -1.2%, 0) scale(1.00)",
+            "radial_to": "translate3d(2.8%, 1.8%, 0) scale(1.08)",
+            "radial_duration": "16.5s",
+            "blob_from": "translate3d(-1.8%, 1.0%, 0) scale(1.00)",
+            "blob_to": "translate3d(2.8%, -1.8%, 0) scale(1.10)",
+            "blob_duration": "19.0s",
+            "blob_blur": "24px",
+            "line_from": "translate3d(0, 0, 0) scale(1.00) rotate(0deg)",
+            "line_to": "translate3d(1.0%, -0.8%, 0) scale(1.04) rotate(0.20deg)",
+            "line_duration": "22s",
+            "orb_from": "translate3d(-1.2%, 0.2%, 0) scale(0.99)",
+            "orb_to": "translate3d(2.6%, -1.6%, 0) scale(1.08)",
+            "orb_duration": "15.0s",
+            "orb_blur": "34px",
         },
         "medium": {
-            "base_size": "140% 140%",
-            "base_duration": "16s",
-            "radial_from": "translate3d(-5.0%, -2.4%, 0) scale(1.00)",
-            "radial_to": "translate3d(6.0%, 3.6%, 0) scale(1.16)",
-            "radial_duration": "8.8s",
-            "blob_from": "translate3d(-3.8%, 1.8%, 0) scale(1.00)",
-            "blob_to": "translate3d(5.2%, -3.2%, 0) scale(1.20)",
-            "blob_duration": "10.6s",
-            "blob_blur": "20px",
-            "line_from": "translate3d(0, 0, 0) scale(1.02) rotate(0deg)",
-            "line_to": "translate3d(2.0%, -1.6%, 0) scale(1.08) rotate(0.34deg)",
-            "line_duration": "13.5s",
-            "orb_from": "translate3d(-2.4%, 0.4%, 0) scale(0.97)",
-            "orb_to": "translate3d(5.6%, -2.8%, 0) scale(1.16)",
-            "orb_duration": "7.0s",
-            "orb_blur": "40px",
+            "base_size": "134% 134%",
+            "base_duration": "21s",
+            "radial_from": "translate3d(-3.6%, -1.8%, 0) scale(1.00)",
+            "radial_to": "translate3d(4.4%, 2.6%, 0) scale(1.12)",
+            "radial_duration": "12.6s",
+            "blob_from": "translate3d(-2.8%, 1.4%, 0) scale(1.00)",
+            "blob_to": "translate3d(4.0%, -2.5%, 0) scale(1.15)",
+            "blob_duration": "14.8s",
+            "blob_blur": "22px",
+            "line_from": "translate3d(0, 0, 0) scale(1.01) rotate(0deg)",
+            "line_to": "translate3d(1.5%, -1.2%, 0) scale(1.07) rotate(0.28deg)",
+            "line_duration": "16.0s",
+            "orb_from": "translate3d(-1.8%, 0.3%, 0) scale(0.98)",
+            "orb_to": "translate3d(4.0%, -2.2%, 0) scale(1.12)",
+            "orb_duration": "10.6s",
+            "orb_blur": "38px",
         },
         "strong": {
-            "base_size": "154% 154%",
-            "base_duration": "11.5s",
-            "radial_from": "translate3d(-5.6%, -2.8%, 0) scale(1.00)",
-            "radial_to": "translate3d(6.8%, 4.0%, 0) scale(1.20)",
-            "radial_duration": "6.4s",
-            "blob_from": "translate3d(-4.4%, 2.2%, 0) scale(1.00)",
-            "blob_to": "translate3d(6.0%, -3.8%, 0) scale(1.24)",
-            "blob_duration": "8.2s",
-            "blob_blur": "18px",
-            "line_from": "translate3d(0, 0, 0) scale(1.03) rotate(0deg)",
-            "line_to": "translate3d(2.2%, -1.8%, 0) scale(1.10) rotate(0.40deg)",
-            "line_duration": "10.5s",
-            "orb_from": "translate3d(-2.6%, 0.5%, 0) scale(0.96)",
-            "orb_to": "translate3d(6.4%, -3.2%, 0) scale(1.20)",
-            "orb_duration": "5.4s",
-            "orb_blur": "46px",
+            "base_size": "146% 146%",
+            "base_duration": "15.5s",
+            "radial_from": "translate3d(-4.6%, -2.2%, 0) scale(1.00)",
+            "radial_to": "translate3d(5.6%, 3.2%, 0) scale(1.14)",
+            "radial_duration": "9.6s",
+            "blob_from": "translate3d(-3.6%, 1.8%, 0) scale(1.00)",
+            "blob_to": "translate3d(5.0%, -3.0%, 0) scale(1.18)",
+            "blob_duration": "11.6s",
+            "blob_blur": "20px",
+            "line_from": "translate3d(0, 0, 0) scale(1.02) rotate(0deg)",
+            "line_to": "translate3d(2.1%, -1.5%, 0) scale(1.09) rotate(0.34deg)",
+            "line_duration": "12.8s",
+            "orb_from": "translate3d(-2.0%, 0.4%, 0) scale(0.97)",
+            "orb_to": "translate3d(5.0%, -2.8%, 0) scale(1.16)",
+            "orb_duration": "8.2s",
+            "orb_blur": "42px",
         },
     }.get(motion_strength, {})
 
@@ -12175,7 +12284,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.0.8) ===== */
+/* ===== Depth Background Rebuild (v1.0.9) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12187,10 +12296,10 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
 }
-/* ===== Depth Background Rebuild (v1.0.8) ===== */
+/* ===== Depth Background Rebuild (v1.0.9) ===== */
 .pv-shell.pv-layout-260218{
-  --pv-depth-overscan-x: max(10vw, 120px);
-  --pv-depth-overscan-y: max(10vh, 84px);
+  --pv-depth-overscan-x: max(9vw, 112px);
+  --pv-depth-overscan-y: max(9vh, 80px);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -12239,6 +12348,16 @@ body.pv-page-body{
   transform-origin: center center;
 }
 
+.pv-shell.pv-layout-260218.pv-preview-live{
+  backface-visibility: hidden;
+}
+.pv-shell.pv-layout-260218.pv-preview-live::before,
+.pv-shell.pv-layout-260218.pv-preview-live::after,
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before,
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
+  will-change: auto;
+}
+
 /* Layer2: radial gradient */
 .pv-shell.pv-layout-260218::before{
   z-index: 0;
@@ -12256,17 +12375,24 @@ body.pv-page-body{
   z-index: 1;
   background:
     repeating-linear-gradient(126deg,
-      transparent 0 108px,
-      var(--pv-line-1) 108px 109.2px,
-      transparent 109.2px 320px),
+      transparent 0 92px,
+      var(--pv-line-1) 92px 94px,
+      transparent 94px 252px),
     repeating-linear-gradient(-126deg,
-      transparent 0 158px,
-      var(--pv-line-2) 158px 159.2px,
-      transparent 159.2px 396px),
+      transparent 0 136px,
+      var(--pv-line-2) 136px 138px,
+      transparent 138px 324px),
+    linear-gradient(90deg,
+      transparent 0 14%,
+      var(--pv-line-1-soft) 18%,
+      transparent 24%,
+      transparent 76%,
+      var(--pv-line-1-soft) 82%,
+      transparent 88%),
     linear-gradient(134deg,
-      transparent 0 48.7%,
-      var(--pv-line-1-soft) 49.1%,
-      transparent 49.9%,
+      transparent 0 48.2%,
+      var(--pv-line-1-soft) 49.0%,
+      transparent 50.1%,
       transparent 100%);
   opacity: var(--pv-line-opacity);
   transform: var(--pv-line-from);
@@ -12285,6 +12411,9 @@ body.pv-page-body{
   transform: var(--pv-blob-from);
   animation: pvDepthBlob var(--pv-blob-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before{
+  filter: blur(calc(var(--pv-blob-blur) * 0.84));
+}
 
 /* Layer5: light orb */
 .pv-shell.pv-layout-260218 .pv-scroll::after{
@@ -12299,6 +12428,9 @@ body.pv-page-body{
   filter: blur(calc(var(--pv-orb-blur) * 1.42));
   transform: var(--pv-orb-from);
   animation: pvDepthOrb var(--pv-orb-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
+}
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
+  filter: blur(calc(var(--pv-orb-blur) * 1.14));
 }
 
 @keyframes pvDepthBase{
@@ -12383,7 +12515,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.8) ===== */
+/* ===== Export final viewport clamp (v1.0.9) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -12469,7 +12601,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
 """
 
 
-def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
+def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, in_builder: bool = False) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
     p は「プロジェクト全体(dict)」または p["data"] 相当(dict) のどちらでも受け付ける。
@@ -12635,8 +12767,9 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) 
 
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
+    builder_class = " pv-preview-live" if in_builder else ""
 
-    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}").props(f'id="{root_id}"').style(theme_style):
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}{builder_class}").props(f'id="{root_id}"').style(theme_style):
         # header + scroll container
         # ----- header -----
         with ui.element("header").classes("pv-topbar pv-topbar-260218"):
@@ -15255,12 +15388,17 @@ def render_main(u: User) -> None:
                             max_scale = 1.00 if mode == "mobile" else 0.75
                             radius = 22 if mode == "mobile" else 14
 
-                            with ui.card().style(
-                                f"width: 100%; height: 2400px; overflow: hidden; border-radius: {radius}px; margin: 0;"
-                            ).props("flat bordered"):
-                                with ui.element("div").props('id="pv-fit"').style(
-                                    "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
-                                ):
+                            frame_style = (
+                                f"width: 100%; {'min-height: 860px;' if mode == 'pc' else 'height: 2400px;'} overflow: hidden; border-radius: {radius}px; margin: 0;"
+                            )
+                            fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == 'pc' else 'id="pv-fit"'
+                            fit_style = (
+                                "min-height: 860px; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
+                                if mode == 'pc' else
+                                "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
+                            )
+                            with ui.card().classes(f"cvhb-preview-card cvhb-preview-card-{mode}").style(frame_style).props("flat bordered"):
+                                with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
                                     if not p:
                                         ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
                                         return
@@ -15272,7 +15410,7 @@ def render_main(u: User) -> None:
                                             return
 
                                         # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
-                                        render_preview(p, mode=mode, root_id="pv-root")
+                                        render_preview(p, mode=mode, root_id="pv-root", in_builder=True)
 
                                         # fit-to-width (design: 720px / 1920px)
                                         try:
@@ -15939,15 +16077,18 @@ async def index():
                                     f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
                                     "margin:0 auto; overflow:hidden; padding:12px;"
                                 ):
-                                    with ui.element("div").props('id="pv-fit"').style(
+                                    fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == "pc" else 'id="pv-fit"'
+                                    fit_style = (
                                         f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
-                                        "margin:0 auto; overflow:hidden;"
-                                        "border-radius:18px;"
-                                        "border:1px solid rgba(0,0,0,0.10);"
-                                        "background:rgba(255,255,255,0.35);"
-                                    ):
+                                        + ("min-height:860px;" if mode == "pc" else "")
+                                        + "margin:0 auto; overflow:hidden;"
+                                        + "border-radius:18px;"
+                                        + "border:1px solid rgba(0,0,0,0.10);"
+                                        + "background:rgba(255,255,255,0.35);"
+                                    )
+                                    with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
                                         try:
-                                            render_preview(p_fallback, mode=mode, root_id="pv-root")
+                                            render_preview(p_fallback, mode=mode, root_id="pv-root", in_builder=True)
                                         except Exception as e3:
                                             ui.label("プレビュー描画でエラーが発生しました").classes("text-negative")
                                             ui.label(sanitize_error_text(e3)).classes("text-caption")
