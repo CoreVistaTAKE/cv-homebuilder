@@ -1106,6 +1106,41 @@ def inject_global_styles() -> None:
   .cvhb-left-col,
   .cvhb-right-col {
     width: 100%;
+    min-width: 0;
+  }
+
+  /* v1.0.10: PCでは左右を独立スクロールにして、全体スクロールを止める */
+  @media (min-width: 761px) {
+    .cvhb-page {
+      height: calc(100vh - 64px);
+      overflow: hidden;
+    }
+    .cvhb-container {
+      height: 100%;
+      min-height: 0;
+      box-sizing: border-box;
+      padding-bottom: 8px;
+    }
+    .cvhb-split {
+      height: 100%;
+      min-height: 0;
+      align-items: stretch;
+    }
+    .cvhb-left-col,
+    .cvhb-right-col {
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      padding-right: 4px;
+    }
+    .cvhb-right-col {
+      position: static;
+      top: auto;
+      align-self: stretch;
+    }
   }
 
   /* 左側フォームはカード幅いっぱいを使う（左寄せで細く見えるのを防ぐ） */
@@ -1304,49 +1339,18 @@ def inject_global_styles() -> None:
   }
 
 
-  /* v1.0.10: PCでは左入力だけを独立スクロールにし、右プレビューをずらさない */
-  @media (min-width: 761px) {
-    .cvhb-left-col,
-    .cvhb-right-col {
-      min-height: calc(100dvh - 104px);
-    }
-    .cvhb-left-col {
-      position: sticky;
-      top: 88px;
-      align-self: start;
-      max-height: calc(100dvh - 104px);
-      overflow-y: auto;
-      overflow-x: hidden;
-      overscroll-behavior: contain;
-      scrollbar-gutter: stable;
-      padding-right: 4px;
-    }
-    .cvhb-left-col::-webkit-scrollbar {
-      width: 10px;
-    }
-    .cvhb-left-col::-webkit-scrollbar-thumb {
-      background: rgba(148,163,184,0.42);
-      border-radius: 999px;
-    }
-    .cvhb-right-col {
-      position: sticky;
-      top: 88px;
-      align-self: start;
-    }
-  }
-
   /* スマホ：縦並び */
   @media (max-width: 760px) {
+    .cvhb-page { height: auto; overflow: visible; }
     .cvhb-container { padding: 8px; }
-    .cvhb-split { grid-template-columns: 1fr; }
+    .cvhb-split { grid-template-columns: 1fr; height: auto; }
     .cvhb-left-col,
     .cvhb-right-col {
-      position: static;
-      max-height: none;
-      min-height: 0;
+      height: auto;
       overflow: visible;
       padding-right: 0;
     }
+    .cvhb-right-col { position: static; }
   }
 
   /* ====== Common ====== */
@@ -1364,7 +1368,7 @@ def inject_global_styles() -> None:
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding-bottom: 12px;
+    padding-bottom: 16px;
   }
 
   /* ====== Step menu (left) ====== */
@@ -1458,27 +1462,6 @@ def inject_global_styles() -> None:
 
   /* ====== Preview inside builder ====== */
   .cvhb-preview .q-card { width: 100%; }
-
-  /* v1.0.11: 右プレビューは「1つのスクロール」に寄せる */
-  .cvhb-preview-card {
-    width: 100%;
-    overflow: hidden;
-  }
-  .cvhb-preview-stage {
-    width: 100%;
-    height: 100%;
-    display: block;
-    overflow: hidden;
-    position: relative;
-    background: transparent;
-  }
-  .cvhb-preview-stage-mobile {
-    height: clamp(680px, 82dvh, 1120px);
-  }
-  .cvhb-preview-stage-pc {
-    height: clamp(640px, 78dvh, 980px);
-  }
-
 /* ====== Preview PC（実サイト寄り） ====== */
 .cvhb-preview-pc { background: #f5f5f5; }
 .cvhb-pc-header {
@@ -1866,10 +1849,6 @@ def inject_global_styles() -> None:
   width: 100%;
   max-width: none;
   margin: 0;
-}
-.pv-layout-260218.pv-mode-pc .pv-topbar-inner{
-  max-width: 1280px;
-  margin: 0 auto;
 }
 
 /* ヘッダー内：会社名は左、メニューは右に固定 */
@@ -3208,23 +3187,24 @@ def inject_global_styles() -> None:
   height: 280px;
 }
 
-/* ===== PC section media fit (v1.0.6) ===== */
+/* ===== PC section media fit (v1.0.10) ===== */
 .pv-layout-260218.pv-mode-pc .pv-about-img,
 .pv-layout-260218.pv-mode-pc .pv-services-img,
 .pv-layout-260218.pv-mode-pc .pv-mapframe,
 .pv-layout-260218.pv-mode-pc .pv-mapshot-img{
   display: block;
-  width: min(100%, 760px);
+  width: 100%;
+  max-width: 100%;
   margin-left: auto;
   margin-right: auto;
 }
 .pv-layout-260218.pv-mode-pc .pv-about-img,
 .pv-layout-260218.pv-mode-pc .pv-services-img{
-  max-height: clamp(220px, 32vw, 360px);
+  max-height: clamp(280px, 38vw, 440px);
 }
 .pv-layout-260218.pv-mode-pc .pv-mapframe,
 .pv-layout-260218.pv-mode-pc .pv-mapshot-img{
-  height: clamp(220px, 30vw, 300px);
+  height: clamp(260px, 34vw, 360px);
 }
 
 .pv-layout-260218.pv-dark .pv-mapshot-img{
@@ -8984,23 +8964,24 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   height: 280px;
 }
 
-/* ===== PC section media fit (v1.0.6) ===== */
+/* ===== PC section media fit (v1.0.10) ===== */
 .pv-layout-260218.pv-mode-pc .pv-about-img,
 .pv-layout-260218.pv-mode-pc .pv-services-img,
 .pv-layout-260218.pv-mode-pc .pv-mapframe,
 .pv-layout-260218.pv-mode-pc .pv-mapshot-img{
   display: block;
-  width: min(100%, 760px);
+  width: 100%;
+  max-width: 100%;
   margin-left: auto;
   margin-right: auto;
 }
 .pv-layout-260218.pv-mode-pc .pv-about-img,
 .pv-layout-260218.pv-mode-pc .pv-services-img{
-  max-height: clamp(220px, 32vw, 360px);
+  max-height: clamp(280px, 38vw, 440px);
 }
 .pv-layout-260218.pv-mode-pc .pv-mapframe,
 .pv-layout-260218.pv-mode-pc .pv-mapshot-img{
-  height: clamp(220px, 30vw, 300px);
+  height: clamp(260px, 34vw, 360px);
 }
 
 .pv-layout-260218.pv-dark .pv-mapshot-img{
@@ -12570,7 +12551,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.9) ===== */
+/* ===== Export final viewport clamp (v1.0.10) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -14130,11 +14111,6 @@ def render_main(u: User) -> None:
                                                             except Exception:
                                                                 pass
                                                             update_and_refresh()
-                                                            if key == "kind":
-                                                                try:
-                                                                    editor_ref["refresh"]()
-                                                                except Exception:
-                                                                    pass
 
                                                         def _set_profile_extra(index: int, field: str, value: str) -> None:
                                                             try:
@@ -14148,19 +14124,12 @@ def render_main(u: User) -> None:
                                                         ui.select(COMPANY_PROFILE_KIND_OPTIONS, value=profile.get("kind", "overview"), label="表示タイトル", on_change=lambda e: _set_profile_value("kind", e.value or "overview")).props("outlined dense").classes("w-full q-mb-sm")
                                                         ui.select(COMPANY_PROFILE_MODE_OPTIONS, value=profile.get("mode", "unused"), label="表示方法", on_change=lambda e: _set_profile_value("mode", e.value or "unused")).props("outlined dense").classes("w-full q-mb-sm")
 
-                                                        _profile_kind_now = str(profile.get("kind") or "overview").strip() or "overview"
-                                                        if _profile_kind_now not in COMPANY_PROFILE_KIND_OPTIONS:
-                                                            _profile_kind_now = "overview"
-                                                        _history_mode = (_profile_kind_now == "history")
-                                                        _profile_placeholder_off = "" if _history_mode else None
-
                                                         for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
                                                             _editor_val = _company_profile_editor_value(step2, profile, _key, _sample)
-                                                            _placeholder = _profile_placeholder_off if _history_mode else _sample
                                                             if _key == "business":
-                                                                ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_placeholder).props("outlined autogrow").classes("w-full q-mb-xs")
+                                                                ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow").classes("w-full q-mb-xs")
                                                             else:
-                                                                ui.input(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_placeholder).props("outlined dense").classes("w-full q-mb-xs")
+                                                                ui.input(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined dense").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{_sample}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-sm q-mb-sm")
@@ -14168,16 +14137,11 @@ def render_main(u: User) -> None:
                                                         ui.label("他の入力欄にない項目だけを追加してください。内容が空の行は完成ページに表示されません。入力がない行はグレーの例だけ表示されます。" ).classes("cvhb-muted q-mb-sm")
                                                         _extra_rows = _normalize_company_profile_extra_rows(profile)
                                                         for _i, _row in enumerate(_extra_rows):
-                                                            _extra_label_placeholder = _profile_placeholder_off if _history_mode else COMPANY_PROFILE_EXTRA_LABEL_SAMPLE
-                                                            _extra_value_placeholder = _profile_placeholder_off if _history_mode else COMPANY_PROFILE_EXTRA_VALUE_SAMPLE
-                                                            with ui.row().classes("w-full q-col-gutter-sm"):
+                                                            with ui.row().classes("w-full q-col-gutter-sm"): 
                                                                 with ui.column().classes("col-12 col-md-4"):
-                                                                    ui.input(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or ""), placeholder=_extra_label_placeholder).props("outlined dense").classes("w-full q-mb-xs")
+                                                                    ui.input(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or "")).props("outlined dense").classes("w-full q-mb-xs")
                                                                 with ui.column().classes("col-12 col-md-8"):
-                                                                    if _history_mode:
-                                                                        ui.textarea(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or ""), placeholder=_extra_value_placeholder).props("outlined autogrow").classes("w-full q-mb-xs")
-                                                                    else:
-                                                                        ui.input(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or ""), placeholder=_extra_value_placeholder).props("outlined dense").classes("w-full q-mb-xs")
+                                                                    ui.textarea(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or "")).props("outlined autogrow dense").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{COMPANY_PROFILE_EXTRA_LABEL_SAMPLE} / {COMPANY_PROFILE_EXTRA_VALUE_SAMPLE}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
@@ -15468,12 +15432,13 @@ def render_main(u: User) -> None:
                             max_scale = 1.00 if mode == "mobile" else 0.75
                             radius = 22 if mode == "mobile" else 14
 
-                            frame_height = "clamp(680px, 82dvh, 1120px)" if mode == "mobile" else "clamp(640px, 78dvh, 980px)"
                             frame_style = (
-                                f"width: 100%; height: {frame_height}; overflow: hidden; border-radius: {radius}px; margin: 0;"
+                                f"width: 100%; {'min-height: 860px;' if mode == 'pc' else 'height: 2400px;'} overflow: hidden; border-radius: {radius}px; margin: 0;"
                             )
-                            fit_props = 'id="pv-fit"'
+                            fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == 'pc' else 'id="pv-fit"'
                             fit_style = (
+                                "min-height: 860px; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
+                                if mode == 'pc' else
                                 "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
                             )
                             with ui.card().classes(f"cvhb-preview-card cvhb-preview-card-{mode}").style(frame_style).props("flat bordered"):
@@ -16148,18 +16113,24 @@ async def index():
                         try:
                             mode = app.storage.user.get("preview_mode", "mobile")
                             design_w = 720 if mode == "mobile" else 1920
-                            min_scale = 0.01 if mode == "mobile" else 0.50
-                            max_scale = 1.00 if mode == "mobile" else 0.75
-                            radius = 22 if mode == "mobile" else 14
-                            frame_height = "clamp(680px, 82dvh, 1120px)" if mode == "mobile" else "clamp(640px, 78dvh, 980px)"
+                            fit_min_w = 720 if mode == "mobile" else 1280
+                            fit_max_w = 720 if mode == "mobile" else 1920
 
-                            with ui.card().classes("w-full cvhb-preview-card").props("bordered"):
-                                with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").style(
-                                    f"width:100%; height:{frame_height}; overflow:hidden; border-radius:{radius}px; margin:0;"
+                            with ui.card().classes("w-full").props("bordered"):
+                                with ui.element("div").classes("w-full").style(
+                                    f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
+                                    "margin:0 auto; overflow:hidden; padding:12px;"
                                 ):
-                                    with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props('id="pv-fit"').style(
-                                        "height:100%; width:100%; display:block; overflow:hidden; position:relative; background:transparent;"
-                                    ):
+                                    fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == "pc" else 'id="pv-fit"'
+                                    fit_style = (
+                                        f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
+                                        + ("min-height:860px;" if mode == "pc" else "")
+                                        + "margin:0 auto; overflow:hidden;"
+                                        + "border-radius:18px;"
+                                        + "border:1px solid rgba(0,0,0,0.10);"
+                                        + "background:rgba(255,255,255,0.35);"
+                                    )
+                                    with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
                                         try:
                                             render_preview(p_fallback, mode=mode, root_id="pv-root", in_builder=True)
                                         except Exception as e3:
@@ -16170,7 +16141,7 @@ async def index():
                             ui.run_javascript(
                                 f"""
 try {{
-  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},0,0,{min_scale},{max_scale});
+  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w});
   window.cvhbFitApply && window.cvhbFitApply('pv');
 }} catch (e) {{ console.warn('[cvhb] fit error', e); }}
 """
