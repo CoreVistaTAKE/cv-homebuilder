@@ -6484,6 +6484,25 @@ def _php_escape_single_quoted(s: str) -> str:
     return s.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def build_privacy_modal_markup(privacy_body_html: str) -> str:
+    """公開HTML用のプライバシーポリシーモーダルを返す。"""
+    body = str(privacy_body_html or "").strip()
+    if not body:
+        return ""
+    return f"""<div class="pv-privacy-overlay" id="pvPrivacyOverlay" hidden>
+  <div class="pv-privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="pvPrivacyTitle">
+    <button class="pv-privacy-x" type="button" data-pv-privacy-close aria-label="閉じる">×</button>
+    <div class="pv-privacy-head">
+      <div class="pv-privacy-title" id="pvPrivacyTitle">プライバシーポリシー</div>
+      <div class="pv-privacy-sub">PRIVACY</div>
+    </div>
+    <div class="pv-privacy-body pv-legal">{body}</div>
+    <div class="pv-privacy-actions">
+      <button class="pv-link-btn pv-btn-outline" type="button" data-pv-privacy-close>閉じる</button>
+    </div>
+  </div>
+</div>"""
+
 def build_contact_config_php(*, company_name: str, to_email: str, phone: str) -> str:
     """config/config.php（送信先など）を生成する。"""
     site = _php_escape_single_quoted(company_name.strip() or "サイト")
@@ -6610,7 +6629,7 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ") -> str:
+def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ", privacy_body_html: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
     - クエリ: ?status=ok または ?status=ng&reason=...
@@ -6685,11 +6704,11 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     desktop_nav_html = "".join(
         [f'<a class="pv-desktop-nav-btn" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-    ) + '<a class="pv-desktop-nav-btn" href="privacy.html">プライバシーポリシー</a>'
+    ) + '<a class="pv-desktop-nav-btn" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>'
 
     mobile_nav_items_html = "".join(
         [f'<a class="pv-nav-item" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-        + [f'<a class="pv-nav-item" href="privacy.html">プライバシーポリシー</a>']
+        + [f'<a class="pv-nav-item" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>']
     )
 
     email_block = ""
@@ -6700,6 +6719,8 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
             <a class="pv-link-btn pv-btn-outline" href="mailto:{esc_email}">{esc_email}</a>
           </div>
         """
+
+    privacy_modal_html = build_privacy_modal_markup(privacy_body_html)
 
     return f"""<!doctype html>
 <html lang="ja">
@@ -6736,6 +6757,8 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
       </div>
     </div>
 
+    {privacy_modal_html}
+
     <div class="pv-scroll">
       <main class="pv-main">
         <section class="pv-section pv-section-260218" id="pv-thanks">
@@ -6769,7 +6792,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
             <a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>
             <a class="pv-footer-link" href="index.html#pv-access">アクセス</a>
             <a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>
-            <a class="pv-footer-link" href="privacy.html">プライバシーポリシー</a>
+            <a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>
           </div>
           <div class="pv-footer-copy">© <span id="pvYear"></span> {esc_company}</div>
         </div>
@@ -6804,7 +6827,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 </body>
 </html>
 """
-def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ") -> dict[str, bytes]:
+def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, phone: str = "", favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ", privacy_body_html: str = "") -> dict[str, bytes]:
     """PHPフォーム方式で必要なファイルをまとめて生成する。
 
     - contact.php（送信処理）
@@ -6814,7 +6837,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
     return {
         "contact.php": build_contact_php(company_name=company_name, to_email=to_email).encode("utf-8"),
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
-        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label).encode("utf-8"),
+        "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label, privacy_body_html=privacy_body_html).encode("utf-8"),
     }
 def build_contact_section_html(
     *,
@@ -6850,7 +6873,7 @@ def build_contact_section_html(
 
     # 共通の注意文
     hint_html = f"""
-      <div class="pv-contact-hint">※ 送信前に <a class="pv-inline-link" href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a> をご確認ください。</div>
+      <div class="pv-contact-hint">※ 送信前に <a class="pv-inline-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a> をご確認ください。</div>
     """.strip()
 
     # アクション領域
@@ -9442,6 +9465,83 @@ body.pv-page-body{
 .pv-nav-close{width:100%; margin-top:10px; padding:12px 14px; border-radius:14px; border:1px solid rgba(0,0,0,.08); background:rgba(0,0,0,.05); font-weight:900; cursor:pointer;}
 .pv-dark .pv-nav-close{border-color:rgba(255,255,255,.12); background:rgba(255,255,255,.08); color:var(--pv-text);}
 
+body.pv-modal-open{overflow:hidden !important;}
+
+/* ===== Privacy Modal (export only) ===== */
+.pv-privacy-overlay{
+  position:fixed;
+  inset:0;
+  padding:16px;
+  background:rgba(0,0,0,.52);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:1000;
+}
+.pv-privacy-overlay.is-open{display:flex;}
+.pv-privacy-dialog{
+  position:relative;
+  width:min(960px, 100%);
+  max-height:min(88vh, 900px);
+  max-height:min(88dvh, 900px);
+  padding:22px 20px 18px;
+  border-radius:24px;
+  border:1px solid rgba(255,255,255,.24);
+  background:rgba(255,255,255,.96);
+  box-shadow:0 28px 80px rgba(0,0,0,.32);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.pv-dark .pv-privacy-dialog{
+  background:rgba(18,18,18,.94);
+  border-color:rgba(255,255,255,.14);
+}
+.pv-privacy-head{padding-right:42px;}
+.pv-privacy-title{
+  font-weight:1000;
+  font-size:1.12rem;
+}
+.pv-privacy-sub{
+  margin-top:4px;
+  font-size:0.76rem;
+  letter-spacing:0.14em;
+  opacity:0.56;
+  font-weight:800;
+}
+.pv-privacy-body{
+  margin-top:14px;
+  overflow:auto;
+  padding-right:4px;
+}
+.pv-privacy-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  margin-top:16px;
+}
+.pv-privacy-x{
+  position:absolute;
+  top:12px;
+  right:12px;
+  width:42px;
+  height:42px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,.08);
+  background:rgba(0,0,0,.05);
+  color:var(--pv-text);
+  font-size:24px;
+  line-height:1;
+  cursor:pointer;
+}
+.pv-dark .pv-privacy-x{
+  border-color:rgba(255,255,255,.14);
+  background:rgba(255,255,255,.08);
+  color:var(--pv-text);
+}
+
 /* ===== Contact Form (export only) ===== */
 .pv-error-box{
   margin:12px 0 0;
@@ -9975,6 +10075,57 @@ body.pv-page-body{
     targets.forEach(function(el){ io.observe(el); });
   }
 
+  function initPrivacyModal(){
+    var overlay = document.getElementById('pvPrivacyOverlay');
+    if(!overlay) return;
+
+    function closeNavOverlay(){
+      var navOverlay = document.getElementById('pvNavOverlay');
+      if(!navOverlay) return;
+      navOverlay.hidden = true;
+      navOverlay.classList.remove('is-open');
+    }
+
+    function openPrivacy(){
+      closeNavOverlay();
+      overlay.hidden = false;
+      overlay.classList.add('is-open');
+      document.body.classList.add('pv-modal-open');
+    }
+
+    function closePrivacy(){
+      overlay.hidden = true;
+      overlay.classList.remove('is-open');
+      document.body.classList.remove('pv-modal-open');
+    }
+
+    document.querySelectorAll('[data-pv-privacy-open]').forEach(function(el){
+      el.addEventListener('click', function(ev){
+        if(ev) ev.preventDefault();
+        openPrivacy();
+      });
+    });
+
+    overlay.querySelectorAll('[data-pv-privacy-close]').forEach(function(el){
+      el.addEventListener('click', function(ev){
+        if(ev) ev.preventDefault();
+        closePrivacy();
+      });
+    });
+
+    overlay.addEventListener('click', function(ev){
+      if(ev.target === overlay){
+        closePrivacy();
+      }
+    });
+
+    document.addEventListener('keydown', function(ev){
+      if(ev.key === 'Escape' && overlay.classList.contains('is-open')){
+        closePrivacy();
+      }
+    });
+  }
+
   ready(function(){
     var root = document.getElementById('pv-root');
     if(!root) return;
@@ -10006,6 +10157,7 @@ body.pv-page-body{
     });
 
     initNav();
+    initPrivacyModal();
     initSmoothScroll();
     initHeroSlider(root);
     initScrollReveal(root);
@@ -10075,6 +10227,13 @@ body.pv-page-body{
             html_parts.append("<p>" + _esc(part).replace("\n", "<br>") + "</p>")
         return "".join(html_parts)
 
+    privacy_md = build_privacy_markdown(p)
+    privacy_body = render_markdown_html(privacy_md)
+    privacy_modal_html = build_privacy_modal_markup(privacy_body)
+
+    def _privacy_anchor(*, href: str, classes: str = "pv-footer-link", label: str = "プライバシーポリシー") -> str:
+        return f'<a class="{classes}" href="{_esc(href)}" data-pv-privacy-open="1">{_esc(label)}</a>'
+
     # ページ共通: セクションヘッダー
     def _section_head(title_jp: str, subtitle_en: str) -> str:
         return f"""<div class=\"pv-section-head\">\n  <div class=\"pv-section-title\">{_esc(title_jp)}</div>\n  <div class=\"pv-section-subtitle\">{_esc(subtitle_en)}</div>\n</div>"""
@@ -10104,11 +10263,11 @@ body.pv-page-body{
     ]
 
     desktop_nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
-    desktop_nav_html += '<a class="pv-desktop-nav-btn" href="privacy.html">プライバシーポリシー</a>'
+    desktop_nav_html += _privacy_anchor(href="privacy.html", classes="pv-desktop-nav-btn")
 
     mobile_nav_items_html = "".join([
         f'<a class="pv-nav-item" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items
-    ]) + '<a class="pv-nav-item" href="privacy.html">プライバシーポリシー</a>'
+    ]) + _privacy_anchor(href="privacy.html", classes="pv-nav-item")
 
     footer_links = [
         ("#pv-top", "トップ"),
@@ -10122,9 +10281,8 @@ body.pv-page-body{
         ("#pv-faq", "よくある質問"),
         ("#pv-access", "アクセス"),
         ("#pv-contact", contact_nav_label),
-        ("privacy.html", "プライバシーポリシー"),
     ]
-    footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links])
+    footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links]) + _privacy_anchor(href="privacy.html", classes="pv-footer-link")
 
     # --------------------
     # hero
@@ -10223,10 +10381,10 @@ body.pv-page-body{
             return f"{root_prefix}index.html#{sid}"
 
         nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
-        nav_html += f'<a class="pv-desktop-nav-btn" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
+        nav_html += _privacy_anchor(href=f"{root_prefix}privacy.html", classes="pv-desktop-nav-btn")
 
         mnav_html = "".join([f'<a class="pv-nav-item" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
-        mnav_html += f'<a class="pv-nav-item" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
+        mnav_html += _privacy_anchor(href=f"{root_prefix}privacy.html", classes="pv-nav-item")
 
         footer_links = [
             (sec_href("pv-top"), "トップ"),
@@ -10240,9 +10398,8 @@ body.pv-page-body{
             (sec_href("pv-faq"), "よくある質問"),
             (sec_href("pv-access"), "アクセス"),
             (sec_href("pv-contact"), contact_nav_label),
-            (f"{root_prefix}privacy.html", "プライバシーポリシー"),
         ]
-        footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links])
+        footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links]) + _privacy_anchor(href=f"{root_prefix}privacy.html", classes="pv-footer-link")
 
         brand_href = sec_href("pv-top")
 
@@ -10279,6 +10436,8 @@ body.pv-page-body{
         <button class=\"pv-nav-close\" id=\"pvMenuClose\" type=\"button\">閉じる</button>
       </div>
     </div>
+
+    {privacy_modal_html}
 
     <div class=\"pv-scroll\">
       <main class=\"pv-main\">{body_inner}</main>
@@ -10600,7 +10759,7 @@ body.pv-page-body{
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=profile_nav_label, services_label=services_nav_label, contact_label=contact_button_text))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=profile_nav_label, services_label=services_nav_label, contact_label=contact_button_text, privacy_body_html=privacy_body))
 
     # --------------------
     # index.html
@@ -10641,6 +10800,8 @@ body.pv-page-body{
       </div>
     </div>
 
+    {privacy_modal_html}
+
     <div class=\"pv-scroll\">
       <main class=\"pv-main\">
         {hero_html}
@@ -10678,7 +10839,7 @@ body.pv-page-body{
 <section class=\"pv-section pv-section-260218\" id=\"pv-privacy\">
   {_section_head("プライバシーポリシー", "PRIVACY")}
   <div class=\"pv-panel pv-panel-glass pv-legal\">{privacy_body}</div>
-  <div class=\"pv-news-more\"><a class=\"pv-link-btn pv-btn-outline\" href=\"index.html#pv-contact\">お問い合わせへ戻る</a></div>
+  <div class=\"pv-news-more\"><button class=\"pv-link-btn pv-btn-outline\" type=\"button\" onclick=\"window.close(); if (!window.closed) {{ location.href='index.html#pv-top'; }}\">閉じる</button></div>
 </section>
 """
 
