@@ -1204,10 +1204,13 @@ def inject_global_styles() -> None:
     contain: paint;
   }
   .cvhb-preview-card.cvhb-preview-card-pc {
-    min-height: 860px;
+    width: min(100%, 1280px);
+    min-height: 0;
+    margin-left: auto;
+    margin-right: auto;
   }
   .cvhb-preview-stage.cvhb-preview-stage-pc {
-    min-height: 860px;
+    min-height: 0;
   }
   .cvhb-loader-scene {
     position: relative;
@@ -1224,9 +1227,12 @@ def inject_global_styles() -> None:
   }
   .cvhb-loader-glow {
     position: absolute;
-    inset: auto;
+    left: 50%;
+    top: 50%;
     width: 160px;
     height: 160px;
+    margin-left: -80px;
+    margin-top: -80px;
     border-radius: 999px;
     background: radial-gradient(circle, rgba(30,94,255,0.24) 0%, rgba(139,92,246,0.12) 40%, rgba(255,255,255,0) 74%);
     filter: blur(8px);
@@ -1301,11 +1307,14 @@ def inject_global_styles() -> None:
   }
   .cvhb-loader-dots {
     position: absolute;
+    left: 50%;
     bottom: 6px;
+    transform: translateX(-50%);
     display: inline-flex;
     gap: 9px;
     align-items: center;
     justify-content: center;
+    width: max-content;
   }
   .cvhb-loader-dots span {
     width: 9px;
@@ -1801,7 +1810,7 @@ def inject_global_styles() -> None:
 
 /* ===== Builder内プレビューの基準幅（重要） =====
    - スマホ: 720px
-   - PC: 1920px（プレビューは縮小表示／最低1280px）
+   - PC: 1280px（ヒーロー画像の最大幅に合わせる）
    ※ 実際の幅は JS の fit 関数が style.width で制御します。
       ここで max-width:100% を付けると「PCもスマホも同じ」に見える原因になるので付けません。
 */
@@ -1813,7 +1822,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-shell.pv-layout-260218.pv-mode-pc{
-  width: 1920px;     /* JS未適用時のフォールバック */
+  width: 1280px;     /* JS未適用時のフォールバック */
   max-width: none;
   height: 100%;
   margin: 0;
@@ -7609,7 +7618,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
 /* ===== Builder内プレビューの基準幅（重要） =====
    - スマホ: 720px
-   - PC: 1920px（プレビューは縮小表示／最低1280px）
+   - PC: 1280px（ヒーロー画像の最大幅に合わせる）
    ※ 実際の幅は JS の fit 関数が style.width で制御します。
       ここで max-width:100% を付けると「PCもスマホも同じ」に見える原因になるので付けません。
 */
@@ -7621,7 +7630,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-shell.pv-layout-260218.pv-mode-pc{
-  width: 1920px;     /* JS未適用時のフォールバック */
+  width: 1280px;     /* JS未適用時のフォールバック */
   max-width: none;
   height: 100%;
   margin: 0;
@@ -15421,23 +15430,23 @@ def render_main(u: User) -> None:
                             if mode not in ("mobile", "pc"):
                                 mode = "mobile"
 
-                            # デザイン上の横幅（SP=720 / PC=1920）
-                            # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
-                            # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
-                            design_w = 720 if mode == "mobile" else 1920
+                            # デザイン上の横幅（SP=720 / PC=1280）
+                            # PCは「ヒーロー画像の最大幅 = サイトの最大幅」に合わせる。
+                            # これで、プレビュー右側の余計な背景余りを出さない。
+                            design_w = 720 if mode == "mobile" else 1280
                             # 表示(縮小)ルール
                             # - スマホ: 720px をそのまま（大きくしすぎない / 中央揃え）
-                            # - PC: 1920pxで作り、表示は 1440px(0.75)〜960px(0.50) の範囲に収める
-                            min_scale = 0.01 if mode == "mobile" else 0.50
-                            max_scale = 1.00 if mode == "mobile" else 0.75
+                            # - PC: 1280px を基準に、入る範囲だけ縮小する
+                            min_scale = 0.01
+                            max_scale = 1.00
                             radius = 22 if mode == "mobile" else 14
 
                             frame_style = (
-                                f"width: 100%; {'min-height: 860px;' if mode == 'pc' else 'height: 2400px;'} overflow: hidden; border-radius: {radius}px; margin: 0;"
+                                f"{'width: min(100%, 1280px); min-height: 0; height: auto;' if mode == 'pc' else 'width: 100%; height: 2400px;'} overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             )
                             fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == 'pc' else 'id="pv-fit"'
                             fit_style = (
-                                "min-height: 860px; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
+                                "width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
                                 if mode == 'pc' else
                                 "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
                             )
@@ -15456,7 +15465,7 @@ def render_main(u: User) -> None:
                                         # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
                                         render_preview(p, mode=mode, root_id="pv-root", in_builder=True)
 
-                                        # fit-to-width (design: 720px / 1920px)
+                                        # fit-to-width (design: 720px / 1280px)
                                         try:
                                             ui.run_javascript(
                                                 f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, 0, 0, {min_scale}, {max_scale});"
@@ -16111,20 +16120,20 @@ async def index():
                         ui.separator().classes("q-my-lg")
                         ui.label("プレビュー（復旧モード）").classes("text-subtitle2")
                         try:
-                            mode = app.storage.user.get("preview_mode", "mobile")
-                            design_w = 720 if mode == "mobile" else 1920
-                            fit_min_w = 720 if mode == "mobile" else 1280
-                            fit_max_w = 720 if mode == "mobile" else 1920
+                            mode = app.storage.user.get(UI_PV_MODE_KEY, "mobile")
+                            design_w = 720 if mode == "mobile" else 1280
+                            fit_min_w = 0
+                            fit_max_w = 720 if mode == "mobile" else 1280
 
                             with ui.card().classes("w-full").props("bordered"):
                                 with ui.element("div").classes("w-full").style(
-                                    f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
+                                    f"max-width:{fit_max_w}px; width:100%;"
                                     "margin:0 auto; overflow:hidden; padding:12px;"
                                 ):
                                     fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == "pc" else 'id="pv-fit"'
                                     fit_style = (
-                                        f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
-                                        + ("min-height:860px;" if mode == "pc" else "")
+                                        f"max-width:{fit_max_w}px; width:100%;"
+                                        + ("min-height:0;height:auto;" if mode == "pc" else "")
                                         + "margin:0 auto; overflow:hidden;"
                                         + "border-radius:18px;"
                                         + "border:1px solid rgba(0,0,0,0.10);"
@@ -16141,7 +16150,7 @@ async def index():
                             ui.run_javascript(
                                 f"""
 try {{
-  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w});
+  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w},0.01,1.00);
   window.cvhbFitApply && window.cvhbFitApply('pv');
 }} catch (e) {{ console.warn('[cvhb] fit error', e); }}
 """
