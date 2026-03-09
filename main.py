@@ -1227,9 +1227,21 @@ def inject_global_styles() -> None:
   }
   .cvhb-loading-card {
     min-width: 280px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99)),
+      linear-gradient(135deg, rgba(30,94,255,0.05), rgba(139,92,246,0.04));
     border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
+    box-shadow: 0 22px 56px rgba(15,23,42,0.14);
+  }
+  .cvhb-loading-card .column,
+  .cvhb-loading-card .items-center {
+    width: 100%;
+    align-items: center !important;
+    justify-content: center;
+    text-align: center;
   }
   .cvhb-preview-card {
     background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.28));
@@ -1255,38 +1267,70 @@ def inject_global_styles() -> None:
   }
   .cvhb-loader-scene {
     position: relative;
-    width: 220px;
-    height: 152px;
-    margin: 0 auto 6px;
+    width: 240px;
+    height: 182px;
+    margin: 0 auto 8px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .cvhb-loader-scene.is-compact {
-    width: 188px;
-    height: 136px;
+    width: 204px;
+    height: 154px;
   }
   .cvhb-loader-glow {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 160px;
-    height: 160px;
-    margin-left: -80px;
-    margin-top: -80px;
+    width: 176px;
+    height: 176px;
+    margin-left: -88px;
+    margin-top: -88px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(30,94,255,0.24) 0%, rgba(139,92,246,0.12) 40%, rgba(255,255,255,0) 74%);
-    filter: blur(8px);
+    background: radial-gradient(circle, rgba(30,94,255,0.24) 0%, rgba(139,92,246,0.14) 42%, rgba(255,255,255,0) 76%);
+    filter: blur(10px);
     animation: cvhbLoaderGlow 2.8s ease-in-out infinite;
+  }
+  .cvhb-loader-orbit {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    border-radius: 999px;
+    border: 1px solid rgba(96,165,250,0.22);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .cvhb-loader-orbit::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    right: 10px;
+    top: 50%;
+    margin-top: -5px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(96,165,250,0.98), rgba(59,130,246,0.84));
+    box-shadow: 0 0 0 5px rgba(96,165,250,0.12);
+  }
+  .cvhb-loader-orbit-a {
+    width: 170px;
+    height: 170px;
+    animation: cvhbLoaderOrbitA 5.4s linear infinite;
+  }
+  .cvhb-loader-orbit-b {
+    width: 136px;
+    height: 136px;
+    border-color: rgba(139,92,246,0.18);
+    animation: cvhbLoaderOrbitB 4.2s linear infinite reverse;
   }
   .cvhb-loader-stage {
     position: relative;
-    width: 190px;
-    height: 110px;
+    width: 196px;
+    height: 114px;
   }
   .cvhb-loader-scene.is-compact .cvhb-loader-stage {
-    width: 166px;
-    height: 96px;
+    width: 176px;
+    height: 102px;
   }
   .cvhb-loader-card-mini {
     position: absolute;
@@ -1346,10 +1390,34 @@ def inject_global_styles() -> None:
     transform: translate(34px, 16px) rotate(8deg) scale(0.96);
     animation: cvhbLoaderCardC 2.8s ease-in-out infinite;
   }
+  .cvhb-loader-progress {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    width: 148px;
+    height: 8px;
+    border-radius: 999px;
+    transform: translateX(-50%);
+    background: rgba(148,163,184,0.18);
+    overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(15,23,42,0.06);
+  }
+  .cvhb-loader-progress span {
+    display: block;
+    width: 42%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(30,94,255,0.92), rgba(96,165,250,0.92), rgba(139,92,246,0.86));
+    animation: cvhbLoaderProgress 1.9s ease-in-out infinite;
+  }
+  .cvhb-loader-scene.is-compact .cvhb-loader-progress {
+    width: 128px;
+    bottom: 24px;
+  }
   .cvhb-loader-dots {
     position: absolute;
     left: 50%;
-    bottom: 6px;
+    bottom: 4px;
     transform: translateX(-50%);
     display: inline-flex;
     gap: 9px;
@@ -1382,6 +1450,18 @@ def inject_global_styles() -> None:
   @keyframes cvhbLoaderCardC {
     0%, 100% { transform: translate(34px, 16px) rotate(8deg) scale(0.96); }
     50% { transform: translate(38px, 10px) rotate(10deg) scale(1.00); }
+  }
+  @keyframes cvhbLoaderOrbitA {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+  }
+  @keyframes cvhbLoaderOrbitB {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+  }
+  @keyframes cvhbLoaderProgress {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(260%); }
   }
   @keyframes cvhbLoaderDot {
     0%, 100% { transform: translateY(0); opacity: 0.46; }
@@ -9385,6 +9465,7 @@ body.pv-page-body{
   margin:0;
   overflow-x:hidden !important;
   overflow-y:auto !important;
+  background: var(--pv-base-1, #ffffff);
 }
 .pv-shell.pv-layout-260218,
 .pv-shell.pv-layout-260218.pv-mode-mobile,
@@ -9403,6 +9484,7 @@ body.pv-page-body{
   isolation:isolate;
   overflow:hidden !important;
   clip-path: inset(0);
+  contain: paint;
 }
 
 .pv-layout-260218 .pv-scroll{
@@ -9417,6 +9499,7 @@ body.pv-page-body{
   overflow-y:visible !important;
   overscroll-behavior:auto !important;
   clip-path: inset(0);
+  contain: paint;
 }
 
 .pv-layout-260218 .pv-main,
@@ -10232,7 +10315,8 @@ body.pv-modal-open{overflow:hidden !important;}
     privacy_modal_html = build_privacy_modal_markup(privacy_body)
 
     def _privacy_anchor(*, href: str, classes: str = "pv-footer-link", label: str = "プライバシーポリシー") -> str:
-        return f'<a class="{classes}" href="{_esc(href)}" data-pv-privacy-open="1">{_esc(label)}</a>'
+        safe_href = _esc(href or "privacy.html")
+        return f'<a class="{classes}" href="{safe_href}" data-pv-privacy-open="1" aria-haspopup="dialog">{_esc(label)}</a>'
 
     # ページ共通: セクションヘッダー
     def _section_head(title_jp: str, subtitle_en: str) -> str:
@@ -12567,8 +12651,8 @@ body.pv-page-body{
 }
 /* ===== Depth Background Rebuild (v1.0.15) ===== */
 .pv-shell.pv-layout-260218{
-  --pv-depth-overscan-x: max(9vw, 112px);
-  --pv-depth-overscan-y: max(9vh, 80px);
+  --pv-depth-overscan-x: 0px;
+  --pv-depth-overscan-y: 0px;
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -12576,6 +12660,7 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: hidden !important;
   clip-path: inset(0);
+  contain: paint;
   background-image: var(--pv-bg-img) !important;
   background-color: var(--pv-base-1);
   background-size: var(--pv-base-size);
@@ -12595,6 +12680,7 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
   clip-path: inset(0);
+  contain: paint;
   background: transparent !important;
 }
 .pv-shell.pv-layout-260218 .pv-scroll > *{
@@ -12853,10 +12939,7 @@ body.pv-page-body{
 body.pv-page-body::before{
   content:"";
   position:fixed;
-  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
-  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
-  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
-  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
+  inset:0;
   pointer-events:none;
   z-index:0;
   background-image:var(--pv-bg-img);
@@ -12876,16 +12959,14 @@ body.pv-page-body > #pv-root.pv-shell{
   background:none !important;
   overflow:hidden !important;
   clip-path:inset(0);
+  contain:paint;
 }
 body.pv-page-body > #pv-root.pv-shell::before,
 body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
-  position:fixed !important;
-  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
-  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
-  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
-  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
+  position:absolute !important;
+  inset:0 !important;
   pointer-events:none;
   transform-origin:center center;
 }
@@ -12905,6 +12986,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   overflow-y:visible !important;
   overscroll-behavior:auto !important;
   background:transparent !important;
+  contain:paint;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main{
   flex:1 0 auto;
@@ -15772,11 +15854,14 @@ def render_loading_visual(*, compact: bool = False) -> None:
         f"""
 <div class="cvhb-loader-scene {size_class}" aria-hidden="true">
   <div class="cvhb-loader-glow"></div>
+  <div class="cvhb-loader-orbit cvhb-loader-orbit-a"></div>
+  <div class="cvhb-loader-orbit cvhb-loader-orbit-b"></div>
   <div class="cvhb-loader-stage">
     <span class="cvhb-loader-card-mini cvhb-loader-card-a"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-b"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-c"></span>
   </div>
+  <div class="cvhb-loader-progress"><span></span></div>
   <div class="cvhb-loader-dots"><span></span><span></span><span></span></div>
 </div>
 """
