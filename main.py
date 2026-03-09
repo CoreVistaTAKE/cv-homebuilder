@@ -274,27 +274,16 @@ def _company_profile_effective_value(step2: Optional[dict], profile: Optional[di
 
 
 def _company_profile_editor_value(step2: Optional[dict], profile: Optional[dict], key: str, sample: str) -> str:
-    """編集欄に出す値。未入力欄は空欄のままにし、手入力値だけを返す。"""
+    """編集欄に出す値。手入力値 > 基本情報の自動反映 > 空欄（プレースホルダーで例表示）。"""
     prof = profile if isinstance(profile, dict) else {}
     raw = str(prof.get(key) or "").strip()
     sample = str(sample or "").strip()
+    auto_val = str(_company_profile_autofill_values(step2).get(key) or "").strip()
     if raw and raw != sample:
         return raw
+    if auto_val:
+        return auto_val
     return ""
-
-
-def _company_profile_cell_html(key: str, value: str) -> str:
-    """会社概要/沿革セルの表示HTML。改行を保ちつつ、URL欄は安全にリンク化する。"""
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    if key == "site_url":
-        lines = [line.strip() for line in raw.splitlines() if line.strip()]
-        href = lines[0] if lines else raw
-        label_html = "<br>".join(html.escape(line) for line in lines) if lines else html.escape(raw)
-        safe_href = html.escape(href, quote=True)
-        return f'<a class="pv-inline-link" href="{safe_href}" target="_blank" rel="noreferrer noopener">{label_html}</a>'
-    return html.escape(raw).replace("\n", "<br>")
 
 
 def _normalize_company_profile_extra_rows(profile: Optional[dict]) -> list[dict]:
@@ -1098,31 +1087,13 @@ def inject_global_styles() -> None:
   /* ====== Page base ====== */
   .cvhb-page {
     background: #f5f5f5;
-    min-height: calc(100dvh - 64px);
+    min-height: calc(100vh - 64px);
   }
   .cvhb-container {
     width: 100%;
     max-width: none;
     margin: 0;
     padding: 16px;
-  }
-
-  @media (min-width: 761px) {
-    html.cvhb-builder-lock,
-    html.cvhb-builder-lock body {
-      height: 100dvh;
-      overflow: hidden !important;
-    }
-    body.cvhb-builder-page,
-    body.cvhb-builder-page #app,
-    body.cvhb-builder-page .nicegui-content,
-    body.cvhb-builder-page .q-layout,
-    body.cvhb-builder-page .q-page-container,
-    body.cvhb-builder-page .q-page {
-      height: 100%;
-      min-height: 0;
-      overflow: hidden !important;
-    }
   }
 
   /* ====== Split layout (PC builder) ====== */
@@ -1135,48 +1106,6 @@ def inject_global_styles() -> None:
   .cvhb-left-col,
   .cvhb-right-col {
     width: 100%;
-    min-width: 0;
-  }
-
-  /* v1.0.10: PCでは左右を独立スクロールにして、全体スクロールを止める */
-  @media (min-width: 761px) {
-    .cvhb-page {
-      height: calc(100dvh - 64px);
-      max-height: calc(100dvh - 64px);
-      min-height: 0;
-      overflow: hidden;
-    }
-    .cvhb-container {
-      height: 100%;
-      min-height: 0;
-      box-sizing: border-box;
-      padding-bottom: 8px;
-      overflow: hidden;
-    }
-    .cvhb-split {
-      height: 100%;
-      min-height: 0;
-      align-items: stretch;
-      overflow: hidden;
-    }
-    .cvhb-left-col,
-    .cvhb-right-col {
-      height: 100%;
-      min-height: 0;
-      overflow-y: auto;
-      overflow-x: hidden;
-      overscroll-behavior: contain;
-      scrollbar-gutter: stable;
-      padding-right: 4px;
-    }
-    .cvhb-right-col {
-      position: static;
-      top: auto;
-      align-self: stretch;
-    }
-    .cvhb-right-col > .q-card {
-      min-height: 0;
-    }
   }
 
   /* 左側フォームはカード幅いっぱいを使う（左寄せで細く見えるのを防ぐ） */
@@ -1192,209 +1121,21 @@ def inject_global_styles() -> None:
   .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
   .cvhb-left-col .q-field__bottom { padding-left: 0; }
 
-  /* v1.0.6: 左入力UIを少しだけ見やすく（見た目は大きく変えない） */
-  .cvhb-left-col .q-card {
-    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,251,255,0.98));
-    border-color: rgba(25,118,210,0.10);
-    box-shadow: 0 10px 28px rgba(15,23,42,0.05);
-  }
-  .cvhb-left-col .q-field--outlined .q-field__control {
-    background: rgba(248,250,255,0.72);
-    transition: background .12s ease, box-shadow .12s ease;
-  }
-  .cvhb-left-col .q-field__label {
-    color: rgba(31,41,55,0.82);
-    font-weight: 700;
-  }
-  .cvhb-left-col .q-field--focused .q-field__control,
-  .cvhb-left-col .q-field--highlighted .q-field__control {
-    background: rgba(255,255,255,0.98);
-    box-shadow: 0 0 0 3px rgba(25,118,210,0.10);
-  }
-  .cvhb-edit-card {
-    background: linear-gradient(180deg, rgba(251,253,255,0.98), rgba(246,250,255,0.98));
-    border-color: rgba(25,118,210,0.14) !important;
-  }
-  .cvhb-entry-card {
-    background: linear-gradient(180deg, rgba(248,251,255,0.96), rgba(255,255,255,0.98));
-    border-color: rgba(25,118,210,0.18) !important;
-    border-left: 4px solid rgba(25,118,210,0.28);
-  }
-  .cvhb-loading-card {
-    min-width: 280px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
-    border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
-  }
-  .cvhb-preview-card {
-    background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.28));
-    border-color: rgba(148,163,184,0.22) !important;
-  }
-  .cvhb-preview-stage {
-    width: 100%;
-    display: block;
-    overflow-x: hidden;
-    overflow-y: hidden;
-    position: relative;
-    background: transparent;
-    contain: paint;
-  }
-  .cvhb-preview-card.cvhb-preview-card-pc {
-    width: min(100%, 1280px);
-    min-height: 0;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  .cvhb-preview-stage.cvhb-preview-stage-pc {
-    min-height: 0;
-  }
-  .cvhb-loader-scene {
-    position: relative;
-    width: 220px;
-    height: 152px;
-    margin: 0 auto 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .cvhb-loader-scene.is-compact {
-    width: 188px;
-    height: 136px;
-  }
-  .cvhb-loader-glow {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 160px;
-    height: 160px;
-    margin-left: -80px;
-    margin-top: -80px;
-    border-radius: 999px;
-    background: radial-gradient(circle, rgba(30,94,255,0.24) 0%, rgba(139,92,246,0.12) 40%, rgba(255,255,255,0) 74%);
-    filter: blur(8px);
-    animation: cvhbLoaderGlow 2.8s ease-in-out infinite;
-  }
-  .cvhb-loader-stage {
-    position: relative;
-    width: 190px;
-    height: 110px;
-  }
-  .cvhb-loader-scene.is-compact .cvhb-loader-stage {
-    width: 166px;
-    height: 96px;
-  }
-  .cvhb-loader-card-mini {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 124px;
-    height: 78px;
-    margin-left: -62px;
-    margin-top: -39px;
-    border-radius: 19px;
-    border: 1px solid rgba(103, 125, 255, 0.20);
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.98), rgba(240,247,255,0.95)),
-      linear-gradient(135deg, rgba(30,94,255,0.08), rgba(139,92,246,0.06));
-    box-shadow: 0 18px 40px rgba(15,23,42,0.10);
-    overflow: hidden;
-    transform-origin: center center;
-  }
-  .cvhb-loader-scene.is-compact .cvhb-loader-card-mini {
-    width: 108px;
-    height: 70px;
-    margin-left: -54px;
-    margin-top: -35px;
-  }
-  .cvhb-loader-card-mini::before {
-    content: "";
-    position: absolute;
-    left: 14px;
-    right: 14px;
-    top: 14px;
-    height: 11px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, rgba(30,94,255,0.26), rgba(96,165,250,0.20), rgba(139,92,246,0.14));
-  }
-  .cvhb-loader-card-mini::after {
-    content: "";
-    position: absolute;
-    left: 14px;
-    right: 24px;
-    bottom: 14px;
-    height: 8px;
-    border-radius: 999px;
-    background: rgba(148,163,184,0.26);
-    box-shadow:
-      0 -17px 0 rgba(148,163,184,0.18),
-      26px -34px 0 rgba(30,94,255,0.12);
-  }
-  .cvhb-loader-card-a {
-    transform: translate(-34px, 16px) rotate(-8deg) scale(0.96);
-    animation: cvhbLoaderCardA 2.8s ease-in-out infinite;
-  }
-  .cvhb-loader-card-b {
-    transform: translate(0, -4px) rotate(0deg) scale(1.02);
-    animation: cvhbLoaderCardB 2.8s ease-in-out infinite;
-  }
-  .cvhb-loader-card-c {
-    transform: translate(34px, 16px) rotate(8deg) scale(0.96);
-    animation: cvhbLoaderCardC 2.8s ease-in-out infinite;
-  }
-  .cvhb-loader-dots {
-    position: absolute;
-    left: 50%;
-    bottom: 6px;
-    transform: translateX(-50%);
-    display: inline-flex;
-    gap: 9px;
-    align-items: center;
-    justify-content: center;
-    width: max-content;
-  }
-  .cvhb-loader-dots span {
-    width: 9px;
-    height: 9px;
-    border-radius: 999px;
-    background: linear-gradient(180deg, rgba(96,165,250,0.96), rgba(59,130,246,0.82));
-    box-shadow: 0 0 0 4px rgba(96,165,250,0.10);
-    animation: cvhbLoaderDot 1.45s ease-in-out infinite;
-  }
-  .cvhb-loader-dots span:nth-child(2) { animation-delay: 0.18s; }
-  .cvhb-loader-dots span:nth-child(3) { animation-delay: 0.36s; }
-  @keyframes cvhbLoaderGlow {
-    0%, 100% { transform: scale(0.96); opacity: 0.86; }
-    50% { transform: scale(1.06); opacity: 1; }
-  }
-  @keyframes cvhbLoaderCardA {
-    0%, 100% { transform: translate(-34px, 16px) rotate(-8deg) scale(0.96); }
-    50% { transform: translate(-38px, 10px) rotate(-10deg) scale(1.00); }
-  }
-  @keyframes cvhbLoaderCardB {
-    0%, 100% { transform: translate(0, -4px) rotate(0deg) scale(1.02); }
-    50% { transform: translate(0, -12px) rotate(0deg) scale(1.06); }
-  }
-  @keyframes cvhbLoaderCardC {
-    0%, 100% { transform: translate(34px, 16px) rotate(8deg) scale(0.96); }
-    50% { transform: translate(38px, 10px) rotate(10deg) scale(1.00); }
-  }
-  @keyframes cvhbLoaderDot {
-    0%, 100% { transform: translateY(0); opacity: 0.46; }
-    50% { transform: translateY(-6px); opacity: 1; }
-  }
 
+
+  /* 右プレビューはデスクトップ時に追従 */
+  @media (min-width: 761px) {
+    .cvhb-right-col {
+      position: sticky;
+      top: 88px;
+      align-self: start;
+    }
+  }
 
   /* スマホ：縦並び */
   @media (max-width: 760px) {
-    .cvhb-page { height: auto; overflow: visible; }
     .cvhb-container { padding: 8px; }
-    .cvhb-split { grid-template-columns: 1fr; height: auto; }
-    .cvhb-left-col,
-    .cvhb-right-col {
-      height: auto;
-      overflow: visible;
-      padding-right: 0;
-    }
+    .cvhb-split { grid-template-columns: 1fr; }
     .cvhb-right-col { position: static; }
   }
 
@@ -1413,7 +1154,6 @@ def inject_global_styles() -> None:
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding-bottom: 16px;
   }
 
   /* ====== Step menu (left) ====== */
@@ -1435,32 +1175,20 @@ def inject_global_styles() -> None:
     line-height: 1.3;
   }
   .cvhb-step-tabs .q-tab--active {
-    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
-    border-color: rgba(25,118,210,0.42);
-    box-shadow: 0 8px 22px rgba(25,118,210,0.12);
+    background: rgba(25,118,210,0.08);
+    border-color: rgba(25,118,210,0.35);
     font-weight: 700;
   }
 
   /* ====== Step3 block tabs ====== */
   .cvhb-block-tabs .q-tabs__content { flex-wrap: wrap; }
   .cvhb-block-tabs .q-tab {
-    min-height: 36px;
+    min-height: 34px;
     padding: 0 12px;
-    margin: 0 8px 8px 0;
-    border-radius: 999px;
-    background: rgba(15,23,42,0.04);
-    border: 1px solid rgba(15,23,42,0.08);
   }
   .cvhb-block-tabs .q-tab__label {
     white-space: normal;
     line-height: 1.2;
-  }
-  .cvhb-block-tabs .q-tab--active {
-    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
-    border-color: rgba(25,118,210,0.42);
-    box-shadow: 0 6px 18px rgba(25,118,210,0.10);
-    color: var(--q-primary);
-    font-weight: 700;
   }
 
   /* ====== Choice cards (industry/color) ====== */
@@ -1844,9 +1572,15 @@ def inject_global_styles() -> None:
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
 }
 
+/* v0.9.11-5: ビルダー右プレビューは『内側スクロールなし』にする */
+.pv-shell.pv-layout-260218.pv-preview-outer-scroll{
+  height: auto;
+  min-height: 0;
+}
+
 /* ===== Builder内プレビューの基準幅（重要） =====
    - スマホ: 720px
-   - PC: 1280px（ヒーロー画像の最大幅に合わせる）
+   - PC: 1920px（プレビューは縮小表示／最低1280px）
    ※ 実際の幅は JS の fit 関数が style.width で制御します。
       ここで max-width:100% を付けると「PCもスマホも同じ」に見える原因になるので付けません。
 */
@@ -1858,7 +1592,7 @@ def inject_global_styles() -> None:
 }
 
 .pv-shell.pv-layout-260218.pv-mode-pc{
-  width: 1280px;     /* JS未適用時のフォールバック */
+  width: 1920px;     /* JS未適用時のフォールバック */
   max-width: none;
   height: 100%;
   margin: 0;
@@ -1873,6 +1607,11 @@ def inject_global_styles() -> None:
   overscroll-behavior: contain;
   scroll-behavior: smooth;
   background: var(--pv-bg-img);
+}
+
+.pv-shell.pv-layout-260218.pv-preview-outer-scroll .pv-scroll{
+  overflow-y: visible;
+  overscroll-behavior: auto;
 }
 
 .pv-layout-260218 .pv-topbar-260218{
@@ -2247,10 +1986,6 @@ def inject_global_styles() -> None:
 .pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
   height: auto;
 }
-.pv-layout-260218.pv-mode-pc .pv-hero-wide{
-  width: min(100%, 1280px);
-  margin: 0 auto 44px;
-}
 .pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
   height: auto;
 }
@@ -2264,6 +1999,9 @@ def inject_global_styles() -> None:
 }
 
 /* PC: dots are shown "below" the hero image, so we keep some space under the hero */
+.pv-layout-260218.pv-mode-pc .pv-hero-wide{
+  margin-bottom: 44px;
+}
 
 .pv-layout-260218 .pv-hero-dots{
   position: absolute;
@@ -2479,7 +2217,7 @@ def inject_global_styles() -> None:
   flex: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 1400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: opacity 1000ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
@@ -3232,26 +2970,6 @@ def inject_global_styles() -> None:
   height: 280px;
 }
 
-/* ===== PC section media fit (v1.0.10) ===== */
-.pv-layout-260218.pv-mode-pc .pv-about-img,
-.pv-layout-260218.pv-mode-pc .pv-services-img,
-.pv-layout-260218.pv-mode-pc .pv-mapframe,
-.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  margin-left: auto;
-  margin-right: auto;
-}
-.pv-layout-260218.pv-mode-pc .pv-about-img,
-.pv-layout-260218.pv-mode-pc .pv-services-img{
-  max-height: clamp(280px, 38vw, 440px);
-}
-.pv-layout-260218.pv-mode-pc .pv-mapframe,
-.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
-  height: clamp(260px, 34vw, 360px);
-}
-
 .pv-layout-260218.pv-dark .pv-mapshot-img{
   border-color: rgba(255,255,255,0.12);
   background:
@@ -3489,7 +3207,7 @@ def inject_global_styles() -> None:
       } catch(e){}
 
       let idx = 0;
-      const ms = (intervalMs && intervalMs > 0) ? intervalMs : 6000;
+      const ms = (intervalMs && intervalMs > 0) ? intervalMs : 4500;
       let timer = null;
       let reduce = false;
       try{
@@ -3558,7 +3276,7 @@ def inject_global_styles() -> None:
           hero.classList.remove('is-caption-in');
           window.setTimeout(function(){
             hero.classList.add('is-caption-in');
-          }, reduce ? 0 : 360);
+          }, reduce ? 0 : 260);
         }
       }catch(e){}
 
@@ -3566,17 +3284,10 @@ def inject_global_styles() -> None:
     } catch(e){}
   };
 
-  window.__cvhbRevealObservers = window.__cvhbRevealObservers || {};
   window.cvhbInitScrollReveal = window.cvhbInitScrollReveal || function(rootId){
     try{
       const root = document.getElementById(rootId);
       if(!root) return;
-      try{
-        if(window.__cvhbRevealObservers[rootId]){
-          window.__cvhbRevealObservers[rootId].disconnect();
-          delete window.__cvhbRevealObservers[rootId];
-        }
-      }catch(e){}
       try{ root.classList.add('pv-js'); }catch(e){}
       const targets = root.querySelectorAll('section.pv-section, section.pv-section-260218');
       if(!targets || targets.length <= 0) return;
@@ -3603,7 +3314,6 @@ def inject_global_styles() -> None:
       }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
 
       targets.forEach(function(el){ io.observe(el); });
-      try{ window.__cvhbRevealObservers[rootId] = io; }catch(e){}
     }catch(e){}
   };
 
@@ -3633,18 +3343,31 @@ def inject_global_styles() -> None:
       }
 
       const outer = root.closest('.cvhb-right-col') || root.closest('.cvhb-preview-stage') || root.parentElement;
-      if(!outer) return;
-      const outerRect = outer.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const top = outer.scrollTop + (elRect.top - outerRect.top) - 72;
-      outer.scrollTo({top: top, behavior: 'smooth'});
+      const outerStyle = outer ? window.getComputedStyle(outer) : null;
+      const canUseOuterScroll = !!(
+        outer &&
+        outer.scrollHeight > (outer.clientHeight + 2) &&
+        outerStyle &&
+        outerStyle.overflowY !== 'visible' &&
+        outerStyle.overflowY !== 'hidden'
+      );
+      if(canUseOuterScroll){
+        const outerRect = outer.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const top = outer.scrollTop + (elRect.top - outerRect.top) - 72;
+        outer.scrollTo({top: top, behavior: 'smooth'});
+        return;
+      }
+
+      const pageTop = el.getBoundingClientRect().top + window.pageYOffset - 96;
+      window.scrollTo({top: Math.max(0, pageTop), behavior: 'smooth'});
     } catch(e){}
   };
 
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, gen: {}, last: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, gen: {} };
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -3723,58 +3446,17 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     }catch(e){}
     const myGen = (window.__cvhbFit.gen && window.__cvhbFit.gen[key]) ? window.__cvhbFit.gen[key] : 0;
 
-    // 古いタイマー / RAF は無効化
+    // 古いタイマーは無効化
     try{
       if(window.__cvhbFit.timers && window.__cvhbFit.timers[key]){
         clearTimeout(window.__cvhbFit.timers[key]);
         delete window.__cvhbFit.timers[key];
-      }
-      if(window.__cvhbFit.rafs && window.__cvhbFit.rafs[key]){
-        cancelAnimationFrame(window.__cvhbFit.rafs[key]);
-        delete window.__cvhbFit.rafs[key];
       }
     }catch(e){}
 
     let tries = 0;
     const MAX_TRIES = 60;
     const DELAY_MS = 80;
-
-    const queueApply = function(delay){
-      try{
-        try{
-          if(window.__cvhbFit.gen && window.__cvhbFit.gen[key] !== myGen) return;
-        }catch(e){}
-        if(window.__cvhbFit.timers && window.__cvhbFit.timers[key]){
-          clearTimeout(window.__cvhbFit.timers[key]);
-          delete window.__cvhbFit.timers[key];
-        }
-        const run = function(){
-          try{
-            if(window.__cvhbFit.rafs && window.__cvhbFit.rafs[key]){
-              cancelAnimationFrame(window.__cvhbFit.rafs[key]);
-            }
-          }catch(e){}
-          try{
-            window.__cvhbFit.rafs[key] = requestAnimationFrame(function(){
-              try{ apply(); }catch(e){}
-              try{ delete window.__cvhbFit.rafs[key]; }catch(e){}
-            });
-          }catch(e){
-            try{ apply(); }catch(e){}
-          }
-        };
-        if((delay || 0) > 0){
-          window.__cvhbFit.timers[key] = setTimeout(function(){
-            try{ delete window.__cvhbFit.timers[key]; }catch(e){}
-            run();
-          }, delay);
-        }else{
-          run();
-        }
-      }catch(e){
-        try{ apply(); }catch(e){}
-      }
-    };
 
     const apply = function(){
       try{
@@ -3814,7 +3496,8 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_wait', {key:key, ow:ow, oh:oh, tries:tries}); }catch(e){}
           if(tries < MAX_TRIES){
             tries++;
-            queueApply(DELAY_MS);
+            try{ clearTimeout(window.__cvhbFit.timers[key]); }catch(e){}
+            window.__cvhbFit.timers[key] = setTimeout(apply, DELAY_MS);
           }else{
             // fallback: とにかく見える状態に戻す（scale は諦める）
             try{
@@ -3895,7 +3578,8 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           }
         };
 
-        // PCプレビューだけは「実際のコンテンツ高」に合わせて、フッター下の余白を出さない
+        // v0.9.11-5: ビルダー右プレビューでは inner 側でスクロールさせず、
+        // 縦は実コンテンツ高に合わせて outer を伸ばす
         const innerH = autoHeight
           ? readContentHeight()
           : Math.max(1, oh / Math.max(0.01, scale));
@@ -3916,23 +3600,15 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         const visualH = innerH * scale;
         if(autoHeight){
           try{
-            const nextH = Math.max(1, Math.ceil(visualH));
-            if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
-              outer.style.height = nextH + 'px';
-            }
+            outer.style.height = Math.max(1, Math.ceil(visualH)) + 'px';
           }catch(e){}
         }
-
-        try{
-          window.__cvhbFit.last = window.__cvhbFit.last || {};
-          window.__cvhbFit.last[key] = { ow: ow, oh: autoHeight ? visualH : oh, scale: scale, left: left, innerH: innerH };
-        }catch(e){}
 
         try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_applied', {key:key, ow:ow, oh:(autoHeight ? visualH : oh), dw_req:dwReq, dw_used:dwUsed, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0, scale:scale, left:left, autoHeight:autoHeight}); }catch(e){}
       }catch(e){}
     };
 
-    window.__cvhbFit.regs[key] = function(){ queueApply(0); };
+    window.__cvhbFit.regs[key] = apply;
 
     // ResizeObserver (一番安定)
     const ensureObserver = function(){
@@ -3945,7 +3621,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
-        const obs = new ResizeObserver(function(){ try{ queueApply(0); }catch(e){} });
+        const obs = new ResizeObserver(function(){ try{ apply(); }catch(e){} });
         obs.observe(outer);
         window.__cvhbFit.observers[key] = obs;
       }catch(e){}
@@ -3967,9 +3643,11 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     }
 
     // first runs (layout settle)
-    queueApply(0);
-    queueApply(120);
-    queueApply(320);
+    apply();
+    try{ requestAnimationFrame(apply); }catch(e){}
+    setTimeout(apply, 60);
+    setTimeout(apply, 240);
+    setTimeout(apply, 600);
   }catch(e){}
 };
 
@@ -4360,40 +4038,6 @@ def navigate_to(path: str) -> None:
         pass
 
 
-PENDING_OPEN_PROJECT_ID_KEY = "pending_open_project_id"
-PENDING_OPEN_PROJECT_NAME_KEY = "pending_open_project_name"
-
-
-def set_pending_open_project(project_id: str, project_name: str = "") -> None:
-    try:
-        app.storage.user[PENDING_OPEN_PROJECT_ID_KEY] = str(project_id or "")
-        app.storage.user[PENDING_OPEN_PROJECT_NAME_KEY] = str(project_name or "")
-    except Exception:
-        pass
-
-
-def pop_pending_open_project() -> tuple[str, str]:
-    project_id = ""
-    project_name = ""
-    try:
-        project_id = str(app.storage.user.pop(PENDING_OPEN_PROJECT_ID_KEY, "") or "")
-    except Exception:
-        project_id = ""
-    try:
-        project_name = str(app.storage.user.pop(PENDING_OPEN_PROJECT_NAME_KEY, "") or "")
-    except Exception:
-        project_name = ""
-    return project_id, project_name
-
-
-def clear_pending_open_project() -> None:
-    try:
-        app.storage.user.pop(PENDING_OPEN_PROJECT_ID_KEY, None)
-        app.storage.user.pop(PENDING_OPEN_PROJECT_NAME_KEY, None)
-    except Exception:
-        pass
-
-
 # =========================
 # [BLK-05] Session / Project state (avoid storing big dict in cookie)
 # =========================
@@ -4411,7 +4055,6 @@ def clear_current_project(user: Optional[User]) -> None:
         app.storage.user.pop("project", None)  # 念のため
     except Exception:
         pass
-    clear_pending_open_project()
     if user:
         PROJECT_CACHE.pop(user.id, None)
 
@@ -6680,7 +6323,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     desktop_nav_html = "".join(
         [f'<a class="pv-desktop-nav-btn" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-    ) + '<a class="pv-desktop-nav-btn" href="privacy.html">プライバシーポリシー</a>'
+    )
 
     mobile_nav_items_html = "".join(
         [f'<a class="pv-nav-item" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
@@ -7174,41 +6817,6 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   .cvhb-left-col .q-field--outlined .q-field__control { border-radius: 12px; }
   .cvhb-left-col .q-field__bottom { padding-left: 0; }
 
-  /* v1.0.6: 左入力UIを少しだけ見やすく（見た目は大きく変えない） */
-  .cvhb-left-col .q-card {
-    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,251,255,0.98));
-    border-color: rgba(25,118,210,0.10);
-    box-shadow: 0 10px 28px rgba(15,23,42,0.05);
-  }
-  .cvhb-left-col .q-field--outlined .q-field__control {
-    background: rgba(248,250,255,0.72);
-    transition: background .12s ease, box-shadow .12s ease;
-  }
-  .cvhb-left-col .q-field__label {
-    color: rgba(31,41,55,0.82);
-    font-weight: 700;
-  }
-  .cvhb-left-col .q-field--focused .q-field__control,
-  .cvhb-left-col .q-field--highlighted .q-field__control {
-    background: rgba(255,255,255,0.98);
-    box-shadow: 0 0 0 3px rgba(25,118,210,0.10);
-  }
-  .cvhb-edit-card {
-    background: linear-gradient(180deg, rgba(251,253,255,0.98), rgba(246,250,255,0.98));
-    border-color: rgba(25,118,210,0.14) !important;
-  }
-  .cvhb-entry-card {
-    background: linear-gradient(180deg, rgba(248,251,255,0.96), rgba(255,255,255,0.98));
-    border-color: rgba(25,118,210,0.18) !important;
-    border-left: 4px solid rgba(25,118,210,0.28);
-  }
-  .cvhb-loading-card {
-    min-width: 280px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
-    border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
-  }
-
 
 
   /* 右プレビューはデスクトップ時に追従 */
@@ -7263,32 +6871,20 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
     line-height: 1.3;
   }
   .cvhb-step-tabs .q-tab--active {
-    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
-    border-color: rgba(25,118,210,0.42);
-    box-shadow: 0 8px 22px rgba(25,118,210,0.12);
+    background: rgba(25,118,210,0.08);
+    border-color: rgba(25,118,210,0.35);
     font-weight: 700;
   }
 
   /* ====== Step3 block tabs ====== */
   .cvhb-block-tabs .q-tabs__content { flex-wrap: wrap; }
   .cvhb-block-tabs .q-tab {
-    min-height: 36px;
+    min-height: 34px;
     padding: 0 12px;
-    margin: 0 8px 8px 0;
-    border-radius: 999px;
-    background: rgba(15,23,42,0.04);
-    border: 1px solid rgba(15,23,42,0.08);
   }
   .cvhb-block-tabs .q-tab__label {
     white-space: normal;
     line-height: 1.2;
-  }
-  .cvhb-block-tabs .q-tab--active {
-    background: linear-gradient(180deg, rgba(25,118,210,0.14), rgba(25,118,210,0.08));
-    border-color: rgba(25,118,210,0.42);
-    box-shadow: 0 6px 18px rgba(25,118,210,0.10);
-    color: var(--q-primary);
-    font-weight: 700;
   }
 
   /* ====== Choice cards (industry/color) ====== */
@@ -7674,7 +7270,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 
 /* ===== Builder内プレビューの基準幅（重要） =====
    - スマホ: 720px
-   - PC: 1280px（ヒーロー画像の最大幅に合わせる）
+   - PC: 1920px（プレビューは縮小表示／最低1280px）
    ※ 実際の幅は JS の fit 関数が style.width で制御します。
       ここで max-width:100% を付けると「PCもスマホも同じ」に見える原因になるので付けません。
 */
@@ -7686,7 +7282,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 .pv-shell.pv-layout-260218.pv-mode-pc{
-  width: 1280px;     /* JS未適用時のフォールバック */
+  width: 1920px;     /* JS未適用時のフォールバック */
   max-width: none;
   height: 100%;
   margin: 0;
@@ -8075,10 +7671,6 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218.pv-mode-mobile .pv-hero-slider-wide{
   height: auto;
 }
-.pv-layout-260218.pv-mode-pc .pv-hero-wide{
-  width: min(100%, 1280px);
-  margin: 0 auto 44px;
-}
 .pv-layout-260218.pv-mode-pc .pv-hero-slider-wide{
   height: auto;
 }
@@ -8092,6 +7684,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 }
 
 /* PC: dots are shown "below" the hero image, so we keep some space under the hero */
+.pv-layout-260218.pv-mode-pc .pv-hero-wide{
+  margin-bottom: 44px;
+}
 
 .pv-layout-260218 .pv-hero-dots{
   position: absolute;
@@ -8307,7 +7902,7 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   flex: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 1400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: opacity 1000ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .pv-layout-260218 .pv-hero-slider:not(.is-js) .pv-hero-slide:first-child{
@@ -9029,26 +8624,6 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   height: 280px;
 }
 
-/* ===== PC section media fit (v1.0.10) ===== */
-.pv-layout-260218.pv-mode-pc .pv-about-img,
-.pv-layout-260218.pv-mode-pc .pv-services-img,
-.pv-layout-260218.pv-mode-pc .pv-mapframe,
-.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  margin-left: auto;
-  margin-right: auto;
-}
-.pv-layout-260218.pv-mode-pc .pv-about-img,
-.pv-layout-260218.pv-mode-pc .pv-services-img{
-  max-height: clamp(280px, 38vw, 440px);
-}
-.pv-layout-260218.pv-mode-pc .pv-mapframe,
-.pv-layout-260218.pv-mode-pc .pv-mapshot-img{
-  height: clamp(260px, 34vw, 360px);
-}
-
 .pv-layout-260218.pv-dark .pv-mapshot-img{
   border-color: rgba(255,255,255,0.12);
   background:
@@ -9639,34 +9214,18 @@ body.pv-page-body{
     # v0.9.5: 完成品HPの「見出し文言」をビルダーと完全一致させる（重要）
     #   - ここがズレると「プレビューと公開結果が違う」事故になる
     about_nav_label = str(ph.get("title") or "").strip() or "私たちの想い"
+    # 会社概要 / 会社沿革 は表示時のみナビへ追加する
+    _profile_meta = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
+    _profile_mode_nav = str(_profile_meta.get("mode") or "unused").strip() or "unused"
+    if _profile_mode_nav not in COMPANY_PROFILE_MODE_OPTIONS:
+        _profile_mode_nav = "unused"
+    _profile_kind_nav = str(_profile_meta.get("kind") or "overview").strip() or "overview"
+    if _profile_kind_nav not in COMPANY_PROFILE_KIND_OPTIONS:
+        _profile_kind_nav = "overview"
+    profile_nav_label = COMPANY_PROFILE_KIND_OPTIONS.get(_profile_kind_nav, "会社概要") if _profile_mode_nav != "unused" else ""
     services_nav_label = str(svc.get("title") or "").strip() or "業務内容"
     _contact_meta = blocks.get("contact") if isinstance(blocks.get("contact"), dict) else {}
     contact_nav_label = str(_contact_meta.get("button_text") or "").strip() or "お問い合わせ"
-
-    # 会社概要 / 会社沿革 は「実際に表示される内容」がある時だけ各ページのナビへ出す
-    # 参照順を先に確定して、書き出し時の NameError とページ間ズレを防ぐ
-    profile = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
-    profile_mode = str(profile.get("mode") or "unused").strip() or "unused"
-    if profile_mode not in COMPANY_PROFILE_MODE_OPTIONS:
-        profile_mode = "unused"
-    profile_kind = str(profile.get("kind") or "overview").strip() or "overview"
-    if profile_kind not in COMPANY_PROFILE_KIND_OPTIONS:
-        profile_kind = "overview"
-    profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(profile_kind, "会社概要")
-    profile_rows = []
-    for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
-        _val = _company_profile_effective_value(step2, profile, _key)
-        if not _val:
-            continue
-        _cell_html = _company_profile_cell_html(_key, _val)
-        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label or "")}</div><div class="pv-company-profile-value">{_cell_html}</div></div>')
-    for _row in _company_profile_visible_extra_rows(profile):
-        _lbl = str(_row.get("label") or "").strip() or "補足"
-        _val = str(_row.get("value") or "").strip()
-        if not _val:
-            continue
-        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_lbl)}</div><div class="pv-company-profile-value">{html.escape(_val).replace("\n", "<br>")}</div></div>')
-    profile_nav_label = profile_title if profile_mode != "unused" and profile_rows else ""
 
     # --------------------
     # JS
@@ -9881,7 +9440,7 @@ body.pv-page-body{
     var dots = dotsBox ? Array.prototype.slice.call(dotsBox.querySelectorAll('.pv-hero-dot')) : [];
     var idx = 0;
     var timer = null;
-    var intervalMs = parseInt(slider.getAttribute('data-interval') || '6000', 10) || 6000;
+    var intervalMs = parseInt(slider.getAttribute('data-interval') || '4500', 10) || 4500;
     var reduce = false;
 
     try{
@@ -9932,7 +9491,7 @@ body.pv-page-body{
       var hero = slider.closest('.pv-hero') || slider.closest('.pv-hero-wide') || slider.closest('section');
       if(hero){
         hero.classList.remove('is-caption-in');
-        setTimeout(function(){ hero.classList.add('is-caption-in'); }, reduce ? 0 : 360);
+        setTimeout(function(){ hero.classList.add('is-caption-in'); }, reduce ? 0 : 260);
       }
     }catch(_e){}
 
@@ -10089,7 +9648,7 @@ body.pv-page-body{
         ("pv-news", "お知らせ"),
         ("pv-about", about_nav_label),
     ]
-    if profile_nav_label:
+    if profile_nav_label and profile_mode != "unused" and profile_rows:
         nav_items.append(("pv-company-profile", profile_nav_label))
     nav_items += [
         ("pv-services", services_nav_label),
@@ -10104,22 +9663,6 @@ body.pv-page-body{
     mobile_nav_items_html = "".join([
         f'<a class="pv-nav-item" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items
     ]) + '<a class="pv-nav-item" href="privacy.html">プライバシーポリシー</a>'
-
-    footer_links = [
-        ("#pv-top", "トップ"),
-        ("news/index.html", "お知らせ一覧"),
-        ("#pv-about", about_nav_label),
-    ]
-    if profile_nav_label:
-        footer_links.append(("#pv-company-profile", profile_nav_label))
-    footer_links += [
-        ("#pv-services", services_nav_label),
-        ("#pv-faq", "よくある質問"),
-        ("#pv-access", "アクセス"),
-        ("#pv-contact", contact_nav_label),
-        ("privacy.html", "プライバシーポリシー"),
-    ]
-    footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links])
 
     # --------------------
     # hero
@@ -10150,7 +9693,7 @@ body.pv-page-body{
     hero_html = f"""
 <section class=\"pv-hero pv-hero-wide pv-hero-260218\" id=\"pv-top\">
   <div class=\"pv-hero-stage\">
-    <div class=\"pv-hero-slider pv-hero-slider-wide\" id=\"pv-hero-slider\" data-interval=\"6000\">
+    <div class=\"pv-hero-slider pv-hero-slider-wide\" id=\"pv-hero-slider\" data-interval=\"4500\">
       <div class=\"pv-hero-track\">{slides_html}</div>
     </div>
     {dots_html}
@@ -10213,31 +9756,15 @@ body.pv-page-body{
         esc_title = _esc(title)
         icon_tag = _favicon_head_tags(favicon_href_)
 
-        # index 以外のページは、常にトップページ（index.html）の各セクションへ戻す
+        # ルート外ページは index.html#... へのリンクにする
         def sec_href(sid: str) -> str:
-            return f"{root_prefix}index.html#{sid}"
+            return f"#{sid}" if not root_prefix else f"{root_prefix}index.html#{sid}"
 
         nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
         nav_html += f'<a class="pv-desktop-nav-btn" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
 
         mnav_html = "".join([f'<a class="pv-nav-item" href="{sec_href(sid)}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
         mnav_html += f'<a class="pv-nav-item" href="{root_prefix}privacy.html">プライバシーポリシー</a>'
-
-        footer_links = [
-            (sec_href("pv-top"), "トップ"),
-            (f"{root_prefix}news/index.html", "お知らせ一覧"),
-            (sec_href("pv-about"), about_nav_label),
-        ]
-        if profile_nav_label:
-            footer_links.append((sec_href("pv-company-profile"), profile_nav_label))
-        footer_links += [
-            (sec_href("pv-services"), services_nav_label),
-            (sec_href("pv-faq"), "よくある質問"),
-            (sec_href("pv-access"), "アクセス"),
-            (sec_href("pv-contact"), contact_nav_label),
-            (f"{root_prefix}privacy.html", "プライバシーポリシー"),
-        ]
-        footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links])
 
         brand_href = sec_href("pv-top")
 
@@ -10279,7 +9806,16 @@ body.pv-page-body{
       <main class=\"pv-main\">{body_inner}</main>
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-links\">{footer_links_html}</div>
+          <div class=\"pv-footer-links\">
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-top')}\">トップ</a>
+            <a class=\"pv-footer-link\" href=\"{root_prefix}news/index.html\">お知らせ一覧</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-about')}\">{_esc(about_nav_label)}</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-services')}\">{_esc(services_nav_label)}</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-faq')}\">よくある質問</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-access')}\">アクセス</a>
+            <a class=\"pv-footer-link\" href=\"{sec_href('pv-contact')}\">お問い合わせ</a>
+            <a class=\"pv-footer-link\" href=\"{root_prefix}privacy.html\">プライバシーポリシー</a>
+          </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
       </footer>
@@ -10378,6 +9914,31 @@ body.pv-page-body{
 
     about_body_html = _paras(ph_body)
 
+    profile = ph.get("company_profile") if isinstance(ph.get("company_profile"), dict) else {}
+    profile_mode = str(profile.get("mode") or "unused").strip() or "unused"
+    if profile_mode not in COMPANY_PROFILE_MODE_OPTIONS:
+        profile_mode = "unused"
+    profile_kind = str(profile.get("kind") or "overview").strip() or "overview"
+    if profile_kind not in COMPANY_PROFILE_KIND_OPTIONS:
+        profile_kind = "overview"
+    profile_title = COMPANY_PROFILE_KIND_OPTIONS.get(profile_kind, "会社概要")
+    profile_rows = []
+    for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        _val = _company_profile_effective_value(step2, profile, _key)
+        if not _val:
+            continue
+        if _key == "site_url":
+            _safe_url = _esc(_val)
+            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{_esc(_val)}</a>'
+        else:
+            _cell_html = _esc(_val).replace("\n", "<br>")
+        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>')
+    for _row in _company_profile_visible_extra_rows(profile):
+        _lbl = str(_row.get("label") or "").strip() or "補足"
+        _val = str(_row.get("value") or "").strip()
+        if not _val:
+            continue
+        profile_rows.append(f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(_lbl)}</div><div class="pv-company-profile-value">{_esc(_val).replace("\n", "<br>")}</div></div>')
     profile_section_html = ""
     if profile_mode != "unused" and profile_rows:
         profile_rows_html = ''.join(profile_rows)
@@ -10595,7 +10156,7 @@ body.pv-page-body{
 
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
-        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=profile_nav_label, services_label=services_nav_label, contact_label=contact_button_text))
+        files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=(profile_title if profile_mode != "unused" and profile_rows else ""), services_label=services_nav_label, contact_label=contact_button_text))
 
     # --------------------
     # index.html
@@ -10650,7 +10211,16 @@ body.pv-page-body{
 
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-links\">{footer_links_html}</div>
+          <div class=\"pv-footer-links\">
+            <a class=\"pv-footer-link\" href=\"#pv-top\">トップ</a>
+            <a class=\"pv-footer-link\" href=\"news/index.html\">お知らせ一覧</a>
+            <a class=\"pv-footer-link\" href=\"#pv-about\">{_esc(about_nav_label)}</a>
+            <a class=\"pv-footer-link\" href=\"#pv-services\">{_esc(services_nav_label)}</a>
+            <a class=\"pv-footer-link\" href=\"#pv-faq\">よくある質問</a>
+            <a class=\"pv-footer-link\" href=\"#pv-access\">アクセス</a>
+            <a class=\"pv-footer-link\" href=\"#pv-contact\">お問い合わせ</a>
+            <a class=\"pv-footer-link\" href=\"privacy.html\">プライバシーポリシー</a>
+          </div>
           <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
         </div>
       </footer>
@@ -12077,24 +11647,18 @@ def _preview_accent_hex(primary: str) -> str:
     return COLOR_HEX.get(primary, "#1976d2")
 
 def _preview_accent2_hex(primary: str, accent_hex: str) -> str:
-    """プレビュー用のアクセント2（グラデーション用の2色目）
-
-    v1.0.9:
-    - 各テーマが「その色らしく」見えるように、補助色も同系色へ寄せる
-    - blue → 青系、purple → 紫系、yellow → 黄〜金系 を維持する
-    - 背景の幾何学模様でもテーマ色がきれいに見えるよう、線色の彩度を少しだけ上げる
-    """
+    """プレビュー用のアクセント2（グラデーション用の2色目）"""
     presets = {
-        "blue": "#60a5fa",    # blue-400
-        "green": "#34d399",   # emerald-400
-        "red": "#f87171",     # red-400
-        "orange": "#fb923c",  # orange-400
-        "purple": "#8b5cf6",  # violet-500
-        "grey": "#94a3b8",    # slate-400
-        "gray": "#94a3b8",    # alias
-        "black": "#38bdf8",   # sky-400
-        "white": "#2563eb",   # blue-600
-        "yellow": "#facc15",  # yellow-400
+        "blue": "#7c3aed",    # violet-600
+        "green": "#14b8a6",   # teal-500
+        "red": "#fb7185",     # rose-400
+        "orange": "#f59e0b",  # amber-500
+        "purple": "#ec4899",  # pink-500
+        "grey": "#64748b",    # slate-500
+        "gray": "#64748b",    # alias
+        "black": "#a78bfa",   # violet-400
+        "white": "#60a5fa",   # blue-400
+        "yellow": "#f97316",  # orange-500
     }
     if primary in presets:
         return presets[primary]
@@ -12195,17 +11759,17 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.62))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.42), _alpha(0.60))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.40), _alpha(0.48))
-        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.26), _alpha(0.18))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.30), _alpha(0.16))
-        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.58), _alpha(0.078))
+        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.56), _alpha(0.006))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.60), _alpha(0.0048))
+        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.72), _alpha(0.0022))
         orb_1 = _rgba("#ffffff", _alpha(0.76))
         orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.54), _alpha(0.28))
         orb_ring = _rgba(_blend_hex(accent3, "#ffffff", 0.74), _alpha(0.028))
 
-        radial_opacity = {"weak": 0.38, "medium": 0.84, "strong": 1.10}.get(strength, 0.84)
-        blob_opacity = {"weak": 0.24, "medium": 0.62, "strong": 0.88}.get(strength, 0.62)
-        line_opacity = {"weak": 0.16, "medium": 0.26, "strong": 0.36}.get(strength, 0.26)
-        orb_opacity = {"weak": 0.36, "medium": 0.70, "strong": 0.90}.get(strength, 0.70)
+        radial_opacity = {"weak": 0.42, "medium": 0.86, "strong": 1.24}.get(strength, 0.86)
+        blob_opacity = {"weak": 0.28, "medium": 0.66, "strong": 1.02}.get(strength, 0.66)
+        line_opacity = {"weak": 0.0012, "medium": 0.0046, "strong": 0.013}.get(strength, 0.0046)
+        orb_opacity = {"weak": 0.42, "medium": 0.78, "strong": 1.02}.get(strength, 0.78)
         panel_show_opacity = {"weak": 0.02, "medium": 0.10, "strong": 0.20}.get(strength, 0.10)
     else:
         base1 = _blend_hex("#0b1220", accent, 0.18)
@@ -12245,73 +11809,73 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
         radial_2 = _rgba(accent2, _alpha(0.36))
         blob_1 = _rgba(_blend_hex(accent, "#ffffff", 0.16), _alpha(0.38))
         blob_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.22), _alpha(0.30))
-        line_1 = _rgba(_blend_hex(accent, "#ffffff", 0.56), _alpha(0.15))
-        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.48), _alpha(0.15))
-        line_1_soft = _rgba(_blend_hex(accent, "#ffffff", 0.72), _alpha(0.064))
+        line_1 = _rgba("#ffffff", _alpha(0.0046))
+        line_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.56), _alpha(0.0064))
+        line_1_soft = _rgba("#ffffff", _alpha(0.0022))
         orb_1 = _rgba("#ffffff", _alpha(0.42))
         orb_2 = _rgba(_blend_hex(accent2, "#ffffff", 0.50), _alpha(0.24))
         orb_ring = _rgba(_blend_hex(accent, "#ffffff", 0.66), _alpha(0.034))
 
-        radial_opacity = {"weak": 0.36, "medium": 0.76, "strong": 1.02}.get(strength, 0.76)
-        blob_opacity = {"weak": 0.24, "medium": 0.58, "strong": 0.84}.get(strength, 0.58)
-        line_opacity = {"weak": 0.14, "medium": 0.24, "strong": 0.34}.get(strength, 0.24)
-        orb_opacity = {"weak": 0.34, "medium": 0.66, "strong": 0.86}.get(strength, 0.66)
+        radial_opacity = {"weak": 0.40, "medium": 0.80, "strong": 1.12}.get(strength, 0.80)
+        blob_opacity = {"weak": 0.28, "medium": 0.62, "strong": 0.92}.get(strength, 0.62)
+        line_opacity = {"weak": 0.0016, "medium": 0.0048, "strong": 0.014}.get(strength, 0.0048)
+        orb_opacity = {"weak": 0.40, "medium": 0.72, "strong": 0.94}.get(strength, 0.72)
         panel_show_opacity = {"weak": 0.02, "medium": 0.09, "strong": 0.18}.get(strength, 0.09)
 
     motion = {
         "weak": {
-            "base_size": "122% 122%",
-            "base_duration": "30s",
-            "radial_from": "translate3d(-2.2%, -1.2%, 0) scale(1.00)",
-            "radial_to": "translate3d(2.8%, 1.8%, 0) scale(1.08)",
-            "radial_duration": "16.5s",
-            "blob_from": "translate3d(-1.8%, 1.0%, 0) scale(1.00)",
-            "blob_to": "translate3d(2.8%, -1.8%, 0) scale(1.10)",
-            "blob_duration": "19.0s",
-            "blob_blur": "24px",
-            "line_from": "translate3d(0, 0, 0) scale(1.00) rotate(0deg)",
-            "line_to": "translate3d(1.0%, -0.8%, 0) scale(1.04) rotate(0.20deg)",
-            "line_duration": "22s",
-            "orb_from": "translate3d(-1.2%, 0.2%, 0) scale(0.99)",
-            "orb_to": "translate3d(2.6%, -1.6%, 0) scale(1.08)",
-            "orb_duration": "15.0s",
-            "orb_blur": "34px",
-        },
-        "medium": {
-            "base_size": "134% 134%",
-            "base_duration": "21s",
-            "radial_from": "translate3d(-3.6%, -1.8%, 0) scale(1.00)",
-            "radial_to": "translate3d(4.4%, 2.6%, 0) scale(1.12)",
-            "radial_duration": "12.6s",
-            "blob_from": "translate3d(-2.8%, 1.4%, 0) scale(1.00)",
-            "blob_to": "translate3d(4.0%, -2.5%, 0) scale(1.15)",
-            "blob_duration": "14.8s",
+            "base_size": "126% 126%",
+            "base_duration": "22s",
+            "radial_from": "translate3d(-4.0%, -2.0%, 0) scale(1.00)",
+            "radial_to": "translate3d(5.2%, 3.0%, 0) scale(1.12)",
+            "radial_duration": "11.5s",
+            "blob_from": "translate3d(-3.0%, 1.6%, 0) scale(1.00)",
+            "blob_to": "translate3d(4.2%, -2.6%, 0) scale(1.14)",
+            "blob_duration": "14.0s",
             "blob_blur": "22px",
             "line_from": "translate3d(0, 0, 0) scale(1.01) rotate(0deg)",
-            "line_to": "translate3d(1.5%, -1.2%, 0) scale(1.07) rotate(0.28deg)",
-            "line_duration": "16.0s",
-            "orb_from": "translate3d(-1.8%, 0.3%, 0) scale(0.98)",
-            "orb_to": "translate3d(4.0%, -2.2%, 0) scale(1.12)",
-            "orb_duration": "10.6s",
-            "orb_blur": "38px",
+            "line_to": "translate3d(1.6%, -1.2%, 0) scale(1.05) rotate(0.28deg)",
+            "line_duration": "18s",
+            "orb_from": "translate3d(-2.0%, 0.2%, 0) scale(0.98)",
+            "orb_to": "translate3d(4.8%, -2.4%, 0) scale(1.12)",
+            "orb_duration": "10.5s",
+            "orb_blur": "36px",
         },
-        "strong": {
-            "base_size": "146% 146%",
-            "base_duration": "15.5s",
-            "radial_from": "translate3d(-4.6%, -2.2%, 0) scale(1.00)",
-            "radial_to": "translate3d(5.6%, 3.2%, 0) scale(1.14)",
-            "radial_duration": "9.6s",
-            "blob_from": "translate3d(-3.6%, 1.8%, 0) scale(1.00)",
-            "blob_to": "translate3d(5.0%, -3.0%, 0) scale(1.18)",
-            "blob_duration": "11.6s",
+        "medium": {
+            "base_size": "140% 140%",
+            "base_duration": "16s",
+            "radial_from": "translate3d(-5.0%, -2.4%, 0) scale(1.00)",
+            "radial_to": "translate3d(6.0%, 3.6%, 0) scale(1.16)",
+            "radial_duration": "8.8s",
+            "blob_from": "translate3d(-3.8%, 1.8%, 0) scale(1.00)",
+            "blob_to": "translate3d(5.2%, -3.2%, 0) scale(1.20)",
+            "blob_duration": "10.6s",
             "blob_blur": "20px",
             "line_from": "translate3d(0, 0, 0) scale(1.02) rotate(0deg)",
-            "line_to": "translate3d(2.1%, -1.5%, 0) scale(1.09) rotate(0.34deg)",
-            "line_duration": "12.8s",
-            "orb_from": "translate3d(-2.0%, 0.4%, 0) scale(0.97)",
-            "orb_to": "translate3d(5.0%, -2.8%, 0) scale(1.16)",
-            "orb_duration": "8.2s",
-            "orb_blur": "42px",
+            "line_to": "translate3d(2.0%, -1.6%, 0) scale(1.08) rotate(0.34deg)",
+            "line_duration": "13.5s",
+            "orb_from": "translate3d(-2.4%, 0.4%, 0) scale(0.97)",
+            "orb_to": "translate3d(5.6%, -2.8%, 0) scale(1.16)",
+            "orb_duration": "7.0s",
+            "orb_blur": "40px",
+        },
+        "strong": {
+            "base_size": "154% 154%",
+            "base_duration": "11.5s",
+            "radial_from": "translate3d(-5.6%, -2.8%, 0) scale(1.00)",
+            "radial_to": "translate3d(6.8%, 4.0%, 0) scale(1.20)",
+            "radial_duration": "6.4s",
+            "blob_from": "translate3d(-4.4%, 2.2%, 0) scale(1.00)",
+            "blob_to": "translate3d(6.0%, -3.8%, 0) scale(1.24)",
+            "blob_duration": "8.2s",
+            "blob_blur": "18px",
+            "line_from": "translate3d(0, 0, 0) scale(1.03) rotate(0deg)",
+            "line_to": "translate3d(2.2%, -1.8%, 0) scale(1.10) rotate(0.40deg)",
+            "line_duration": "10.5s",
+            "orb_from": "translate3d(-2.6%, 0.5%, 0) scale(0.96)",
+            "orb_to": "translate3d(6.4%, -3.2%, 0) scale(1.20)",
+            "orb_duration": "5.4s",
+            "orb_blur": "46px",
         },
     }.get(motion_strength, {})
 
@@ -12381,7 +11945,7 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.0.12) ===== */
+/* ===== Depth Background Rebuild (v0.9.38) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12393,10 +11957,8 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
 }
-/* ===== Depth Background Rebuild (v1.0.12) ===== */
+/* ===== Depth Background Rebuild (v0.9.38) ===== */
 .pv-shell.pv-layout-260218{
-  --pv-depth-overscan-x: max(9vw, 112px);
-  --pv-depth-overscan-y: max(9vh, 80px);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -12425,6 +11987,11 @@ body.pv-page-body{
   clip-path: inset(0);
   background: transparent !important;
 }
+
+.pv-shell.pv-layout-260218.pv-preview-outer-scroll .pv-scroll{
+  overflow-y: visible !important;
+  overscroll-behavior: auto !important;
+}
 .pv-shell.pv-layout-260218 .pv-scroll > *{
   position: relative;
   z-index: 2;
@@ -12436,43 +12003,9 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218 .pv-scroll::after{
   content: "";
   position: absolute;
-  top: calc(-1 * var(--pv-depth-overscan-y));
-  right: calc(-1 * var(--pv-depth-overscan-x));
-  bottom: calc(-1 * var(--pv-depth-overscan-y));
-  left: calc(-1 * var(--pv-depth-overscan-x));
+  inset: 0;
   pointer-events: none;
   will-change: transform, opacity, background-position;
-  transform-origin: center center;
-}
-
-.pv-shell.pv-layout-260218.pv-preview-live{
-  backface-visibility: hidden;
-}
-.pv-shell.pv-layout-260218.pv-preview-live::before,
-.pv-shell.pv-layout-260218.pv-preview-live::after,
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before,
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
-  will-change: auto;
-}
-
-/* v1.0.12: builder previewは右カラムの1スクロールだけに統一 */
-.pv-shell.pv-layout-260218.pv-preview-live{
-  height: auto !important;
-  min-height: 0 !important;
-}
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll{
-  display: block !important;
-  flex: 0 0 auto !important;
-  min-height: 0 !important;
-  height: auto !important;
-  overflow-y: visible !important;
-  overflow-x: hidden !important;
-  overscroll-behavior: auto !important;
-  padding-bottom: 0 !important;
-  background: transparent !important;
-}
-.pv-shell.pv-layout-260218.pv-preview-live .pv-main{
-  flex: 0 0 auto !important;
 }
 
 /* Layer2: radial gradient */
@@ -12492,24 +12025,17 @@ body.pv-page-body{
   z-index: 1;
   background:
     repeating-linear-gradient(126deg,
-      transparent 0 92px,
-      var(--pv-line-1) 92px 94px,
-      transparent 94px 252px),
+      transparent 0 108px,
+      var(--pv-line-1) 108px 108.4px,
+      transparent 108.4px 320px),
     repeating-linear-gradient(-126deg,
-      transparent 0 136px,
-      var(--pv-line-2) 136px 138px,
-      transparent 138px 324px),
-    linear-gradient(90deg,
-      transparent 0 14%,
-      var(--pv-line-1-soft) 18%,
-      transparent 24%,
-      transparent 76%,
-      var(--pv-line-1-soft) 82%,
-      transparent 88%),
+      transparent 0 158px,
+      var(--pv-line-2) 158px 158.5px,
+      transparent 158.5px 396px),
     linear-gradient(134deg,
-      transparent 0 48.2%,
-      var(--pv-line-1-soft) 49.0%,
-      transparent 50.1%,
+      transparent 0 48.9%,
+      var(--pv-line-1-soft) 49.2%,
+      transparent 49.6%,
       transparent 100%);
   opacity: var(--pv-line-opacity);
   transform: var(--pv-line-from);
@@ -12528,9 +12054,6 @@ body.pv-page-body{
   transform: var(--pv-blob-from);
   animation: pvDepthBlob var(--pv-blob-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before{
-  filter: blur(calc(var(--pv-blob-blur) * 0.84));
-}
 
 /* Layer5: light orb */
 .pv-shell.pv-layout-260218 .pv-scroll::after{
@@ -12545,9 +12068,6 @@ body.pv-page-body{
   filter: blur(calc(var(--pv-orb-blur) * 1.42));
   transform: var(--pv-orb-from);
   animation: pvDepthOrb var(--pv-orb-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
-}
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
-  filter: blur(calc(var(--pv-orb-blur) * 1.14));
 }
 
 @keyframes pvDepthBase{
@@ -12597,8 +12117,8 @@ body.pv-page-body{
     radial-gradient(360px 280px at 86% 18%, var(--pv-orb-2) 0%, transparent 78%),
     repeating-linear-gradient(136deg,
       transparent 0 96px,
-      var(--pv-line-1-soft) 96px 97.10px,
-      transparent 97.10px 248px);
+      var(--pv-line-1-soft) 96px 96.35px,
+      transparent 96.35px 248px);
   opacity: var(--pv-panel-show-opacity) !important;
 }
 /* 文字を守る枠 */
@@ -12632,7 +12152,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.12) ===== */
+/* ===== Export final viewport clamp (v1.0.4) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -12651,10 +12171,10 @@ body.pv-page-body{
 body.pv-page-body::before{
   content:"";
   position:fixed;
-  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
-  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
-  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
-  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
+  top:0;
+  right:0;
+  bottom:0;
+  left:0;
   pointer-events:none;
   z-index:0;
   background-image:var(--pv-bg-img);
@@ -12680,12 +12200,11 @@ body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
   position:fixed !important;
-  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
-  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
-  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
-  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
+  top:0 !important;
+  right:0 !important;
+  bottom:0 !important;
+  left:0 !important;
   pointer-events:none;
-  transform-origin:center center;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   position:relative;
@@ -12718,7 +12237,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
 """
 
 
-def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, in_builder: bool = False) -> None:
+def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
     p は「プロジェクト全体(dict)」または p["data"] 相当(dict) のどちらでも受け付ける。
@@ -12840,17 +12359,13 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         _val = _clean(_company_profile_effective_value(step2, company_profile, _key))
         if not _val:
             continue
-        _cell_html = _company_profile_cell_html(_key, _val)
+        if _key == "site_url":
+            _safe_url = html.escape(_val, quote=True)
+            _cell_html = f'<a class="pv-inline-link" href="{_safe_url}" target="_blank" rel="noreferrer noopener">{html.escape(_val)}</a>'
+        else:
+            _cell_html = html.escape(_val).replace("\n", "<br>")
         company_profile_rows.append(
             f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_label)}</div><div class="pv-company-profile-value">{_cell_html}</div></div>'
-        )
-    for _row in _company_profile_visible_extra_rows(company_profile):
-        _lbl = _clean(_row.get("label"), "補足")
-        _val = _clean(_row.get("value"))
-        if not _val:
-            continue
-        company_profile_rows.append(
-            f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(_lbl)}</div><div class="pv-company-profile-value">{html.escape(_val).replace("\n", "<br>")}</div></div>'
         )
 
     profile_nav_label = company_profile_title if company_profile_mode != "unused" and company_profile_rows else ""
@@ -12888,9 +12403,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
 
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
-    builder_class = " pv-preview-live" if in_builder else ""
 
-    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-mode-{mode}{dark_class}{builder_class}").props(f'id="{root_id}"').style(theme_style):
+    with ui.element("div").classes(f"pv-shell pv-layout-260218 pv-preview-outer-scroll pv-mode-{mode}{dark_class}").props(f'id="{root_id}"').style(theme_style):
         # header + scroll container
         # ----- header -----
         with ui.element("header").classes("pv-topbar pv-topbar-260218"):
@@ -12978,7 +12492,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                 # init slider (auto)
                 axis = "y" if mode == "mobile" else "x"
                 ui.run_javascript(
-                    f"setTimeout(function(){{try{{window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',6000);}}catch(e){{}}}},0);"
+                    f"setTimeout(function(){{try{{window.cvhbInitHeroSlider && window.cvhbInitHeroSlider('{slider_id}','{axis}',4500);}}catch(e){{}}}},0);"
                 )
 
             # ----- main -----
@@ -13314,7 +12828,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
 def render_main(u: User) -> None:
     inject_global_styles()
     cleanup_user_storage()
-    sync_builder_shell(True)
 
     render_header(u)
 
@@ -13765,7 +13278,7 @@ def render_main(u: User) -> None:
                                             bg_motion_selector()
 
                                         # Color
-                                        with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
+                                        with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                             ui.label("ページカラー（テーマ色）を選んでください").classes("text-subtitle1")
                                             ui.label("ヘッダー・ボタン・アイコンなどの雰囲気が変わります。").classes("cvhb-muted q-mb-sm")
 
@@ -13804,7 +13317,7 @@ def render_main(u: User) -> None:
                                         ui.label("2. 基本情報設定").classes("text-h6 q-mb-sm")
                                         ui.label("入力すると右のプレビューに反映されます。").classes("cvhb-muted q-mb-md")
 
-                                        with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
+                                        with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                             ui.label("会社の基本情報").classes("text-subtitle1 q-mb-sm")
 
                                             bind_step2_input("会社名", "company_name")
@@ -13912,7 +13425,7 @@ def render_main(u: User) -> None:
 
                                         @ui.refreshable
                                         def block_editor_panel():
-                                            with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                                 ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
                                                 ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
 
@@ -14170,8 +13683,8 @@ def render_main(u: User) -> None:
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
                                                         ui.label("会社沿革 / 会社概要（任意）").classes("text-body1")
-                                                        ui.label("本文と業務内容の間に表示されます。未入力欄は空欄のままです。不要なら「使用しない」のままでOKです。").classes("cvhb-muted q-mb-sm")
-                                                        ui.label("完成ページには基本情報の会社名 / 住所 / 電話番号 / メールアドレス / URL が自動反映されます。ここは必要な項目だけ上書きしてください。").classes("cvhb-muted q-mb-sm")
+                                                        ui.label("本文と業務内容の間に表示されます。例が入っているので、上書きして使えます。不要なら「使用しない」のままでOKです。").classes("cvhb-muted q-mb-sm")
+                                                        ui.label("商号・所在地・連絡先は、基本情報の会社名 / 住所 / 電話番号 / メールアドレスが自動で入ります。必要ならここで上書きしてください。").classes("cvhb-muted q-mb-sm")
 
                                                         profile = ph.setdefault("company_profile", {})
                                                         if not isinstance(profile, dict):
@@ -14204,7 +13717,10 @@ def render_main(u: User) -> None:
 
                                                         for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
                                                             _editor_val = _company_profile_editor_value(step2, profile, _key, _sample)
-                                                            ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or "")).props("outlined autogrow dense rows=1").classes("w-full q-mb-xs")
+                                                            if _key == "business":
+                                                                ui.textarea(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_sample).props("outlined autogrow").classes("w-full q-mb-xs")
+                                                            else:
+                                                                ui.input(_label, value=_editor_val, on_change=lambda e, k=_key: _set_profile_value(k, e.value or ""), placeholder=_sample).props("outlined dense").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{_sample}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-sm q-mb-sm")
@@ -14214,9 +13730,9 @@ def render_main(u: User) -> None:
                                                         for _i, _row in enumerate(_extra_rows):
                                                             with ui.row().classes("w-full q-col-gutter-sm"): 
                                                                 with ui.column().classes("col-12 col-md-4"):
-                                                                    ui.textarea(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or "")).props("outlined autogrow dense rows=1").classes("w-full q-mb-xs")
+                                                                    ui.input(f"追加項目{_i+1}：題名", value=str(_row.get("label") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "label", e.value or ""), placeholder=COMPANY_PROFILE_EXTRA_LABEL_SAMPLE).props("outlined dense").classes("w-full q-mb-xs")
                                                                 with ui.column().classes("col-12 col-md-8"):
-                                                                    ui.textarea(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or "")).props("outlined autogrow dense rows=1").classes("w-full q-mb-xs")
+                                                                    ui.input(f"追加項目{_i+1}：内容", value=str(_row.get("value") or ""), on_change=lambda e, i=_i: _set_profile_extra(i, "value", e.value or ""), placeholder=COMPANY_PROFILE_EXTRA_VALUE_SAMPLE).props("outlined dense").classes("w-full q-mb-xs")
                                                             ui.label(f"例：{COMPANY_PROFILE_EXTRA_LABEL_SAMPLE} / {COMPANY_PROFILE_EXTRA_VALUE_SAMPLE}").classes("cvhb-muted text-caption q-mb-sm")
 
                                                         ui.separator().classes("q-mt-md q-mb-sm")
@@ -14351,7 +13867,7 @@ def render_main(u: User) -> None:
                                                             if not items:
                                                                 ui.label("まだお知らせがありません").classes("cvhb-muted")
                                                             for i, it in enumerate(items):
-                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders cvhb-entry-card").props("flat bordered"):
+                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                                                                     with ui.row().classes("items-center justify-between"):
                                                                         ui.label(f"お知らせ #{i+1}").classes("text-body1")
                                                                         ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
@@ -14396,7 +13912,7 @@ def render_main(u: User) -> None:
                                                             if not items:
                                                                 ui.label("まだFAQがありません").classes("cvhb-muted")
                                                             for i, it in enumerate(items):
-                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders cvhb-entry-card").props("flat bordered"):
+                                                                with ui.card().classes("w-full q-pa-md q-mb-sm rounded-borders").props("flat bordered"):
                                                                     with ui.row().classes("items-center justify-between"):
                                                                         ui.label(f"FAQ #{i+1}").classes("text-body1")
                                                                         ui.button("削除", on_click=lambda idx=i: delete_item(idx)).props("flat color=negative")
@@ -14528,7 +14044,7 @@ def render_main(u: User) -> None:
                                                         ui.label(f"  → {it.get('hint')}").classes("cvhb-muted q-ml-md")
 
                                             # 承認アクション
-                                            with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                                 ui.label("承認フロー").classes("text-subtitle1")
                                                 ui.label("編集者：承認依頼 → 管理者：OK/差戻し").classes("cvhb-muted q-mb-sm")
 
@@ -15216,7 +14732,7 @@ def render_main(u: User) -> None:
                                             # -----------------
                                             # 3) 公開（SFTP / 上級者向け）
                                             # -----------------
-                                            with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
+                                            with ui.card().classes("q-pa-sm rounded-borders w-full").props("flat bordered"):
                                                 ui.label("上級者向け：SFTPで自動公開").classes("text-subtitle1")
                                                 ui.label("※ ここは管理者（admin）のみ。ConoHaのファイルマネージャーで公開する場合は、上の手順を使ってください。").classes("cvhb-muted")
 
@@ -15496,28 +15012,23 @@ def render_main(u: User) -> None:
                             if mode not in ("mobile", "pc"):
                                 mode = "mobile"
 
-                            # デザイン上の横幅（SP=720 / PC=1280）
-                            # PCは「ヒーロー画像の最大幅 = サイトの最大幅」に合わせる。
-                            # これで、プレビュー右側の余計な背景余りを出さない。
-                            design_w = 720 if mode == "mobile" else 1280
+                            # デザイン上の横幅（SP=720 / PC=1920）
+                            # ただし PC は、プレビュー枠が狭いと 1920 が小さくなりすぎるので
+                            # 「最低 1280（最大 1920）」の範囲で縮小する（横が全部見えるのは維持）
+                            design_w = 720 if mode == "mobile" else 1920
                             # 表示(縮小)ルール
                             # - スマホ: 720px をそのまま（大きくしすぎない / 中央揃え）
-                            # - PC: 1280px を基準に、入る範囲だけ縮小する
-                            min_scale = 0.01
-                            max_scale = 1.00
+                            # - PC: 1920pxで作り、表示は 1440px(0.75)〜960px(0.50) の範囲に収める
+                            min_scale = 0.01 if mode == "mobile" else 0.50
+                            max_scale = 1.00 if mode == "mobile" else 0.75
                             radius = 22 if mode == "mobile" else 14
 
-                            frame_style = (
-                                f"{'width: min(100%, 1280px); min-height: 0; height: auto;' if mode == 'pc' else 'width: 100%; height: 2400px;'} overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
-                            )
-                            fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == 'pc' else 'id="pv-fit"'
-                            fit_style = (
-                                "width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
-                                if mode == 'pc' else
-                                "height: 100%; width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
-                            )
-                            with ui.card().classes(f"cvhb-preview-card cvhb-preview-card-{mode}").style(frame_style).props("flat bordered"):
-                                with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
+                            with ui.card().style(
+                                f"width: 100%; overflow: hidden; border-radius: {radius}px; margin: 0; min-height: 0;"
+                            ).props("flat bordered"):
+                                with ui.element("div").props('id="pv-fit" data-cvhb-fit-auto-height="1"').style(
+                                    "width: 100%; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent; min-height: 0; height: auto;"
+                                ):
                                     if not p:
                                         ui.label("案件を選ぶとプレビューが出ます").classes("cvhb-muted q-pa-md")
                                         return
@@ -15529,9 +15040,9 @@ def render_main(u: User) -> None:
                                             return
 
                                         # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
-                                        render_preview(p, mode=mode, root_id="pv-root", in_builder=True)
+                                        render_preview(p, mode=mode, root_id="pv-root")
 
-                                        # fit-to-width (design: 720px / 1280px)
+                                        # fit-to-width (design: 720px / 1920px)
                                         try:
                                             ui.run_javascript(
                                                 f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, 0, 0, {min_scale}, {max_scale});"
@@ -15565,30 +15076,11 @@ def render_main(u: User) -> None:
 # [BLK-12] Pages
 # =========================
 
-def render_loading_visual(*, compact: bool = False) -> None:
-    """ローディング中に小さなビルダーが組み上がるような見た目を出す。"""
-    size_class = "is-compact" if compact else ""
-    ui.html(
-        f"""
-<div class="cvhb-loader-scene {size_class}" aria-hidden="true">
-  <div class="cvhb-loader-glow"></div>
-  <div class="cvhb-loader-stage">
-    <span class="cvhb-loader-card-mini cvhb-loader-card-a"></span>
-    <span class="cvhb-loader-card-mini cvhb-loader-card-b"></span>
-    <span class="cvhb-loader-card-mini cvhb-loader-card-c"></span>
-  </div>
-  <div class="cvhb-loader-dots"><span></span><span></span><span></span></div>
-</div>
-"""
-    )
-
-
 @ui.page("/help")
 def help_page():
     """HELP_MODE専用: ローカルでヘルプ（手順書）を作るためのページ。"""
     inject_global_styles()
     cleanup_user_storage()
-    sync_builder_shell(False)
     ui.page_title("HELP MODE | CV-HomeBuilder")
 
     if not HELP_MODE:
@@ -15671,7 +15163,6 @@ def help_page():
 def projects_page():
     inject_global_styles()
     cleanup_user_storage()
-    sync_builder_shell(False)
     ui.page_title("案件一覧 | CV-HomeBuilder")
 
     u = current_user()
@@ -15708,15 +15199,6 @@ def projects_page():
             with ui.row().classes("q-gutter-sm q-mt-md"):
                 ui.button("キャンセル", on_click=new_project_dialog.close).props("flat")
                 ui.button("作成", on_click=create_new_project).props("color=primary unelevated")
-
-        # --- 案件を開くときの読込中表示 ---
-        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
-            with ui.column().classes("items-center"):
-                render_loading_visual(compact=True)
-                open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm text-center")
-                ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs text-center")
-
-        open_project_state = {"busy": False}
 
         # --- ヘッダー ---
         with ui.row().classes("items-start justify-between q-mb-md"):
@@ -15989,16 +15471,15 @@ def projects_page():
             delete_prepare_dialog.open()
 
         # --- 案件を開く ---
-        async def open_project(project_id: str, project_name: str = "") -> None:
-            if open_project_state["busy"]:
-                return
-            open_project_state["busy"] = True
+        async def open_project(project_id: str) -> None:
             try:
-                set_pending_open_project(project_id, project_name)
+                ui.notify("案件を読み込み中...", type="info")
+                p = await asyncio.to_thread(load_project_from_sftp, project_id, u)
+                set_current_project(p, u)
+                ui.notify("案件を開きました", type="positive")
                 navigate_to("/")
-                await asyncio.sleep(0)
-            finally:
-                open_project_state["busy"] = False
+            except Exception as e:
+                ui.notify(f"開けませんでした: {sanitize_error_text(e)}", type="negative")
 
         @ui.refreshable
         def list_refresh():
@@ -16030,8 +15511,8 @@ def projects_page():
                         ui.label(f"更新担当者: {updated_by}").classes("cvhb-project-meta")
                     ui.label(f"ID: {pid}").classes("cvhb-project-meta q-mt-xs")
 
-                    async def _open(project_id=pid, project_name=pname):
-                        await open_project(project_id, project_name)
+                    async def _open(project_id=pid):
+                        await open_project(project_id)
 
                     with ui.row().classes("q-gutter-sm q-mt-md"):
                         ui.button("開く", on_click=_open).props("color=primary unelevated")
@@ -16047,7 +15528,6 @@ def projects_page():
 def audit_page():
     inject_global_styles()
     cleanup_user_storage()
-    sync_builder_shell(False)
     ui.page_title("操作ログ | CV-HomeBuilder")
 
     u = current_user()
@@ -16099,57 +15579,12 @@ def audit_page():
         ).classes("w-full")
 
 
-def sync_builder_shell(enabled: bool) -> None:
-    """/ ページのPCビルダーだけ outer scroll を止める。"""
-    flag = "true" if enabled else "false"
-    try:
-        ui.run_javascript(
-            f"""
-(function(){{
-  window.__cvhbBuilderShell = window.__cvhbBuilderShell || {{
-    enabled: false,
-    bound: false,
-    apply: function(){{
-      try{{
-        var on = !!window.__cvhbBuilderShell.enabled && window.matchMedia('(min-width: 761px)').matches;
-        document.documentElement.classList.toggle('cvhb-builder-lock', on);
-        if(document.body) document.body.classList.toggle('cvhb-builder-page', on);
-      }}catch(e){{}}
-    }}
-  }};
-  window.__cvhbBuilderShell.enabled = {flag};
-  if(!window.__cvhbBuilderShell.bound){{
-    window.__cvhbBuilderShell.bound = true;
-    window.addEventListener('resize', window.__cvhbBuilderShell.apply, {{passive:true}});
-  }}
-  window.__cvhbBuilderShell.apply();
-}})();
-"""
-        )
-    except Exception:
-        pass
-
-
-@ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
-async def index():
+@ui.page("/")
+def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
 
     root = ui.element("div").classes("w-full")
-
-    def render_startup_loading(title: str, detail: str = "少しお待ちください。") -> None:
-        root.clear()
-        with root:
-            with ui.element("div").classes("w-full").style(
-                "min-height: calc(100vh - 0px);"
-                "background: linear-gradient(180deg, rgba(245,247,251,1), rgba(238,244,255,1));"
-            ):
-                with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
-                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw;").props("bordered"):
-                        with ui.column().classes("items-center"):
-                            render_loading_visual()
-                            ui.label(title).classes("text-subtitle1 q-mt-sm text-center")
-                            ui.label(detail).classes("cvhb-muted q-mt-xs text-center")
 
     @ui.refreshable
     def root_refresh():
@@ -16176,7 +15611,6 @@ async def index():
                     return
 
                 if not u:
-                    sync_builder_shell(False)
                     render_login(root_refresh)
                     return
 
@@ -16221,28 +15655,25 @@ async def index():
                         ui.separator().classes("q-my-lg")
                         ui.label("プレビュー（復旧モード）").classes("text-subtitle2")
                         try:
-                            mode = app.storage.user.get(UI_PV_MODE_KEY, "mobile")
-                            design_w = 720 if mode == "mobile" else 1280
-                            fit_min_w = 0
-                            fit_max_w = 720 if mode == "mobile" else 1280
+                            mode = app.storage.user.get("preview_mode", "mobile")
+                            design_w = 720 if mode == "mobile" else 1920
+                            fit_min_w = 720 if mode == "mobile" else 1280
+                            fit_max_w = 720 if mode == "mobile" else 1920
 
                             with ui.card().classes("w-full").props("bordered"):
                                 with ui.element("div").classes("w-full").style(
-                                    f"max-width:{fit_max_w}px; width:100%;"
+                                    f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
                                     "margin:0 auto; overflow:hidden; padding:12px;"
                                 ):
-                                    fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"' if mode == "pc" else 'id="pv-fit"'
-                                    fit_style = (
-                                        f"max-width:{fit_max_w}px; width:100%;"
-                                        + ("min-height:0;height:auto;" if mode == "pc" else "")
-                                        + "margin:0 auto; overflow:hidden;"
-                                        + "border-radius:18px;"
-                                        + "border:1px solid rgba(0,0,0,0.10);"
-                                        + "background:rgba(255,255,255,0.35);"
-                                    )
-                                    with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
+                                    with ui.element("div").props('id="pv-fit" data-cvhb-fit-auto-height="1"').style(
+                                        f"max-width:{fit_max_w}px; min-width:{fit_min_w}px; width:100%;"
+                                        "margin:0 auto; overflow:hidden;"
+                                        "border-radius:18px;"
+                                        "border:1px solid rgba(0,0,0,0.10);"
+                                        "background:rgba(255,255,255,0.35); min-height:0; height:auto;"
+                                    ):
                                         try:
-                                            render_preview(p_fallback, mode=mode, root_id="pv-root", in_builder=True)
+                                            render_preview(p_fallback, mode=mode, root_id="pv-root")
                                         except Exception as e3:
                                             ui.label("プレビュー描画でエラーが発生しました").classes("text-negative")
                                             ui.label(sanitize_error_text(e3)).classes("text-caption")
@@ -16251,7 +15682,7 @@ async def index():
                             ui.run_javascript(
                                 f"""
 try {{
-  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w},0.01,1.00);
+  window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w});
   window.cvhbFitApply && window.cvhbFitApply('pv');
 }} catch (e) {{ console.warn('[cvhb] fit error', e); }}
 """
@@ -16261,53 +15692,7 @@ try {{
                             ui.label(sanitize_error_text(e4)).classes("text-caption")
                             traceback.print_exc()
 
-    needs_builder_loading = False
-    try:
-        cleanup_user_storage()
-        needs_builder_loading = HELP_MODE or (current_user() is not None)
-    except Exception:
-        needs_builder_loading = HELP_MODE
-
-    startup_notice_type = ""
-    startup_notice_message = ""
-
-    if needs_builder_loading:
-        pending_project_id = ""
-        pending_project_name = ""
-        try:
-            pending_project_id = str(app.storage.user.get(PENDING_OPEN_PROJECT_ID_KEY, "") or "")
-            pending_project_name = str(app.storage.user.get(PENDING_OPEN_PROJECT_NAME_KEY, "") or "")
-        except Exception:
-            pending_project_id = ""
-            pending_project_name = ""
-
-        title = "ビルダーを準備しています..."
-        detail = "入力画面とプレビューを読み込んでいます。"
-        if pending_project_id:
-            title = f"「{pending_project_name or '案件'}」を開いています..."
-            detail = "案件を読み込んでからビルダーを表示します。"
-
-        render_startup_loading(title, detail)
-        await ui.context.client.connected()
-        await asyncio.sleep(0.05)
-
-        pending_project_id, pending_project_name = pop_pending_open_project()
-        if pending_project_id:
-            try:
-                u_pending = current_user()
-                if u_pending:
-                    p_pending = await asyncio.to_thread(load_project_from_sftp, pending_project_id, u_pending)
-                    set_current_project(p_pending, u_pending)
-                    startup_notice_type = "positive"
-                    startup_notice_message = "案件を開きました"
-            except Exception as e:
-                startup_notice_type = "negative"
-                startup_notice_message = f"開けませんでした: {sanitize_error_text(e)}"
-
     root_refresh()
-
-    if startup_notice_message:
-        ui.notify(startup_notice_message, type=startup_notice_type or "info")
 
 
 # =========================
