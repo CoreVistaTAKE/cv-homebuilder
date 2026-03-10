@@ -1227,21 +1227,9 @@ def inject_global_styles() -> None:
   }
   .cvhb-loading-card {
     min-width: 280px;
-    margin-left: auto;
-    margin-right: auto;
-    text-align: center;
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99)),
-      linear-gradient(135deg, rgba(30,94,255,0.05), rgba(139,92,246,0.04));
+    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
     border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 22px 56px rgba(15,23,42,0.14);
-  }
-  .cvhb-loading-card .column,
-  .cvhb-loading-card .items-center {
-    width: 100%;
-    align-items: center !important;
-    justify-content: center;
-    text-align: center;
+    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
   }
   .cvhb-preview-card {
     background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.28));
@@ -1254,7 +1242,7 @@ def inject_global_styles() -> None:
     overflow-y: hidden;
     position: relative;
     background: transparent;
-    contain: layout paint;
+    contain: paint;
   }
   .cvhb-preview-card.cvhb-preview-card-pc {
     width: min(100%, 1280px);
@@ -1267,70 +1255,38 @@ def inject_global_styles() -> None:
   }
   .cvhb-loader-scene {
     position: relative;
-    width: 240px;
-    height: 182px;
-    margin: 0 auto 8px;
+    width: 220px;
+    height: 152px;
+    margin: 0 auto 6px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .cvhb-loader-scene.is-compact {
-    width: 204px;
-    height: 154px;
+    width: 188px;
+    height: 136px;
   }
   .cvhb-loader-glow {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 176px;
-    height: 176px;
-    margin-left: -88px;
-    margin-top: -88px;
+    width: 160px;
+    height: 160px;
+    margin-left: -80px;
+    margin-top: -80px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(30,94,255,0.24) 0%, rgba(139,92,246,0.14) 42%, rgba(255,255,255,0) 76%);
-    filter: blur(10px);
+    background: radial-gradient(circle, rgba(30,94,255,0.24) 0%, rgba(139,92,246,0.12) 40%, rgba(255,255,255,0) 74%);
+    filter: blur(8px);
     animation: cvhbLoaderGlow 2.8s ease-in-out infinite;
-  }
-  .cvhb-loader-orbit {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    border-radius: 999px;
-    border: 1px solid rgba(96,165,250,0.22);
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
-  .cvhb-loader-orbit::after {
-    content: "";
-    position: absolute;
-    width: 10px;
-    height: 10px;
-    right: 10px;
-    top: 50%;
-    margin-top: -5px;
-    border-radius: 999px;
-    background: linear-gradient(180deg, rgba(96,165,250,0.98), rgba(59,130,246,0.84));
-    box-shadow: 0 0 0 5px rgba(96,165,250,0.12);
-  }
-  .cvhb-loader-orbit-a {
-    width: 170px;
-    height: 170px;
-    animation: cvhbLoaderOrbitA 5.4s linear infinite;
-  }
-  .cvhb-loader-orbit-b {
-    width: 136px;
-    height: 136px;
-    border-color: rgba(139,92,246,0.18);
-    animation: cvhbLoaderOrbitB 4.2s linear infinite reverse;
   }
   .cvhb-loader-stage {
     position: relative;
-    width: 196px;
-    height: 114px;
+    width: 190px;
+    height: 110px;
   }
   .cvhb-loader-scene.is-compact .cvhb-loader-stage {
-    width: 176px;
-    height: 102px;
+    width: 166px;
+    height: 96px;
   }
   .cvhb-loader-card-mini {
     position: absolute;
@@ -1390,34 +1346,10 @@ def inject_global_styles() -> None:
     transform: translate(34px, 16px) rotate(8deg) scale(0.96);
     animation: cvhbLoaderCardC 2.8s ease-in-out infinite;
   }
-  .cvhb-loader-progress {
-    position: absolute;
-    left: 50%;
-    bottom: 26px;
-    width: 148px;
-    height: 8px;
-    border-radius: 999px;
-    transform: translateX(-50%);
-    background: rgba(148,163,184,0.18);
-    overflow: hidden;
-    box-shadow: inset 0 1px 2px rgba(15,23,42,0.06);
-  }
-  .cvhb-loader-progress span {
-    display: block;
-    width: 42%;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, rgba(30,94,255,0.92), rgba(96,165,250,0.92), rgba(139,92,246,0.86));
-    animation: cvhbLoaderProgress 1.9s ease-in-out infinite;
-  }
-  .cvhb-loader-scene.is-compact .cvhb-loader-progress {
-    width: 128px;
-    bottom: 24px;
-  }
   .cvhb-loader-dots {
     position: absolute;
     left: 50%;
-    bottom: 4px;
+    bottom: 6px;
     transform: translateX(-50%);
     display: inline-flex;
     gap: 9px;
@@ -1451,22 +1383,11 @@ def inject_global_styles() -> None:
     0%, 100% { transform: translate(34px, 16px) rotate(8deg) scale(0.96); }
     50% { transform: translate(38px, 10px) rotate(10deg) scale(1.00); }
   }
-  @keyframes cvhbLoaderOrbitA {
-    from { transform: translate(-50%, -50%) rotate(0deg); }
-    to { transform: translate(-50%, -50%) rotate(360deg); }
-  }
-  @keyframes cvhbLoaderOrbitB {
-    from { transform: translate(-50%, -50%) rotate(0deg); }
-    to { transform: translate(-50%, -50%) rotate(360deg); }
-  }
-  @keyframes cvhbLoaderProgress {
-    0% { transform: translateX(-120%); }
-    100% { transform: translateX(260%); }
-  }
   @keyframes cvhbLoaderDot {
     0%, 100% { transform: translateY(0); opacity: 0.46; }
     50% { transform: translateY(-6px); opacity: 1; }
   }
+
 
   /* スマホ：縦並び */
   @media (max-width: 760px) {
@@ -3878,17 +3799,11 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           return;
         }
 
-        const setStyle = function(el, prop, value){
-          try{
-            if(el && el.style && el.style[prop] !== value){
-              el.style[prop] = value;
-            }
-          }catch(e){}
-        };
-
         // outer が content-driven で 0px になる事故を防止
-        setStyle(outer, 'width', '100%');
-        setStyle(outer, 'display', 'block');
+        try{
+          outer.style.width = '100%';
+          outer.style.display = 'block';
+        }catch(e){}
 
         const rect = outer.getBoundingClientRect();
         const ow = Math.max(
@@ -3912,16 +3827,16 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           }else{
             // fallback: とにかく見える状態に戻す（scale は諦める）
             try{
-              setStyle(inner, 'position', 'relative');
-              setStyle(inner, 'top', '0px');
-              setStyle(inner, 'left', '0px');
-              setStyle(inner, 'width', '100%');
-              setStyle(inner, 'height', '100%');
-              setStyle(inner, 'maxWidth', 'none');
-              setStyle(inner, 'transformOrigin', 'top left');
-              setStyle(inner, 'transform', 'none');
-              setStyle(inner, 'visibility', 'visible');
-              setStyle(inner, 'opacity', '1');
+              inner.style.position = 'relative';
+              inner.style.top = '0px';
+              inner.style.left = '0px';
+              inner.style.width = '100%';
+              inner.style.height = '100%';
+              inner.style.maxWidth = 'none';
+              inner.style.transformOrigin = 'top left';
+              inner.style.transform = 'none';
+              inner.style.visibility = 'visible';
+              inner.style.opacity = '1';
             }catch(e){}
             try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, oh:oh, dw_req:dwReq, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0}); }catch(e){}
           }
@@ -3942,13 +3857,13 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           }catch(e){}
         }
 
-        setStyle(inner, 'position', 'absolute');
-        setStyle(inner, 'top', '0px');
-        setStyle(inner, 'width', dwUsed + 'px');
-        setStyle(inner, 'maxWidth', 'none');
-        setStyle(inner, 'visibility', 'visible');
-        setStyle(inner, 'opacity', '1');
-        setStyle(inner, 'transformOrigin', 'top left');
+        inner.style.position = 'absolute';
+        inner.style.top = '0px';
+        inner.style.width = dwUsed + 'px';
+        inner.style.maxWidth = 'none';
+        inner.style.visibility = 'visible';
+        inner.style.opacity = '1';
+        inner.style.transformOrigin = 'top left';
 
         const rawScale = ow / dwUsed;
         let scale = rawScale;
@@ -4020,18 +3935,18 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         const innerH = autoHeight
           ? readContentHeight()
           : Math.max(1, oh / Math.max(0.01, scale));
-        setStyle(inner, 'height', innerH + 'px');
+        inner.style.height = innerH + 'px';
 
-        setStyle(inner, 'transform', 'scale(' + scale + ')');
+        inner.style.transform = 'scale(' + scale + ')';
 
         const visualW = dwUsed * scale;
         const left = Math.max(0, (ow - visualW) / 2);
-        setStyle(inner, 'left', left + 'px');
+        inner.style.left = left + 'px';
 
         // 横が足りない場合は横スクロール（PC: 960px未満で発生する想定）
         try{
-          setStyle(outer, 'overflowY', 'hidden');
-          setStyle(outer, 'overflowX', (visualW > ow + 1) ? 'auto' : 'hidden');
+          outer.style.overflowY = 'hidden';
+          outer.style.overflowX = (visualW > ow + 1) ? 'auto' : 'hidden';
         }catch(e){}
 
         const visualH = innerH * scale;
@@ -4039,7 +3954,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           try{
             const nextH = Math.max(1, Math.ceil(visualH));
             if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
-              setStyle(outer, 'height', nextH + 'px');
+              outer.style.height = nextH + 'px';
             }
           }catch(e){}
         }
@@ -4055,36 +3970,63 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
 
     window.__cvhbFit.regs[key] = function(){ queueApply(0); };
 
+    const scheduleApply = function(delay){
+      try{
+        if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
+          clearTimeout(window.__cvhbFit.roTimers[key]);
+        }
+        window.__cvhbFit.roTimers[key] = setTimeout(function(){
+          try{ delete window.__cvhbFit.roTimers[key]; }catch(e){}
+          try{ queueApply(0); }catch(e){}
+        }, Math.max(0, delay || 90));
+      }catch(e){
+        try{ queueApply(0); }catch(_e){}
+      }
+    };
+
+    const attachMediaListeners = function(){
+      try{
+        const inner = document.getElementById(innerId);
+        if(!inner) return;
+        const stamp = key + ':' + myGen;
+        const medias = inner.querySelectorAll('img, iframe');
+        if(!medias || medias.length <= 0) return;
+        medias.forEach(function(el){
+          try{
+            if(el.__cvhbFitStamp === stamp) return;
+            el.__cvhbFitStamp = stamp;
+            const onDone = function(){ try{ scheduleApply(40); }catch(e){} };
+            el.addEventListener('load', onDone, { passive: true });
+            el.addEventListener('error', onDone, { passive: true });
+          }catch(e){}
+        });
+      }catch(e){}
+    };
+
     // ResizeObserver (一番安定)
     const ensureObserver = function(){
       try{
         if(!window.ResizeObserver) return;
         const outer = document.getElementById(outerId);
-        if(!outer) return;
+        const inner = document.getElementById(innerId);
+        const scroller = inner ? (inner.querySelector('.pv-scroll') || inner) : null;
+        if(!outer || !scroller) return;
 
         if(window.__cvhbFit.observers[key]){
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
         const obs = new ResizeObserver(function(){
-          try{
-            if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
-              clearTimeout(window.__cvhbFit.roTimers[key]);
-            }
-            window.__cvhbFit.roTimers[key] = setTimeout(function(){
-              try{ delete window.__cvhbFit.roTimers[key]; }catch(e){}
-              try{ queueApply(0); }catch(e){}
-            }, 90);
-          }catch(e){
-            try{ queueApply(0); }catch(e){}
-          }
+          try{ scheduleApply(90); }catch(e){ try{ queueApply(0); }catch(_e){} }
         });
         obs.observe(outer);
+        try{ obs.observe(scroller); }catch(e){}
         window.__cvhbFit.observers[key] = obs;
       }catch(e){}
     };
+    try{ attachMediaListeners(); }catch(e){}
     try{ ensureObserver(); }catch(e){}
-    setTimeout(function(){ try{ ensureObserver(); }catch(e){} }, 120);
+    setTimeout(function(){ try{ attachMediaListeners(); ensureObserver(); scheduleApply(60); }catch(e){} }, 120);
 
     // fallback: window resize
     if(!window.__cvhbFitInit){
@@ -4102,6 +4044,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     // first runs (layout settle)
     queueApply(0);
     queueApply(180);
+    queueApply(420);
   }catch(e){}
 };
 
@@ -6831,11 +6774,11 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     desktop_nav_html = "".join(
         [f'<a class="pv-desktop-nav-btn" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-    ) + '<a class="pv-desktop-nav-btn" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a>'
+    ) + '<a class="pv-desktop-nav-btn" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>'
 
     mobile_nav_items_html = "".join(
         [f'<a class="pv-nav-item" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-        + [f'<a class="pv-nav-item" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a>']
+        + [f'<a class="pv-nav-item" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>']
     )
 
     email_block = ""
@@ -6919,7 +6862,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
             <a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>
             <a class="pv-footer-link" href="index.html#pv-access">アクセス</a>
             <a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>
-            <a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a>
+            <a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>
           </div>
           <div class="pv-footer-copy">© <span id="pvYear"></span> {esc_company}</div>
         </div>
@@ -7000,7 +6943,7 @@ def build_contact_section_html(
 
     # 共通の注意文
     hint_html = f"""
-      <div class="pv-contact-hint">※ 送信前に <a class="pv-inline-link" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a> をご確認ください。</div>
+      <div class="pv-contact-hint">※ 送信前に <a class="pv-inline-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a> をご確認ください。</div>
     """.strip()
 
     # アクション領域
@@ -10359,7 +10302,7 @@ body.pv-modal-open{overflow:hidden !important;}
     privacy_modal_html = build_privacy_modal_markup(privacy_body)
 
     def _privacy_anchor(*, href: str, classes: str = "pv-footer-link", label: str = "プライバシーポリシー") -> str:
-        return f'<a class="{classes}" href="{_esc(href)}" data-pv-privacy-open="1" aria-haspopup="dialog">{_esc(label)}</a>'
+        return f'<a class="{classes}" href="{_esc(href)}" data-pv-privacy-open="1">{_esc(label)}</a>'
 
     # ページ共通: セクションヘッダー
     def _section_head(title_jp: str, subtitle_en: str) -> str:
@@ -12679,8 +12622,25 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
     )
 
 
+def _preview_stage_shell_style(step1: Optional[dict]) -> str:
+    """ビルダープレビュー外枠にも、ページと同系の背景色/グラデーションを入れる。"""
+    src = step1 if isinstance(step1, dict) else {}
+    primary_key = str(src.get("primary_color") or "blue").strip()
+    is_dark = primary_key in ("black", "navy")
+    vars_style = _preview_glass_style(src, dark=is_dark).strip().rstrip(";")
+    prefix = f"{vars_style}; " if vars_style else ""
+    return (
+        prefix
+        + "background-image: var(--pv-bg-img); "
+        + "background-color: var(--pv-base-1, #f8fafc); "
+        + "background-size: cover; "
+        + "background-position: center; "
+        + "background-repeat: no-repeat;"
+    )
+
+
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.0.15) ===== */
+/* ===== Depth Background Rebuild (v1.2.2) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12692,7 +12652,7 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
 }
-/* ===== Depth Background Rebuild (v1.0.15) ===== */
+/* ===== Preview / Export common background clamp ===== */
 .pv-shell.pv-layout-260218{
   --pv-depth-overscan-x: 0px;
   --pv-depth-overscan-y: 0px;
@@ -12738,10 +12698,7 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218 .pv-scroll::after{
   content: "";
   position: absolute;
-  top: calc(-1 * var(--pv-depth-overscan-y));
-  right: calc(-1 * var(--pv-depth-overscan-x));
-  bottom: calc(-1 * var(--pv-depth-overscan-y));
-  left: calc(-1 * var(--pv-depth-overscan-x));
+  inset: 0;
   pointer-events: none;
   will-change: transform, opacity, background-position;
   transform-origin: center center;
@@ -12749,6 +12706,7 @@ body.pv-page-body{
 
 .pv-shell.pv-layout-260218.pv-preview-live{
   backface-visibility: hidden;
+  contain: layout paint;
 }
 .pv-shell.pv-layout-260218.pv-preview-live::before,
 .pv-shell.pv-layout-260218.pv-preview-live::after,
@@ -12789,6 +12747,7 @@ body.pv-page-body{
 }
 .pv-shell.pv-layout-260218.pv-preview-live .pv-footer{
   margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 
 /* Layer2: radial gradient */
@@ -12967,7 +12926,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.1.1) ===== */
+/* ===== Export final viewport clamp (v1.2.2) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -13029,6 +12988,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   overflow-x:hidden !important;
   overflow-y:visible !important;
   overscroll-behavior:auto !important;
+  padding-top:0 !important;
   padding-bottom:0 !important;
   clip-path:inset(0);
   contain:layout paint;
@@ -13047,6 +13007,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
   overflow-x:hidden;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-footer{
+  flex:0 0 auto;
   margin-top:0 !important;
   margin-bottom:0 !important;
 }
@@ -13480,7 +13441,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
                             iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
 
-                            if map_embed and not in_builder:
+                            if map_embed:
                                 with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
                                     ui.element("iframe").classes("pv-map-iframe").props(
                                         f'src="{iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"'
@@ -13647,6 +13608,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
             )
 
 def render_main(u: User) -> None:
+    inject_global_styles()
     cleanup_user_storage()
     sync_builder_shell(True)
 
@@ -15845,8 +15807,15 @@ def render_main(u: User) -> None:
                                 f"{'width: min(100%, 1280px);' if mode == 'pc' else 'width: 100%;'} min-height: 0; height: auto; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             )
                             fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"'
+                            preview_step1 = {}
+                            try:
+                                if isinstance(p, dict) and isinstance((p.get("data") or {}).get("step1"), dict):
+                                    preview_step1 = (p.get("data") or {}).get("step1") or {}
+                            except Exception:
+                                preview_step1 = {}
+                            fit_theme_style = _preview_stage_shell_style(preview_step1)
                             fit_style = (
-                                "width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
+                                f"{fit_theme_style} width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; clip-path: inset(0); contain: layout paint;"
                             )
                             with ui.card().classes(f"cvhb-preview-card cvhb-preview-card-{mode}").style(frame_style).props("flat bordered"):
                                 with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
@@ -15867,6 +15836,12 @@ def render_main(u: User) -> None:
                                         try:
                                             ui.run_javascript(
                                                 f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, 0, 0, {min_scale}, {max_scale});"
+                                            )
+                                        except Exception:
+                                            pass
+                                        try:
+                                            ui.run_javascript(
+                                                "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
                                             )
                                         except Exception:
                                             pass
@@ -15898,14 +15873,11 @@ def render_loading_visual(*, compact: bool = False) -> None:
         f"""
 <div class="cvhb-loader-scene {size_class}" aria-hidden="true">
   <div class="cvhb-loader-glow"></div>
-  <div class="cvhb-loader-orbit cvhb-loader-orbit-a"></div>
-  <div class="cvhb-loader-orbit cvhb-loader-orbit-b"></div>
   <div class="cvhb-loader-stage">
     <span class="cvhb-loader-card-mini cvhb-loader-card-a"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-b"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-c"></span>
   </div>
-  <div class="cvhb-loader-progress"><span></span></div>
   <div class="cvhb-loader-dots"><span></span><span></span><span></span></div>
 </div>
 """
@@ -16039,8 +16011,8 @@ def projects_page():
                 ui.button("作成", on_click=create_new_project).props("color=primary unelevated")
 
         # --- 案件を開くときの読込中表示 ---
-        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
-            with ui.column().classes("w-full items-center justify-center text-center"):
+        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
+            with ui.column().classes("items-center"):
                 render_loading_visual(compact=True)
                 open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm text-center")
                 ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs text-center")
@@ -16466,7 +16438,7 @@ def sync_builder_shell(enabled: bool) -> None:
         pass
 
 
-@ui.page("/", response_timeout=45.0, reconnect_timeout=30.0)
+@ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
@@ -16480,9 +16452,9 @@ async def index():
                 "min-height: calc(100vh - 0px);"
                 "background: linear-gradient(180deg, rgba(245,247,251,1), rgba(238,244,255,1));"
             ):
-                with ui.column().classes("w-full items-center justify-center text-center q-pa-xl").style("min-height: 68vh; width: 100%;"):
-                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
-                        with ui.column().classes("w-full items-center justify-center text-center"):
+                with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
+                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw;").props("bordered"):
+                        with ui.column().classes("items-center"):
                             render_loading_visual()
                             ui.label(title).classes("text-subtitle1 q-mt-sm text-center")
                             ui.label(detail).classes("cvhb-muted q-mt-xs text-center")
@@ -16568,13 +16540,20 @@ async def index():
                                     "margin:0 auto; overflow:hidden; padding:12px;"
                                 ):
                                     fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"'
+                                    preview_step1 = {}
+                                    try:
+                                        if isinstance(p_fallback, dict) and isinstance((p_fallback.get("data") or {}).get("step1"), dict):
+                                            preview_step1 = (p_fallback.get("data") or {}).get("step1") or {}
+                                    except Exception:
+                                        preview_step1 = {}
+                                    fit_theme_style = _preview_stage_shell_style(preview_step1)
                                     fit_style = (
-                                        f"max-width:{fit_max_w}px; width:100%;"
+                                        f"{fit_theme_style} max-width:{fit_max_w}px; width:100%;"
                                         + "min-height:0;height:auto;"
                                         + "margin:0 auto; overflow:hidden;"
                                         + "border-radius:18px;"
                                         + "border:1px solid rgba(0,0,0,0.10);"
-                                        + "background:rgba(255,255,255,0.35);"
+                                        + "clip-path: inset(0); contain: layout paint;"
                                     )
                                     with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
                                         try:
@@ -16588,6 +16567,7 @@ async def index():
                                 f"""
 try {{
   window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w},0.01,1.00);
+  window.cvhbFitApply && window.cvhbFitApply('pv');
 }} catch (e) {{ console.warn('[cvhb] fit error', e); }}
 """
                             )
