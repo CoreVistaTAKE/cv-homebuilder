@@ -3728,7 +3728,7 @@ def inject_global_styles() -> None:
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, gen: {}, last: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, roTimers: {}, gen: {}, last: {} };
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -3817,6 +3817,10 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         cancelAnimationFrame(window.__cvhbFit.rafs[key]);
         delete window.__cvhbFit.rafs[key];
       }
+      if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
+        clearTimeout(window.__cvhbFit.roTimers[key]);
+        delete window.__cvhbFit.roTimers[key];
+      }
     }catch(e){}
 
     let tries = 0;
@@ -3874,11 +3878,17 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           return;
         }
 
+        const setStyle = function(el, prop, value){
+          try{
+            if(el && el.style && el.style[prop] !== value){
+              el.style[prop] = value;
+            }
+          }catch(e){}
+        };
+
         // outer が content-driven で 0px になる事故を防止
-        try{
-          outer.style.width = '100%';
-          outer.style.display = 'block';
-        }catch(e){}
+        setStyle(outer, 'width', '100%');
+        setStyle(outer, 'display', 'block');
 
         const rect = outer.getBoundingClientRect();
         const ow = Math.max(
@@ -3902,16 +3912,16 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           }else{
             // fallback: とにかく見える状態に戻す（scale は諦める）
             try{
-              inner.style.position = 'relative';
-              inner.style.top = '0px';
-              inner.style.left = '0px';
-              inner.style.width = '100%';
-              inner.style.height = '100%';
-              inner.style.maxWidth = 'none';
-              inner.style.transformOrigin = 'top left';
-              inner.style.transform = 'none';
-              inner.style.visibility = 'visible';
-              inner.style.opacity = '1';
+              setStyle(inner, 'position', 'relative');
+              setStyle(inner, 'top', '0px');
+              setStyle(inner, 'left', '0px');
+              setStyle(inner, 'width', '100%');
+              setStyle(inner, 'height', '100%');
+              setStyle(inner, 'maxWidth', 'none');
+              setStyle(inner, 'transformOrigin', 'top left');
+              setStyle(inner, 'transform', 'none');
+              setStyle(inner, 'visibility', 'visible');
+              setStyle(inner, 'opacity', '1');
             }catch(e){}
             try{ window.cvhbDebugLog && window.cvhbDebugLog('fit_fallback', {key:key, ow:ow, oh:oh, dw_req:dwReq, minW:minW||0, maxW:maxW||0, minS:minS||0, maxS:maxS||0}); }catch(e){}
           }
@@ -3932,13 +3942,13 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           }catch(e){}
         }
 
-        inner.style.position = 'absolute';
-        inner.style.top = '0px';
-        inner.style.width = dwUsed + 'px';
-        inner.style.maxWidth = 'none';
-        inner.style.visibility = 'visible';
-        inner.style.opacity = '1';
-        inner.style.transformOrigin = 'top left';
+        setStyle(inner, 'position', 'absolute');
+        setStyle(inner, 'top', '0px');
+        setStyle(inner, 'width', dwUsed + 'px');
+        setStyle(inner, 'maxWidth', 'none');
+        setStyle(inner, 'visibility', 'visible');
+        setStyle(inner, 'opacity', '1');
+        setStyle(inner, 'transformOrigin', 'top left');
 
         const rawScale = ow / dwUsed;
         let scale = rawScale;
@@ -4010,18 +4020,18 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         const innerH = autoHeight
           ? readContentHeight()
           : Math.max(1, oh / Math.max(0.01, scale));
-        inner.style.height = innerH + 'px';
+        setStyle(inner, 'height', innerH + 'px');
 
-        inner.style.transform = 'scale(' + scale + ')';
+        setStyle(inner, 'transform', 'scale(' + scale + ')');
 
         const visualW = dwUsed * scale;
         const left = Math.max(0, (ow - visualW) / 2);
-        inner.style.left = left + 'px';
+        setStyle(inner, 'left', left + 'px');
 
         // 横が足りない場合は横スクロール（PC: 960px未満で発生する想定）
         try{
-          outer.style.overflowY = 'hidden';
-          outer.style.overflowX = (visualW > ow + 1) ? 'auto' : 'hidden';
+          setStyle(outer, 'overflowY', 'hidden');
+          setStyle(outer, 'overflowX', (visualW > ow + 1) ? 'auto' : 'hidden');
         }catch(e){}
 
         const visualH = innerH * scale;
@@ -4029,7 +4039,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           try{
             const nextH = Math.max(1, Math.ceil(visualH));
             if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
-              outer.style.height = nextH + 'px';
+              setStyle(outer, 'height', nextH + 'px');
             }
           }catch(e){}
         }
@@ -4056,7 +4066,19 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
-        const obs = new ResizeObserver(function(){ try{ queueApply(0); }catch(e){} });
+        const obs = new ResizeObserver(function(){
+          try{
+            if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
+              clearTimeout(window.__cvhbFit.roTimers[key]);
+            }
+            window.__cvhbFit.roTimers[key] = setTimeout(function(){
+              try{ delete window.__cvhbFit.roTimers[key]; }catch(e){}
+              try{ queueApply(0); }catch(e){}
+            }, 90);
+          }catch(e){
+            try{ queueApply(0); }catch(e){}
+          }
+        });
         obs.observe(outer);
         window.__cvhbFit.observers[key] = obs;
       }catch(e){}
@@ -4079,8 +4101,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
 
     // first runs (layout settle)
     queueApply(0);
-    queueApply(120);
-    queueApply(320);
+    queueApply(180);
   }catch(e){}
 };
 
@@ -13459,7 +13480,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
                             iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
 
-                            if map_embed:
+                            if map_embed and not in_builder:
                                 with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
                                     ui.element("iframe").classes("pv-map-iframe").props(
                                         f'src="{iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"'
@@ -13626,7 +13647,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
             )
 
 def render_main(u: User) -> None:
-    inject_global_styles()
     cleanup_user_storage()
     sync_builder_shell(True)
 
@@ -15850,12 +15870,6 @@ def render_main(u: User) -> None:
                                             )
                                         except Exception:
                                             pass
-                                        try:
-                                            ui.run_javascript(
-                                                "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
-                                            )
-                                        except Exception:
-                                            pass
                                         # optional debug marker (DevTools で有効化したときだけ記録)
                                         try:
                                             ui.run_javascript(
@@ -16452,7 +16466,7 @@ def sync_builder_shell(enabled: bool) -> None:
         pass
 
 
-@ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
+@ui.page("/", response_timeout=45.0, reconnect_timeout=30.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
@@ -16574,7 +16588,6 @@ async def index():
                                 f"""
 try {{
   window.cvhbFitRegister && window.cvhbFitRegister('pv','pv-fit','pv-root',{design_w},{fit_min_w},{fit_max_w},0.01,1.00);
-  window.cvhbFitApply && window.cvhbFitApply('pv');
 }} catch (e) {{ console.warn('[cvhb] fit error', e); }}
 """
                             )
