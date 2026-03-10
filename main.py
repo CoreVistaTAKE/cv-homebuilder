@@ -1254,7 +1254,7 @@ def inject_global_styles() -> None:
     overflow-y: hidden;
     position: relative;
     background: transparent;
-    contain: paint;
+    contain: layout paint;
   }
   .cvhb-preview-card.cvhb-preview-card-pc {
     width: min(100%, 1280px);
@@ -1467,7 +1467,6 @@ def inject_global_styles() -> None:
     0%, 100% { transform: translateY(0); opacity: 0.46; }
     50% { transform: translateY(-6px); opacity: 1; }
   }
-
 
   /* スマホ：縦並び */
   @media (max-width: 760px) {
@@ -3954,29 +3953,56 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         }
 
         const readContentHeight = function(){
+          let prevTransform = '';
+          let prevHeight = '';
           try{
+            prevTransform = inner.style.transform || '';
+            prevHeight = inner.style.height || '';
+            inner.style.transform = 'none';
             inner.style.height = 'auto';
           }catch(e){}
           try{
-            const header = inner.querySelector('.pv-topbar-260218');
+            const innerRect = inner.getBoundingClientRect();
+            const footer = inner.querySelector('.pv-footer');
             const scroller = inner.querySelector('.pv-scroll');
-            const headerH = header ? Math.max(
-              safeNum(header.scrollHeight, 0),
-              safeNum(header.offsetHeight, 0),
-              safeNum(header.getBoundingClientRect().height, 0)
-            ) : 0;
-            const scrollH = scroller ? Math.max(
-              safeNum(scroller.scrollHeight, 0),
-              safeNum(scroller.offsetHeight, 0),
-              safeNum(scroller.getBoundingClientRect().height, 0)
-            ) : 0;
-            const ownH = Math.max(
-              safeNum(inner.scrollHeight, 0),
-              safeNum(inner.offsetHeight, 0)
-            );
-            return Math.max(1, ownH, headerH + scrollH);
+            let bottom = 0;
+
+            const pushBottom = function(el){
+              try{
+                if(!el) return;
+                const rect = el.getBoundingClientRect();
+                const raw = safeNum(rect.bottom, 0) - safeNum(innerRect.top, 0);
+                if(raw > bottom) bottom = raw;
+              }catch(e){}
+            };
+
+            pushBottom(footer);
+            pushBottom(scroller);
+            if(scroller && scroller.children){
+              Array.from(scroller.children).forEach(pushBottom);
+            }
+
+            if(bottom <= 0){
+              const header = inner.querySelector('.pv-topbar-260218');
+              const headerH = header ? Math.max(
+                safeNum(header.scrollHeight, 0),
+                safeNum(header.offsetHeight, 0),
+                safeNum(header.getBoundingClientRect().height, 0)
+              ) : 0;
+              const scrollH = scroller ? Math.max(
+                safeNum(scroller.scrollHeight, 0),
+                safeNum(scroller.offsetHeight, 0),
+                safeNum(scroller.getBoundingClientRect().height, 0)
+              ) : 0;
+              bottom = Math.max(1, headerH + scrollH);
+            }
+
+            return Math.max(1, Math.ceil(bottom + 1));
           }catch(e){
             return Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
+          }finally{
+            try{ inner.style.transform = prevTransform; }catch(e){}
+            try{ inner.style.height = prevHeight || 'auto'; }catch(e){}
           }
         };
 
@@ -6784,11 +6810,11 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
 
     desktop_nav_html = "".join(
         [f'<a class="pv-desktop-nav-btn" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-    ) + '<a class="pv-desktop-nav-btn" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>'
+    ) + '<a class="pv-desktop-nav-btn" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a>'
 
     mobile_nav_items_html = "".join(
         [f'<a class="pv-nav-item" href="{href}">{html.escape(label)}</a>' for href, label in nav_links]
-        + [f'<a class="pv-nav-item" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>']
+        + [f'<a class="pv-nav-item" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a>']
     )
 
     email_block = ""
@@ -6872,7 +6898,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
             <a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>
             <a class="pv-footer-link" href="index.html#pv-access">アクセス</a>
             <a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>
-            <a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>
+            <a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a>
           </div>
           <div class="pv-footer-copy">© <span id="pvYear"></span> {esc_company}</div>
         </div>
@@ -6953,7 +6979,7 @@ def build_contact_section_html(
 
     # 共通の注意文
     hint_html = f"""
-      <div class="pv-contact-hint">※ 送信前に <a class="pv-inline-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a> をご確認ください。</div>
+      <div class="pv-contact-hint">※ 送信前に <a class="pv-inline-link" href="privacy.html" data-pv-privacy-open="1" aria-haspopup="dialog">プライバシーポリシー</a> をご確認ください。</div>
     """.strip()
 
     # アクション領域
@@ -9465,7 +9491,6 @@ body.pv-page-body{
   margin:0;
   overflow-x:hidden !important;
   overflow-y:auto !important;
-  background: var(--pv-base-1, #ffffff);
 }
 .pv-shell.pv-layout-260218,
 .pv-shell.pv-layout-260218.pv-mode-mobile,
@@ -9484,7 +9509,6 @@ body.pv-page-body{
   isolation:isolate;
   overflow:hidden !important;
   clip-path: inset(0);
-  contain: paint;
 }
 
 .pv-layout-260218 .pv-scroll{
@@ -9499,7 +9523,6 @@ body.pv-page-body{
   overflow-y:visible !important;
   overscroll-behavior:auto !important;
   clip-path: inset(0);
-  contain: paint;
 }
 
 .pv-layout-260218 .pv-main,
@@ -10315,8 +10338,7 @@ body.pv-modal-open{overflow:hidden !important;}
     privacy_modal_html = build_privacy_modal_markup(privacy_body)
 
     def _privacy_anchor(*, href: str, classes: str = "pv-footer-link", label: str = "プライバシーポリシー") -> str:
-        safe_href = _esc(href or "privacy.html")
-        return f'<a class="{classes}" href="{safe_href}" data-pv-privacy-open="1" aria-haspopup="dialog">{_esc(label)}</a>'
+        return f'<a class="{classes}" href="{_esc(href)}" data-pv-privacy-open="1" aria-haspopup="dialog">{_esc(label)}</a>'
 
     # ページ共通: セクションヘッダー
     def _section_head(title_jp: str, subtitle_en: str) -> str:
@@ -12660,7 +12682,7 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: hidden !important;
   clip-path: inset(0);
-  contain: paint;
+  contain: layout paint;
   background-image: var(--pv-bg-img) !important;
   background-color: var(--pv-base-1);
   background-size: var(--pv-base-size);
@@ -12680,7 +12702,8 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
   clip-path: inset(0);
-  contain: paint;
+  padding-bottom: 0 !important;
+  contain: layout paint;
   background: transparent !important;
 }
 .pv-shell.pv-layout-260218 .pv-scroll > *{
@@ -12727,7 +12750,10 @@ body.pv-page-body{
   overflow-y: visible !important;
   overflow-x: hidden !important;
   overscroll-behavior: auto !important;
+  padding-top: 0 !important;
   padding-bottom: 0 !important;
+  clip-path: inset(0);
+  contain: layout paint;
   background: transparent !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none;
@@ -12920,7 +12946,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.12) ===== */
+/* ===== Export final viewport clamp (v1.1.1) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -12930,6 +12956,8 @@ body.pv-page-body{
   overflow-x:hidden !important;
 }
 body.pv-page-body{
+  display:flex;
+  flex-direction:column;
   overflow-y:auto !important;
   overscroll-behavior-x:none;
   overscroll-behavior-y:auto;
@@ -12937,29 +12965,24 @@ body.pv-page-body{
   background-color:var(--pv-base-1, #f8fafc) !important;
 }
 body.pv-page-body::before{
-  content:"";
-  position:fixed;
-  inset:0;
-  pointer-events:none;
-  z-index:0;
-  background-image:var(--pv-bg-img);
-  background-color:var(--pv-base-1, #f8fafc);
-  background-size:var(--pv-base-size);
-  background-position:0% 0%;
-  animation:pvDepthBase var(--pv-base-duration) ease-in-out infinite alternate;
+  content:none !important;
 }
 body.pv-page-body > #pv-root.pv-shell{
   position:relative;
   z-index:1;
+  display:flex !important;
+  flex:1 0 auto;
+  flex-direction:column !important;
   width:100% !important;
   max-width:100% !important;
   min-width:0;
+  min-height:100vh;
   min-height:100dvh;
   height:auto !important;
   background:none !important;
   overflow:hidden !important;
   clip-path:inset(0);
-  contain:paint;
+  contain:layout paint;
 }
 body.pv-page-body > #pv-root.pv-shell::before,
 body.pv-page-body > #pv-root.pv-shell::after,
@@ -12985,11 +13008,14 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   overflow-x:hidden !important;
   overflow-y:visible !important;
   overscroll-behavior:auto !important;
+  padding-bottom:0 !important;
+  clip-path:inset(0);
+  contain:layout paint;
   background:transparent !important;
-  contain:paint;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main{
   flex:1 0 auto;
+  padding-bottom:0 !important;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main,
 body.pv-page-body > #pv-root.pv-shell .pv-section,
@@ -12998,6 +13024,10 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
   z-index:2;
   max-width:100%;
   overflow-x:hidden;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-footer{
+  margin-top:0 !important;
+  margin-bottom:0 !important;
 }
 """
 
@@ -15995,8 +16025,8 @@ def projects_page():
                 ui.button("作成", on_click=create_new_project).props("color=primary unelevated")
 
         # --- 案件を開くときの読込中表示 ---
-        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
-            with ui.column().classes("items-center"):
+        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
+            with ui.column().classes("w-full items-center justify-center text-center"):
                 render_loading_visual(compact=True)
                 open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm text-center")
                 ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs text-center")
@@ -16436,9 +16466,9 @@ async def index():
                 "min-height: calc(100vh - 0px);"
                 "background: linear-gradient(180deg, rgba(245,247,251,1), rgba(238,244,255,1));"
             ):
-                with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
-                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw;").props("bordered"):
-                        with ui.column().classes("items-center"):
+                with ui.column().classes("w-full items-center justify-center text-center q-pa-xl").style("min-height: 68vh; width: 100%;"):
+                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
+                        with ui.column().classes("w-full items-center justify-center text-center"):
                             render_loading_visual()
                             ui.label(title).classes("text-subtitle1 q-mt-sm text-center")
                             ui.label(detail).classes("cvhb-muted q-mt-xs text-center")
