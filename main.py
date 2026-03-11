@@ -1227,21 +1227,9 @@ def inject_global_styles() -> None:
   }
   .cvhb-loading-card {
     min-width: 280px;
-    margin-left: auto;
-    margin-right: auto;
-    text-align: center;
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99)),
-      linear-gradient(135deg, rgba(30,94,255,0.05), rgba(139,92,246,0.04));
+    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
     border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 22px 56px rgba(15,23,42,0.14);
-  }
-  .cvhb-loading-card .column,
-  .cvhb-loading-card .items-center {
-    width: 100%;
-    align-items: center !important;
-    justify-content: center;
-    text-align: center;
+    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
   }
   .cvhb-preview-card {
     background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.28));
@@ -1277,28 +1265,6 @@ def inject_global_styles() -> None:
   .cvhb-loader-scene.is-compact {
     width: 188px;
     height: 136px;
-  }
-  .cvhb-loader-orbit {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 176px;
-    height: 176px;
-    margin-left: -88px;
-    margin-top: -88px;
-    border-radius: 999px;
-    border: 1px solid rgba(96,165,250,0.22);
-    border-top-color: rgba(30,94,255,0.72);
-    border-bottom-color: rgba(139,92,246,0.48);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
-    animation: cvhbLoaderOrbit 2.4s linear infinite;
-    opacity: 0.82;
-  }
-  .cvhb-loader-scene.is-compact .cvhb-loader-orbit {
-    width: 150px;
-    height: 150px;
-    margin-left: -75px;
-    margin-top: -75px;
   }
   .cvhb-loader-glow {
     position: absolute;
@@ -1401,38 +1367,9 @@ def inject_global_styles() -> None:
   }
   .cvhb-loader-dots span:nth-child(2) { animation-delay: 0.18s; }
   .cvhb-loader-dots span:nth-child(3) { animation-delay: 0.36s; }
-  .cvhb-loader-bar {
-    position: absolute;
-    left: 50%;
-    bottom: -10px;
-    width: 126px;
-    height: 6px;
-    transform: translateX(-50%);
-    border-radius: 999px;
-    background: rgba(148,163,184,0.18);
-    overflow: hidden;
-  }
-  .cvhb-loader-bar > span {
-    display: block;
-    width: 42%;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, rgba(30,94,255,0.92), rgba(96,165,250,0.88), rgba(139,92,246,0.78));
-    box-shadow: 0 0 16px rgba(59,130,246,0.20);
-    animation: cvhbLoaderBar 1.8s ease-in-out infinite;
-  }
   @keyframes cvhbLoaderGlow {
     0%, 100% { transform: scale(0.96); opacity: 0.86; }
     50% { transform: scale(1.06); opacity: 1; }
-  }
-  @keyframes cvhbLoaderOrbit {
-    0% { transform: rotate(0deg) scale(0.98); }
-    100% { transform: rotate(360deg) scale(1.02); }
-  }
-  @keyframes cvhbLoaderBar {
-    0% { transform: translateX(-16%); }
-    50% { transform: translateX(132%); }
-    100% { transform: translateX(-16%); }
   }
   @keyframes cvhbLoaderCardA {
     0%, 100% { transform: translate(-34px, 16px) rotate(-8deg) scale(0.96); }
@@ -3492,6 +3429,79 @@ def inject_global_styles() -> None:
   font-size: 0.74rem;
   opacity: 0.68;
 }
+
+/* ===== Footer Layout 1.2.7 ===== */
+.pv-layout-260218 .pv-footer-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "company"
+    "links"
+    "copy";
+  gap: 8px;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-company{
+  grid-area: company;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-company-name{
+  font-size: clamp(6px, 2.55vw, 0.82rem);
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  color: rgba(255,255,255,0.92);
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-footer-links{
+  grid-area: links;
+  flex: none;
+  justify-content: center;
+  width: 100%;
+  margin: 0 auto;
+  font-size: clamp(6px, 2.55vw, 0.82rem);
+}
+.pv-layout-260218 .pv-footer-copy{
+  grid-area: copy;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  margin: 0 !important;
+  text-align: right;
+  font-size: clamp(4px, 1.7vw, 0.64rem);
+  line-height: 1.35;
+  opacity: 0.76;
+  white-space: normal;
+}
+.pv-layout-260218.pv-mode-pc .pv-footer-copy{
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-footer-copy a,
+.pv-layout-260218 .pv-footer-credit-link{
+  color: rgba(255,255,255,0.86);
+  text-decoration: none;
+}
+.pv-layout-260218 .pv-footer-copy a:hover,
+.pv-layout-260218 .pv-footer-credit-link:hover{
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-company-name{
+  font-size: clamp(5px, 2.55vw, 0.76rem);
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-links{
+  font-size: clamp(5px, 2.55vw, 0.76rem);
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-copy{
+  font-size: clamp(4px, 2.1vw, 0.58rem);
+}
+
 /* ====== Legal (Privacy Policy) ====== */
 .pv-legal-title{
   font-weight: 900;
@@ -3712,7 +3722,7 @@ def inject_global_styles() -> None:
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, roTimers: {}, gen: {}, last: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, gen: {}, last: {} };
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -3937,55 +3947,29 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         }
 
         const readContentHeight = function(){
-          let prevTransform = '';
-          let prevHeight = '';
           try{
-            prevTransform = inner.style.transform || '';
-            prevHeight = inner.style.height || '';
-            inner.style.transform = 'none';
             inner.style.height = 'auto';
           }catch(e){}
           try{
+            const header = inner.querySelector('.pv-topbar-260218');
             const scroller = inner.querySelector('.pv-scroll');
-            const footer = inner.querySelector('.pv-footer');
-            const scrollerTop = scroller ? safeNum(scroller.offsetTop, 0) : 0;
-            let bottom = 0;
-
-            const pushBottom = function(el){
-              try{
-                if(!el) return;
-                let top = safeNum(el.offsetTop, 0);
-                if(scroller && scroller.contains(el)) top += scrollerTop;
-                const height = Math.max(
-                  safeNum(el.offsetHeight, 0),
-                  safeNum(el.scrollHeight, 0)
-                );
-                const raw = top + height;
-                if(raw > bottom) bottom = raw;
-              }catch(e){}
-            };
-
-            pushBottom(footer);
-            if(scroller && scroller.children){
-              Array.from(scroller.children).forEach(function(child){ pushBottom(child); });
-              try{ pushBottom(scroller.lastElementChild); }catch(e){}
-            }
-
-            if(bottom <= 0 && scroller){
-              bottom = Math.max(bottom, scrollerTop + Math.max(
-                safeNum(scroller.scrollHeight, 0),
-                safeNum(scroller.offsetHeight, 0)
-              ));
-            }
-            if(bottom <= 0){
-              bottom = Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
-            }
-            return Math.max(1, Math.ceil(bottom));
+            const headerH = header ? Math.max(
+              safeNum(header.scrollHeight, 0),
+              safeNum(header.offsetHeight, 0),
+              safeNum(header.getBoundingClientRect().height, 0)
+            ) : 0;
+            const scrollH = scroller ? Math.max(
+              safeNum(scroller.scrollHeight, 0),
+              safeNum(scroller.offsetHeight, 0),
+              safeNum(scroller.getBoundingClientRect().height, 0)
+            ) : 0;
+            const ownH = Math.max(
+              safeNum(inner.scrollHeight, 0),
+              safeNum(inner.offsetHeight, 0)
+            );
+            return Math.max(1, ownH, headerH + scrollH);
           }catch(e){
             return Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
-          }finally{
-            try{ inner.style.transform = prevTransform; }catch(e){}
-            try{ inner.style.height = prevHeight || 'auto'; }catch(e){}
           }
         };
 
@@ -4011,20 +3995,9 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         if(autoHeight){
           try{
             const nextH = Math.max(1, Math.ceil(visualH));
-            const prevApplied = safeNum((outer.dataset && outer.dataset.cvhbFitHeight) || 0, 0);
-            if(Math.abs(prevApplied - nextH) > 1){
+            if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
               outer.style.height = nextH + 'px';
-              outer.style.minHeight = nextH + 'px';
-              outer.style.maxHeight = nextH + 'px';
-              if(outer.dataset){ outer.dataset.cvhbFitHeight = String(nextH); }
             }
-          }catch(e){}
-        }else{
-          try{
-            outer.style.height = '';
-            outer.style.minHeight = '';
-            outer.style.maxHeight = '';
-            if(outer.dataset){ delete outer.dataset.cvhbFitHeight; }
           }catch(e){}
         }
 
@@ -4050,39 +4023,13 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
-        const obs = new ResizeObserver(function(){
-          try{
-            if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
-              clearTimeout(window.__cvhbFit.roTimers[key]);
-            }
-            window.__cvhbFit.roTimers[key] = setTimeout(function(){
-              try{ delete window.__cvhbFit.roTimers[key]; }catch(e){}
-              try{ queueApply(0); }catch(e){}
-            }, 90);
-          }catch(e){
-            try{ queueApply(0); }catch(e){}
-          }
-        });
+        const obs = new ResizeObserver(function(){ try{ queueApply(0); }catch(e){} });
         obs.observe(outer);
-        try{
-          const innerEl = document.getElementById(innerId);
-          const scroller = innerEl ? innerEl.querySelector('.pv-scroll') : null;
-          if(scroller) obs.observe(scroller);
-        }catch(e){}
         window.__cvhbFit.observers[key] = obs;
       }catch(e){}
     };
     try{ ensureObserver(); }catch(e){}
     setTimeout(function(){ try{ ensureObserver(); }catch(e){} }, 120);
-
-    try{
-      const medias = inner.querySelectorAll('img, iframe');
-      medias.forEach(function(el){
-        const onReady = function(){ try{ queueApply(0); }catch(e){} };
-        try{ el.addEventListener('load', onReady, { passive:true, once:true }); }catch(e){}
-        try{ el.addEventListener('error', onReady, { passive:true, once:true }); }catch(e){}
-      });
-    }catch(e){}
 
     // fallback: window resize
     if(!window.__cvhbFitInit){
@@ -4100,7 +4047,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     // first runs (layout settle)
     queueApply(0);
     queueApply(120);
-    queueApply(260);
+    queueApply(320);
   }catch(e){}
 };
 
@@ -6755,26 +6702,6 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
-EXPORT_FOOTER_VERSION = "1.2.6"
-EXPORT_FOOTER_PRODUCED_URL = "https://www.corevista-japan.com/"
-EXPORT_FOOTER_PRODUCED_LABEL = "CoreVista Japan Co., Ltd."
-
-
-def build_export_footer_meta_html(company_name: str, *, version: str = EXPORT_FOOTER_VERSION) -> str:
-    """公開HTMLフッター右下の著作表記を返す（builderには影響させない）。"""
-    company_label = html.escape(str(company_name or "").strip() or "会社名")
-    version_label = html.escape(str(version or EXPORT_FOOTER_VERSION).strip() or EXPORT_FOOTER_VERSION)
-    produced_url = html.escape(EXPORT_FOOTER_PRODUCED_URL, quote=True)
-    produced_label = html.escape(EXPORT_FOOTER_PRODUCED_LABEL)
-    return (
-        '<div class="pv-footer-meta">'
-        f'<div class="pv-footer-copy">© <span id="pvYear"></span> {company_label}</div>'
-        f'<div class="pv-footer-produced">© CVHB {version_label} · Produced by '
-        f'<a href="{produced_url}" target="_blank" rel="noopener noreferrer">{produced_label}</a></div>'
-        '</div>'
-    )
-
-
 def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ", privacy_body_html: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
@@ -6867,6 +6794,18 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
         """
 
     privacy_modal_html = build_privacy_modal_markup(privacy_body_html)
+    thanks_footer_links_html = "".join([
+        '<a class="pv-footer-link" href="index.html#pv-top">トップ</a>',
+        '<a class="pv-footer-link" href="news/index.html">お知らせ一覧</a>',
+        f'<a class="pv-footer-link" href="index.html#pv-about">{html.escape(about_label)}</a>',
+        f'<a class="pv-footer-link" href="index.html#pv-company-profile">{html.escape(profile_label)}</a>' if profile_label else '',
+        f'<a class="pv-footer-link" href="index.html#pv-services">{html.escape(services_label)}</a>',
+        '<a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>',
+        '<a class="pv-footer-link" href="index.html#pv-access">アクセス</a>',
+        f'<a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>',
+        '<a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>',
+    ])
+    thanks_footer_html = build_footer_markup(company_name=company_name, footer_links_html=thanks_footer_links_html)
 
     return f"""<!doctype html>
 <html lang="ja">
@@ -6928,20 +6867,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
       </main>
 
       <footer class="pv-footer">
-        <div class="pv-footer-inner">
-          <div class="pv-footer-links">
-            <a class="pv-footer-link" href="index.html#pv-top">トップ</a>
-            <a class="pv-footer-link" href="news/index.html">お知らせ一覧</a>
-            <a class="pv-footer-link" href="index.html#pv-about">{html.escape(about_label)}</a>
-            {f'<a class="pv-footer-link" href="index.html#pv-company-profile">{html.escape(profile_label)}</a>' if profile_label else ''}
-            <a class="pv-footer-link" href="index.html#pv-services">{html.escape(services_label)}</a>
-            <a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>
-            <a class="pv-footer-link" href="index.html#pv-access">アクセス</a>
-            <a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>
-            <a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>
-          </div>
-          {build_export_footer_meta_html(company_name)}
-        </div>
+        {thanks_footer_html}
       </footer>
     </div>
   </div>
@@ -6985,6 +6911,31 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
         "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label, privacy_body_html=privacy_body_html).encode("utf-8"),
     }
+EXPORT_FOOTER_VERSION = "1.2.7"
+COREVISTA_JAPAN_LABEL = "CoreVista Japan Co., Ltd."
+COREVISTA_JAPAN_URL = "https://www.corevista-japan.com/"
+
+
+def build_footer_credit_html(version: str = EXPORT_FOOTER_VERSION) -> str:
+    version_text = html.escape(str(version or EXPORT_FOOTER_VERSION).strip() or EXPORT_FOOTER_VERSION)
+    label = html.escape(COREVISTA_JAPAN_LABEL)
+    url = html.escape(COREVISTA_JAPAN_URL, quote=True)
+    return f'© CVHB {version_text} - Produced by <a class="pv-footer-credit-link" href="{url}" target="_blank" rel="noopener noreferrer">{label}</a>'
+
+
+def build_footer_markup(*, company_name: str, footer_links_html: str, version: str = EXPORT_FOOTER_VERSION) -> str:
+    brand = html.escape(str(company_name or "").strip() or "会社名")
+    links = str(footer_links_html or "")
+    credit = build_footer_credit_html(version=version)
+    return (
+        f'<div class="pv-footer-inner">'
+        f'<div class="pv-footer-company"><div class="pv-footer-company-name">{brand}</div></div>'
+        f'<div class="pv-footer-links">{links}</div>'
+        f'<div class="pv-footer-copy">{credit}</div>'
+        f'</div>'
+    )
+
+
 def build_contact_section_html(
     *,
     company_name: str,
@@ -9504,6 +9455,79 @@ a:hover{text-decoration:none;}
   opacity: 0.68;
 }
 
+
+/* ===== Footer Layout 1.2.7 ===== */
+.pv-layout-260218 .pv-footer-inner{
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "company"
+    "links"
+    "copy";
+  gap: 8px;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-company{
+  grid-area: company;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+}
+.pv-layout-260218 .pv-footer-company-name{
+  font-size: clamp(6px, 2.55vw, 0.82rem);
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  color: rgba(255,255,255,0.92);
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-footer-links{
+  grid-area: links;
+  flex: none;
+  justify-content: center;
+  width: 100%;
+  margin: 0 auto;
+  font-size: clamp(6px, 2.55vw, 0.82rem);
+}
+.pv-layout-260218 .pv-footer-copy{
+  grid-area: copy;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  margin: 0 !important;
+  text-align: right;
+  font-size: clamp(4px, 1.7vw, 0.64rem);
+  line-height: 1.35;
+  opacity: 0.76;
+  white-space: normal;
+}
+.pv-layout-260218.pv-mode-pc .pv-footer-copy{
+  white-space: nowrap;
+}
+.pv-layout-260218 .pv-footer-copy a,
+.pv-layout-260218 .pv-footer-credit-link{
+  color: rgba(255,255,255,0.86);
+  text-decoration: none;
+}
+.pv-layout-260218 .pv-footer-copy a:hover,
+.pv-layout-260218 .pv-footer-credit-link:hover{
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-company-name{
+  font-size: clamp(5px, 2.55vw, 0.76rem);
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-links{
+  font-size: clamp(5px, 2.55vw, 0.76rem);
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-copy{
+  font-size: clamp(4px, 2.1vw, 0.58rem);
+}
+
 /* v0.9.9: ヒーローのキャッチ/サブキャッチは「1行・全文表示」固定（…禁止）
    - 文字がはみ出す時は assets/site.js のfitが自動で文字サイズを下げます */
 .pv-layout-260218 .pv-hero-caption-title,
@@ -9768,102 +9792,7 @@ body.pv-modal-open{overflow:hidden !important;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 """
 
-    EXPORT_PATCH_CSS_126 = r"""
-/* ===== Export only patch (v1.2.6) ===== */
-html,
-body.pv-page-body{
-  width:100%;
-  max-width:100%;
-  min-width:0;
-  overflow-x:hidden !important;
-}
-body.pv-page-body{
-  min-height:100vh !important;
-  min-height:100dvh !important;
-  height:auto !important;
-  overflow-x:hidden !important;
-  overflow-y:auto !important;
-}
-body.pv-page-body > #pv-root.pv-shell{
-  display:block !important;
-  min-height:100vh !important;
-  min-height:100dvh !important;
-  height:auto !important;
-  overflow:hidden !important;
-}
-body.pv-page-body > #pv-root.pv-shell .pv-scroll{
-  display:block !important;
-  flex:none !important;
-  min-height:0 !important;
-  height:auto !important;
-  max-height:none !important;
-  overflow-x:hidden !important;
-  overflow-y:hidden !important;
-  overscroll-behavior:none !important;
-  padding-top:0 !important;
-  padding-bottom:0 !important;
-}
-body.pv-page-body > #pv-root.pv-shell .pv-main{
-  display:block !important;
-  flex:none !important;
-  min-height:0 !important;
-  padding-bottom:0 !important;
-}
-@media (min-width: 980px){
-  body.pv-page-body > #pv-root.pv-shell .pv-section.pv-section-260218:not(#pv-top){
-    content-visibility:auto;
-    contain-intrinsic-size: 1px 960px;
-  }
-}
-body.pv-page-body > #pv-root.pv-shell .pv-footer{
-  clear:both;
-  flex:none !important;
-  margin-top:0 !important;
-  margin-bottom:0 !important;
-  position:relative;
-}
-body.pv-page-body > #pv-root.pv-shell .pv-mapframe,
-body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
-  overflow:hidden !important;
-  contain:paint;
-}
-.pv-layout-260218 .pv-footer-meta{
-  flex:0 0 auto;
-  min-width:max-content;
-  margin-left:auto;
-  display:flex;
-  flex-direction:column;
-  align-items:flex-end;
-  gap:4px;
-  text-align:right;
-}
-.pv-layout-260218 .pv-footer-produced{
-  font-size:10px;
-  line-height:1.35;
-  letter-spacing:0.01em;
-  opacity:0.66;
-  white-space:nowrap;
-}
-.pv-layout-260218 .pv-footer-produced a{
-  color:rgba(255,255,255,0.82);
-  text-decoration:none;
-}
-.pv-layout-260218 .pv-footer-produced a:hover{
-  text-decoration:underline;
-  text-underline-offset:3px;
-}
-.pv-layout-260218.pv-mode-mobile .pv-footer-meta{
-  width:100%;
-  min-width:0;
-  align-items:flex-end;
-}
-.pv-layout-260218.pv-mode-mobile .pv-footer-produced{
-  font-size:9px;
-  white-space:normal;
-}
-"""
-
-    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS + "\n" + DEPTH_BG_CSS + "\n" + EXPORT_PATCH_CSS_126
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS + "\n" + DEPTH_BG_CSS
     # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
     #   ただし重複許容（sizeより一致優先）
 
@@ -10524,6 +10453,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
         ("#pv-contact", contact_nav_label),
     ]
     footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links]) + _privacy_anchor(href="privacy.html", classes="pv-footer-link")
+    index_footer_html = build_footer_markup(company_name=company_name, footer_links_html=footer_links_html)
 
     # --------------------
     # hero
@@ -10536,9 +10466,8 @@ body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
     slides_html = ""
     if hero_urls:
         slides = []
-        for i, u in enumerate(hero_urls):
-            loading_attr = ' loading="eager" fetchpriority="high" decoding="async"' if i == 0 else ' loading="lazy" fetchpriority="low" decoding="async"'
-            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt=""{loading_attr}></div>')
+        for u in hero_urls:
+            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt=""></div>')
         slides_html = "".join(slides)
     else:
         slides_html = '<div class="pv-hero-slide"><div class="pv-hero-img pv-hero-img-placeholder"></div></div>'
@@ -10642,6 +10571,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
             (sec_href("pv-contact"), contact_nav_label),
         ]
         footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links]) + _privacy_anchor(href=f"{root_prefix}privacy.html", classes="pv-footer-link")
+        page_footer_html = build_footer_markup(company_name=company_name, footer_links_html=footer_links_html)
 
         brand_href = sec_href("pv-top")
 
@@ -10684,10 +10614,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
     <div class=\"pv-scroll\">
       <main class=\"pv-main\">{body_inner}</main>
       <footer class=\"pv-footer\">
-        <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-links\">{footer_links_html}</div>
-          {build_export_footer_meta_html(company_name)}
-        </div>
+        {page_footer_html}
       </footer>
     </div>
   </div>
@@ -10780,7 +10707,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
             points_cards.append(f'<div class="pv-point-card">{_esc(pt)}</div>')
         points_html = f'<div class="pv-points">{"".join(points_cards)}</div>'
 
-    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="" loading="lazy" decoding="async">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
+    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
 
     about_body_html = _paras(ph_body)
 
@@ -10831,7 +10758,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
     svc_lead_html = _paras(svc_lead)
     svc_items = [it for it in (svc.get("items") or []) if isinstance(it, dict)]
 
-    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="" loading="lazy" decoding="async">' if svc_img_href else ''
+    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="">' if svc_img_href else ''
 
     svc_cards = []
     for it in svc_items:
@@ -11057,10 +10984,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
       </main>
 
       <footer class=\"pv-footer\">
-        <div class=\"pv-footer-inner\">
-          <div class=\"pv-footer-links\">{footer_links_html}</div>
-          {build_export_footer_meta_html(company_name)}
-        </div>
+        {index_footer_html}
       </footer>
     </div>
   </div>
@@ -12794,25 +12718,8 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
     )
 
 
-def _preview_stage_shell_style(step1: Optional[dict]) -> str:
-    """ビルダープレビュー外枠にも、ページと同系の背景色/グラデーションを入れる。"""
-    src = step1 if isinstance(step1, dict) else {}
-    primary_key = str(src.get("primary_color") or "blue").strip()
-    is_dark = primary_key in ("black", "navy")
-    vars_style = _preview_glass_style(src, dark=is_dark).strip().rstrip(";")
-    prefix = f"{vars_style}; " if vars_style else ""
-    return (
-        prefix
-        + "background-image: var(--pv-bg-img); "
-        + "background-color: var(--pv-base-1, #f8fafc); "
-        + "background-size: cover; "
-        + "background-position: center; "
-        + "background-repeat: no-repeat;"
-    )
-
-
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Clamp (v1.2.5) ===== */
+/* ===== Depth Background Rebuild (v1.0.15) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12824,11 +12731,10 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
 }
-
-/* ===== Preview / Export common background clamp ===== */
+/* ===== Depth Background Rebuild (v1.0.15) ===== */
 .pv-shell.pv-layout-260218{
-  --pv-depth-overscan-x: max(4.5vw, 64px);
-  --pv-depth-overscan-y: max(4.5vh, 56px);
+  --pv-depth-overscan-x: max(9vw, 112px);
+  --pv-depth-overscan-y: max(9vh, 80px);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -12836,7 +12742,6 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: hidden !important;
   clip-path: inset(0);
-  contain: layout paint;
   background-image: var(--pv-bg-img) !important;
   background-color: var(--pv-base-1);
   background-size: var(--pv-base-size);
@@ -12856,9 +12761,6 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
   clip-path: inset(0);
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  contain: layout paint;
   background: transparent !important;
 }
 .pv-shell.pv-layout-260218 .pv-scroll > *{
@@ -12883,7 +12785,6 @@ body.pv-page-body{
 
 .pv-shell.pv-layout-260218.pv-preview-live{
   backface-visibility: hidden;
-  contain: layout paint;
 }
 .pv-shell.pv-layout-260218.pv-preview-live::before,
 .pv-shell.pv-layout-260218.pv-preview-live::after,
@@ -12892,7 +12793,7 @@ body.pv-page-body{
   will-change: auto;
 }
 
-/* builder preview は右カラムの1スクロールだけに統一 */
+/* v1.0.12: builder previewは右カラムの1スクロールだけに統一 */
 .pv-shell.pv-layout-260218.pv-preview-live{
   height: auto !important;
   min-height: 0 !important;
@@ -12902,14 +12803,11 @@ body.pv-page-body{
   flex: 0 0 auto !important;
   min-height: 0 !important;
   height: auto !important;
-  overflow: hidden !important;
-  overflow-y: hidden !important;
+  overflow: visible !important;
+  overflow-y: visible !important;
   overflow-x: hidden !important;
-  overscroll-behavior: none !important;
-  padding-top: 0 !important;
+  overscroll-behavior: auto !important;
   padding-bottom: 0 !important;
-  clip-path: inset(0);
-  contain: layout paint;
   background: transparent !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none;
@@ -12924,28 +12822,6 @@ body.pv-page-body{
 }
 .pv-shell.pv-layout-260218.pv-preview-live .pv-footer{
   margin-top: 0 !important;
-  margin-bottom: 0 !important;
-}
-
-/* PC builder を軽くするため、preview live だけフィルタ負荷を落とす */
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before{
-  filter: none !important;
-  opacity: calc(var(--pv-blob-opacity) * 0.78);
-}
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
-  filter: none !important;
-  opacity: calc(var(--pv-orb-opacity) * 0.78);
-}
-.pv-shell.pv-layout-260218.pv-preview-live .pv-panel::after{
-  backdrop-filter: blur(10px) saturate(1.02);
-  -webkit-backdrop-filter: blur(10px) saturate(1.02);
-}
-.pv-shell.pv-layout-260218.pv-preview-live .pv-topbar-260218,
-.pv-shell.pv-layout-260218.pv-preview-live .pv-panel-flat,
-.pv-shell.pv-layout-260218.pv-preview-live .pv-surface-white,
-.pv-shell.pv-layout-260218.pv-preview-live .pv-companybar-inner{
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 /* Layer2: radial gradient */
@@ -13015,6 +12891,9 @@ body.pv-page-body{
   transform: var(--pv-blob-from);
   animation: pvDepthBlob var(--pv-blob-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before{
+  filter: blur(calc(var(--pv-blob-blur) * 0.84));
+}
 
 /* Layer5: light orb */
 .pv-shell.pv-layout-260218 .pv-scroll::after{
@@ -13029,6 +12908,9 @@ body.pv-page-body{
   filter: blur(calc(var(--pv-orb-blur) * 1.42));
   transform: var(--pv-orb-from);
   animation: pvDepthOrb var(--pv-orb-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
+}
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
+  filter: blur(calc(var(--pv-orb-blur) * 1.14));
 }
 
 @keyframes pvDepthBase{
@@ -13097,7 +12979,6 @@ body.pv-page-body{
   background: var(--pv-panel-guard);
   border: 1px solid var(--pv-panel-border);
   backdrop-filter: blur(16px) saturate(1.08);
-  -webkit-backdrop-filter: blur(16px) saturate(1.08);
 }
 .pv-layout-260218 .pv-panel > *{
   position: relative;
@@ -13119,7 +13000,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.2.5) ===== */
+/* ===== Export final viewport clamp (v1.0.12) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -13129,8 +13010,6 @@ body.pv-page-body{
   overflow-x:hidden !important;
 }
 body.pv-page-body{
-  display:flex;
-  flex-direction:column;
   overflow-y:auto !important;
   overscroll-behavior-x:none;
   overscroll-behavior-y:auto;
@@ -13138,34 +13017,41 @@ body.pv-page-body{
   background-color:var(--pv-base-1, #f8fafc) !important;
 }
 body.pv-page-body::before{
-  content:none !important;
+  content:"";
+  position:fixed;
+  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
+  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
+  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
+  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
+  pointer-events:none;
+  z-index:0;
+  background-image:var(--pv-bg-img);
+  background-color:var(--pv-base-1, #f8fafc);
+  background-size:var(--pv-base-size);
+  background-position:0% 0%;
+  animation:pvDepthBase var(--pv-base-duration) ease-in-out infinite alternate;
 }
 body.pv-page-body > #pv-root.pv-shell{
   position:relative;
   z-index:1;
-  display:flex !important;
-  flex:1 0 auto;
-  flex-direction:column !important;
   width:100% !important;
   max-width:100% !important;
   min-width:0;
-  min-height:100vh;
   min-height:100dvh;
   height:auto !important;
   background:none !important;
   overflow:hidden !important;
   clip-path:inset(0);
-  contain:layout paint;
 }
 body.pv-page-body > #pv-root.pv-shell::before,
 body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
-  position:absolute !important;
-  top: calc(-1 * var(--pv-depth-overscan-y));
-  right: calc(-1 * var(--pv-depth-overscan-x));
-  bottom: calc(-1 * var(--pv-depth-overscan-y));
-  left: calc(-1 * var(--pv-depth-overscan-x));
+  position:fixed !important;
+  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
+  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
+  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
+  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
   pointer-events:none;
   transform-origin:center center;
 }
@@ -13182,17 +13068,12 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   height:auto !important;
   max-height:none !important;
   overflow-x:hidden !important;
-  overflow-y:hidden !important;
+  overflow-y:visible !important;
   overscroll-behavior:auto !important;
-  padding-top:0 !important;
-  padding-bottom:0 !important;
-  clip-path:inset(0);
-  contain:layout paint;
   background:transparent !important;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main{
   flex:1 0 auto;
-  padding-bottom:0 !important;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main,
 body.pv-page-body > #pv-root.pv-shell .pv-section,
@@ -13202,12 +13083,8 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
   max-width:100%;
   overflow-x:hidden;
 }
-body.pv-page-body > #pv-root.pv-shell .pv-footer{
-  flex:0 0 auto;
-  margin-top:0 !important;
-  margin-bottom:0 !important;
-}
 """
+
 
 def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, in_builder: bool = False) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
@@ -13365,12 +13242,10 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         map_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
 
     # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
-    # v1.2.5: ビルダープレビューでは live iframe を使わず、軽量リンクカードに固定する
     try:
         map_embed = bool(access.get("embed_map", True))
     except Exception:
         map_embed = True
-    map_embed_live = bool(map_embed and not in_builder)
 
     contact = blocks.get("contact", {}) if isinstance(blocks.get("contact"), dict) else {}
     contact_message = _clean(contact.get("message"))
@@ -13638,7 +13513,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
                             iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
 
-                            if map_embed_live:
+                            if map_embed:
                                 with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
                                     ui.element("iframe").classes("pv-map-iframe").props(
                                         f'src="{iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"'
@@ -13781,6 +13656,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
 # FOOTER
             with ui.element("footer").classes("pv-footer"):
                 with ui.element("div").classes("pv-footer-inner"):
+                    with ui.element("div").classes("pv-footer-company"):
+                        ui.label(company_name).classes("pv-footer-company-name")
                     with ui.element("div").classes("pv-footer-links"):
                         _footer_nav_items = [
                             ("トップ", "top"),
@@ -13798,13 +13675,14 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                         for label, sec in _footer_nav_items:
                             ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
                         ui.button("プライバシーポリシー", on_click=privacy_dialog.open).props("flat no-caps").classes("pv-footer-link text-white")
-                    ui.label(f"© {datetime.now().year} {company_name}").classes("pv-footer-copy")
+                    ui.html(build_footer_credit_html()).classes("pv-footer-copy")
 
             ui.run_javascript(
                 f"setTimeout(function(){{try{{window.cvhbInitScrollReveal && window.cvhbInitScrollReveal('{root_id}');}}catch(e){{}}}},0);"
             )
 
 def render_main(u: User) -> None:
+    inject_global_styles()
     cleanup_user_storage()
     sync_builder_shell(True)
 
@@ -13876,7 +13754,7 @@ def render_main(u: User) -> None:
 
     # プレビューは更新が重くなりがちなので、入力中はデバウンスして負荷を下げる
     _preview_refresh_handle: Optional[asyncio.TimerHandle] = None
-    _PREVIEW_DEBOUNCE_SEC = 0.35
+    _PREVIEW_DEBOUNCE_SEC = 0.25
 
     def refresh_preview(force: bool = False) -> None:
         """プレビュー更新（デバウンス対応）"""
@@ -16003,15 +15881,8 @@ def render_main(u: User) -> None:
                                 f"{'width: min(100%, 1280px);' if mode == 'pc' else 'width: 100%;'} min-height: 0; height: auto; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             )
                             fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"'
-                            preview_step1 = {}
-                            try:
-                                if isinstance(p, dict) and isinstance((p.get("data") or {}).get("step1"), dict):
-                                    preview_step1 = (p.get("data") or {}).get("step1") or {}
-                            except Exception:
-                                preview_step1 = {}
-                            fit_theme_style = _preview_stage_shell_style(preview_step1)
                             fit_style = (
-                                f"{fit_theme_style} width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; clip-path: inset(0); contain: layout paint;"
+                                "width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
                             )
                             with ui.card().classes(f"cvhb-preview-card cvhb-preview-card-{mode}").style(frame_style).props("flat bordered"):
                                 with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
@@ -16032,12 +15903,6 @@ def render_main(u: User) -> None:
                                         try:
                                             ui.run_javascript(
                                                 f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, 0, 0, {min_scale}, {max_scale});"
-                                            )
-                                        except Exception:
-                                            pass
-                                        try:
-                                            ui.run_javascript(
-                                                "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
                                             )
                                         except Exception:
                                             pass
@@ -16075,14 +15940,12 @@ def render_loading_visual(*, compact: bool = False) -> None:
         f"""
 <div class="cvhb-loader-scene {size_class}" aria-hidden="true">
   <div class="cvhb-loader-glow"></div>
-  <div class="cvhb-loader-orbit"></div>
   <div class="cvhb-loader-stage">
     <span class="cvhb-loader-card-mini cvhb-loader-card-a"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-b"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-c"></span>
   </div>
   <div class="cvhb-loader-dots"><span></span><span></span><span></span></div>
-  <div class="cvhb-loader-bar"><span></span></div>
 </div>
 """
     )
@@ -16215,8 +16078,8 @@ def projects_page():
                 ui.button("作成", on_click=create_new_project).props("color=primary unelevated")
 
         # --- 案件を開くときの読込中表示 ---
-        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
-            with ui.column().classes("w-full items-center justify-center text-center"):
+        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
+            with ui.column().classes("items-center"):
                 render_loading_visual(compact=True)
                 open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm text-center")
                 ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs text-center")
@@ -16642,7 +16505,7 @@ def sync_builder_shell(enabled: bool) -> None:
         pass
 
 
-@ui.page("/", response_timeout=45.0, reconnect_timeout=30.0)
+@ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
@@ -16656,9 +16519,9 @@ async def index():
                 "min-height: calc(100vh - 0px);"
                 "background: linear-gradient(180deg, rgba(245,247,251,1), rgba(238,244,255,1));"
             ):
-                with ui.column().classes("w-full items-center justify-center text-center q-pa-xl").style("min-height: 68vh; width: 100%;"):
-                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
-                        with ui.column().classes("w-full items-center justify-center text-center"):
+                with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
+                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw;").props("bordered"):
+                        with ui.column().classes("items-center"):
                             render_loading_visual()
                             ui.label(title).classes("text-subtitle1 q-mt-sm text-center")
                             ui.label(detail).classes("cvhb-muted q-mt-xs text-center")
@@ -16744,20 +16607,13 @@ async def index():
                                     "margin:0 auto; overflow:hidden; padding:12px;"
                                 ):
                                     fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"'
-                                    preview_step1 = {}
-                                    try:
-                                        if isinstance(p_fallback, dict) and isinstance((p_fallback.get("data") or {}).get("step1"), dict):
-                                            preview_step1 = (p_fallback.get("data") or {}).get("step1") or {}
-                                    except Exception:
-                                        preview_step1 = {}
-                                    fit_theme_style = _preview_stage_shell_style(preview_step1)
                                     fit_style = (
-                                        f"{fit_theme_style} max-width:{fit_max_w}px; width:100%;"
+                                        f"max-width:{fit_max_w}px; width:100%;"
                                         + "min-height:0;height:auto;"
                                         + "margin:0 auto; overflow:hidden;"
                                         + "border-radius:18px;"
                                         + "border:1px solid rgba(0,0,0,0.10);"
-                                        + "clip-path: inset(0); contain: layout paint;"
+                                        + "background:rgba(255,255,255,0.35);"
                                     )
                                     with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
                                         try:
