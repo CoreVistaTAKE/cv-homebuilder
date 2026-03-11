@@ -3712,7 +3712,7 @@ def inject_global_styles() -> None:
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, gen: {}, last: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, roTimers: {}, gen: {}, last: {} };
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -3946,59 +3946,40 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
             inner.style.height = 'auto';
           }catch(e){}
           try{
-            const innerRect = inner.getBoundingClientRect();
-            const header = inner.querySelector('.pv-topbar-260218');
             const scroller = inner.querySelector('.pv-scroll');
             const footer = inner.querySelector('.pv-footer');
+            const scrollerTop = scroller ? safeNum(scroller.offsetTop, 0) : 0;
             let bottom = 0;
 
             const pushBottom = function(el){
               try{
                 if(!el) return;
-                const rect = el.getBoundingClientRect();
-                if(!rect || safeNum(rect.height, 0) <= 0) return;
-                const raw = safeNum(rect.bottom, 0) - safeNum(innerRect.top, 0);
+                let top = safeNum(el.offsetTop, 0);
+                if(scroller && scroller.contains(el)) top += scrollerTop;
+                const height = Math.max(
+                  safeNum(el.offsetHeight, 0),
+                  safeNum(el.scrollHeight, 0)
+                );
+                const raw = top + height;
                 if(raw > bottom) bottom = raw;
               }catch(e){}
             };
 
             pushBottom(footer);
             if(scroller && scroller.children){
-              Array.from(scroller.children).forEach(function(child){
-                if(child !== footer) pushBottom(child);
-              });
+              Array.from(scroller.children).forEach(function(child){ pushBottom(child); });
               try{ pushBottom(scroller.lastElementChild); }catch(e){}
             }
 
-            if(bottom <= 0){
-              const headerH = header ? Math.max(
-                safeNum(header.scrollHeight, 0),
-                safeNum(header.offsetHeight, 0),
-                safeNum(header.getBoundingClientRect().height, 0)
-              ) : 0;
-              let scrollH = 0;
-              if(scroller && scroller.children){
-                Array.from(scroller.children).forEach(function(child){
-                  try{
-                    if(!child) return;
-                    scrollH += Math.max(
-                      safeNum(child.scrollHeight, 0),
-                      safeNum(child.offsetHeight, 0),
-                      safeNum(child.getBoundingClientRect().height, 0)
-                    );
-                  }catch(e){}
-                });
-              }
-              if(scrollH <= 0 && scroller){
-                scrollH = Math.max(
-                  safeNum(scroller.scrollHeight, 0),
-                  safeNum(scroller.offsetHeight, 0),
-                  safeNum(scroller.getBoundingClientRect().height, 0)
-                );
-              }
-              bottom = Math.max(1, headerH + scrollH);
+            if(bottom <= 0 && scroller){
+              bottom = Math.max(bottom, scrollerTop + Math.max(
+                safeNum(scroller.scrollHeight, 0),
+                safeNum(scroller.offsetHeight, 0)
+              ));
             }
-
+            if(bottom <= 0){
+              bottom = Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
+            }
             return Math.max(1, Math.ceil(bottom));
           }catch(e){
             return Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
@@ -4030,16 +4011,20 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         if(autoHeight){
           try{
             const nextH = Math.max(1, Math.ceil(visualH));
-            if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
+            const prevApplied = safeNum((outer.dataset && outer.dataset.cvhbFitHeight) || 0, 0);
+            if(Math.abs(prevApplied - nextH) > 1){
               outer.style.height = nextH + 'px';
+              outer.style.minHeight = nextH + 'px';
+              outer.style.maxHeight = nextH + 'px';
+              if(outer.dataset){ outer.dataset.cvhbFitHeight = String(nextH); }
             }
-            outer.style.minHeight = nextH + 'px';
-            outer.style.maxHeight = nextH + 'px';
           }catch(e){}
         }else{
           try{
+            outer.style.height = '';
             outer.style.minHeight = '';
             outer.style.maxHeight = '';
+            if(outer.dataset){ delete outer.dataset.cvhbFitHeight; }
           }catch(e){}
         }
 
@@ -7373,21 +7358,9 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   }
   .cvhb-loading-card {
     min-width: 280px;
-    margin-left: auto;
-    margin-right: auto;
-    text-align: center;
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99)),
-      linear-gradient(135deg, rgba(30,94,255,0.05), rgba(139,92,246,0.04));
+    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
     border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 22px 56px rgba(15,23,42,0.14);
-  }
-  .cvhb-loading-card .column,
-  .cvhb-loading-card .items-center {
-    width: 100%;
-    align-items: center !important;
-    justify-content: center;
-    text-align: center;
+    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
   }
 
 
@@ -12723,7 +12696,7 @@ def _preview_stage_shell_style(step1: Optional[dict]) -> str:
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.2.2) ===== */
+/* ===== Depth Background Clamp (v1.2.5) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12735,10 +12708,11 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
 }
+
 /* ===== Preview / Export common background clamp ===== */
 .pv-shell.pv-layout-260218{
-  --pv-depth-overscan-x: 0px;
-  --pv-depth-overscan-y: 0px;
+  --pv-depth-overscan-x: max(4.5vw, 64px);
+  --pv-depth-overscan-y: max(4.5vh, 56px);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -12766,6 +12740,7 @@ body.pv-page-body{
   overflow-x: clip !important;
   overflow-y: auto;
   clip-path: inset(0);
+  padding-top: 0 !important;
   padding-bottom: 0 !important;
   contain: layout paint;
   background: transparent !important;
@@ -12781,7 +12756,10 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218 .pv-scroll::after{
   content: "";
   position: absolute;
-  inset: 0;
+  top: calc(-1 * var(--pv-depth-overscan-y));
+  right: calc(-1 * var(--pv-depth-overscan-x));
+  bottom: calc(-1 * var(--pv-depth-overscan-y));
+  left: calc(-1 * var(--pv-depth-overscan-x));
   pointer-events: none;
   will-change: transform, opacity, background-position;
   transform-origin: center center;
@@ -12798,7 +12776,7 @@ body.pv-page-body{
   will-change: auto;
 }
 
-/* v1.0.12: builder previewは右カラムの1スクロールだけに統一 */
+/* builder preview は右カラムの1スクロールだけに統一 */
 .pv-shell.pv-layout-260218.pv-preview-live{
   height: auto !important;
   min-height: 0 !important;
@@ -12808,10 +12786,10 @@ body.pv-page-body{
   flex: 0 0 auto !important;
   min-height: 0 !important;
   height: auto !important;
-  overflow: visible !important;
-  overflow-y: visible !important;
+  overflow: hidden !important;
+  overflow-y: hidden !important;
   overflow-x: hidden !important;
-  overscroll-behavior: auto !important;
+  overscroll-behavior: none !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
   clip-path: inset(0);
@@ -12831,6 +12809,27 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218.pv-preview-live .pv-footer{
   margin-top: 0 !important;
   margin-bottom: 0 !important;
+}
+
+/* PC builder を軽くするため、preview live だけフィルタ負荷を落とす */
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before{
+  filter: none !important;
+  opacity: calc(var(--pv-blob-opacity) * 0.78);
+}
+.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
+  filter: none !important;
+  opacity: calc(var(--pv-orb-opacity) * 0.78);
+}
+.pv-shell.pv-layout-260218.pv-preview-live .pv-panel::after{
+  backdrop-filter: blur(10px) saturate(1.02);
+  -webkit-backdrop-filter: blur(10px) saturate(1.02);
+}
+.pv-shell.pv-layout-260218.pv-preview-live .pv-topbar-260218,
+.pv-shell.pv-layout-260218.pv-preview-live .pv-panel-flat,
+.pv-shell.pv-layout-260218.pv-preview-live .pv-surface-white,
+.pv-shell.pv-layout-260218.pv-preview-live .pv-companybar-inner{
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 /* Layer2: radial gradient */
@@ -12900,9 +12899,6 @@ body.pv-page-body{
   transform: var(--pv-blob-from);
   animation: pvDepthBlob var(--pv-blob-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before{
-  filter: blur(calc(var(--pv-blob-blur) * 0.84));
-}
 
 /* Layer5: light orb */
 .pv-shell.pv-layout-260218 .pv-scroll::after{
@@ -12917,9 +12913,6 @@ body.pv-page-body{
   filter: blur(calc(var(--pv-orb-blur) * 1.42));
   transform: var(--pv-orb-from);
   animation: pvDepthOrb var(--pv-orb-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
-}
-.pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
-  filter: blur(calc(var(--pv-orb-blur) * 1.14));
 }
 
 @keyframes pvDepthBase{
@@ -12988,6 +12981,7 @@ body.pv-page-body{
   background: var(--pv-panel-guard);
   border: 1px solid var(--pv-panel-border);
   backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
 }
 .pv-layout-260218 .pv-panel > *{
   position: relative;
@@ -13009,7 +13003,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.2.3) ===== */
+/* ===== Export final viewport clamp (v1.2.5) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -13052,7 +13046,10 @@ body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
   position:absolute !important;
-  inset:0 !important;
+  top: calc(-1 * var(--pv-depth-overscan-y));
+  right: calc(-1 * var(--pv-depth-overscan-x));
+  bottom: calc(-1 * var(--pv-depth-overscan-y));
+  left: calc(-1 * var(--pv-depth-overscan-x));
   pointer-events:none;
   transform-origin:center center;
 }
@@ -13069,7 +13066,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   height:auto !important;
   max-height:none !important;
   overflow-x:hidden !important;
-  overflow-y:visible !important;
+  overflow-y:hidden !important;
   overscroll-behavior:auto !important;
   padding-top:0 !important;
   padding-bottom:0 !important;
@@ -13095,7 +13092,6 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
   margin-bottom:0 !important;
 }
 """
-
 
 def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, in_builder: bool = False) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
@@ -13253,7 +13249,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         map_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
 
     # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
-    # v1.2.4: ビルダープレビューでは live iframe を使わず、軽量リンクカードに固定する
+    # v1.2.5: ビルダープレビューでは live iframe を使わず、軽量リンクカードに固定する
     try:
         map_embed = bool(access.get("embed_map", True))
     except Exception:
@@ -13764,7 +13760,7 @@ def render_main(u: User) -> None:
 
     # プレビューは更新が重くなりがちなので、入力中はデバウンスして負荷を下げる
     _preview_refresh_handle: Optional[asyncio.TimerHandle] = None
-    _PREVIEW_DEBOUNCE_SEC = 0.25
+    _PREVIEW_DEBOUNCE_SEC = 0.35
 
     def refresh_preview(force: bool = False) -> None:
         """プレビュー更新（デバウンス対応）"""
@@ -15920,6 +15916,12 @@ def render_main(u: User) -> None:
                                         try:
                                             ui.run_javascript(
                                                 f"window.cvhbFitRegister && window.cvhbFitRegister('pv', 'pv-fit', 'pv-root', {design_w}, 0, 0, {min_scale}, {max_scale});"
+                                            )
+                                        except Exception:
+                                            pass
+                                        try:
+                                            ui.run_javascript(
+                                                "setTimeout(function(){ window.cvhbFitApply && window.cvhbFitApply('pv'); }, 80);"
                                             )
                                         except Exception:
                                             pass
