@@ -6755,6 +6755,26 @@ _cvhb_redirect('ng', 'send_fail');
 """
 
 
+EXPORT_FOOTER_VERSION = "1.2.6"
+EXPORT_FOOTER_PRODUCED_URL = "https://www.corevista-japan.com/"
+EXPORT_FOOTER_PRODUCED_LABEL = "CoreVista Japan Co., Ltd."
+
+
+def build_export_footer_meta_html(company_name: str, *, version: str = EXPORT_FOOTER_VERSION) -> str:
+    """公開HTMLフッター右下の著作表記を返す（builderには影響させない）。"""
+    company_label = html.escape(str(company_name or "").strip() or "会社名")
+    version_label = html.escape(str(version or EXPORT_FOOTER_VERSION).strip() or EXPORT_FOOTER_VERSION)
+    produced_url = html.escape(EXPORT_FOOTER_PRODUCED_URL, quote=True)
+    produced_label = html.escape(EXPORT_FOOTER_PRODUCED_LABEL)
+    return (
+        '<div class="pv-footer-meta">'
+        f'<div class="pv-footer-copy">© <span id="pvYear"></span> {company_label}</div>'
+        f'<div class="pv-footer-produced">© CVHB {version_label} · Produced by '
+        f'<a href="{produced_url}" target="_blank" rel="noopener noreferrer">{produced_label}</a></div>'
+        '</div>'
+    )
+
+
 def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_href: str = "", logo_href: str = "", about_label: str = "私たちの想い", profile_label: str = "", services_label: str = "業務内容", contact_label: str = "お問い合わせ", privacy_body_html: str = "") -> str:
     """contact.php の送信結果表示ページ（thanks.html）を生成する。
 
@@ -6920,7 +6940,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
             <a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>
             <a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>
           </div>
-          <div class="pv-footer-copy">© <span id="pvYear"></span> {esc_company}</div>
+          {build_export_footer_meta_html(company_name)}
         </div>
       </footer>
     </div>
@@ -9748,7 +9768,102 @@ body.pv-modal-open{overflow:hidden !important;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 """
 
-    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS + "\n" + DEPTH_BG_CSS
+    EXPORT_PATCH_CSS_126 = r"""
+/* ===== Export only patch (v1.2.6) ===== */
+html,
+body.pv-page-body{
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  overflow-x:hidden !important;
+}
+body.pv-page-body{
+  min-height:100vh !important;
+  min-height:100dvh !important;
+  height:auto !important;
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
+}
+body.pv-page-body > #pv-root.pv-shell{
+  display:block !important;
+  min-height:100vh !important;
+  min-height:100dvh !important;
+  height:auto !important;
+  overflow:hidden !important;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-scroll{
+  display:block !important;
+  flex:none !important;
+  min-height:0 !important;
+  height:auto !important;
+  max-height:none !important;
+  overflow-x:hidden !important;
+  overflow-y:hidden !important;
+  overscroll-behavior:none !important;
+  padding-top:0 !important;
+  padding-bottom:0 !important;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-main{
+  display:block !important;
+  flex:none !important;
+  min-height:0 !important;
+  padding-bottom:0 !important;
+}
+@media (min-width: 980px){
+  body.pv-page-body > #pv-root.pv-shell .pv-section.pv-section-260218:not(#pv-top){
+    content-visibility:auto;
+    contain-intrinsic-size: 1px 960px;
+  }
+}
+body.pv-page-body > #pv-root.pv-shell .pv-footer{
+  clear:both;
+  flex:none !important;
+  margin-top:0 !important;
+  margin-bottom:0 !important;
+  position:relative;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-mapframe,
+body.pv-page-body > #pv-root.pv-shell .pv-mapframe-live{
+  overflow:hidden !important;
+  contain:paint;
+}
+.pv-layout-260218 .pv-footer-meta{
+  flex:0 0 auto;
+  min-width:max-content;
+  margin-left:auto;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
+  text-align:right;
+}
+.pv-layout-260218 .pv-footer-produced{
+  font-size:10px;
+  line-height:1.35;
+  letter-spacing:0.01em;
+  opacity:0.66;
+  white-space:nowrap;
+}
+.pv-layout-260218 .pv-footer-produced a{
+  color:rgba(255,255,255,0.82);
+  text-decoration:none;
+}
+.pv-layout-260218 .pv-footer-produced a:hover{
+  text-decoration:underline;
+  text-underline-offset:3px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-meta{
+  width:100%;
+  min-width:0;
+  align-items:flex-end;
+}
+.pv-layout-260218.pv-mode-mobile .pv-footer-produced{
+  font-size:9px;
+  white-space:normal;
+}
+"""
+
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS + "\n" + DEPTH_BG_CSS + "\n" + EXPORT_PATCH_CSS_126
     # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
     #   ただし重複許容（sizeより一致優先）
 
@@ -10421,8 +10536,9 @@ body.pv-modal-open{overflow:hidden !important;}
     slides_html = ""
     if hero_urls:
         slides = []
-        for u in hero_urls:
-            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt=""></div>')
+        for i, u in enumerate(hero_urls):
+            loading_attr = ' loading="eager" fetchpriority="high" decoding="async"' if i == 0 else ' loading="lazy" fetchpriority="low" decoding="async"'
+            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt=""{loading_attr}></div>')
         slides_html = "".join(slides)
     else:
         slides_html = '<div class="pv-hero-slide"><div class="pv-hero-img pv-hero-img-placeholder"></div></div>'
@@ -10570,7 +10686,7 @@ body.pv-modal-open{overflow:hidden !important;}
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
           <div class=\"pv-footer-links\">{footer_links_html}</div>
-          <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
+          {build_export_footer_meta_html(company_name)}
         </div>
       </footer>
     </div>
@@ -10664,7 +10780,7 @@ body.pv-modal-open{overflow:hidden !important;}
             points_cards.append(f'<div class="pv-point-card">{_esc(pt)}</div>')
         points_html = f'<div class="pv-points">{"".join(points_cards)}</div>'
 
-    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
+    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="" loading="lazy" decoding="async">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
 
     about_body_html = _paras(ph_body)
 
@@ -10715,7 +10831,7 @@ body.pv-modal-open{overflow:hidden !important;}
     svc_lead_html = _paras(svc_lead)
     svc_items = [it for it in (svc.get("items") or []) if isinstance(it, dict)]
 
-    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="">' if svc_img_href else ''
+    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="" loading="lazy" decoding="async">' if svc_img_href else ''
 
     svc_cards = []
     for it in svc_items:
@@ -10943,7 +11059,7 @@ body.pv-modal-open{overflow:hidden !important;}
       <footer class=\"pv-footer\">
         <div class=\"pv-footer-inner\">
           <div class=\"pv-footer-links\">{footer_links_html}</div>
-          <div class=\"pv-footer-copy\">© <span id=\"pvYear\"></span> { _esc(company_name) }</div>
+          {build_export_footer_meta_html(company_name)}
         </div>
       </footer>
     </div>
