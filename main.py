@@ -1227,9 +1227,21 @@ def inject_global_styles() -> None:
   }
   .cvhb-loading-card {
     min-width: 280px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99)),
+      linear-gradient(135deg, rgba(30,94,255,0.05), rgba(139,92,246,0.04));
     border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
+    box-shadow: 0 22px 56px rgba(15,23,42,0.14);
+  }
+  .cvhb-loading-card .column,
+  .cvhb-loading-card .items-center {
+    width: 100%;
+    align-items: center !important;
+    justify-content: center;
+    text-align: center;
   }
   .cvhb-preview-card {
     background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.28));
@@ -1265,6 +1277,28 @@ def inject_global_styles() -> None:
   .cvhb-loader-scene.is-compact {
     width: 188px;
     height: 136px;
+  }
+  .cvhb-loader-orbit {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 176px;
+    height: 176px;
+    margin-left: -88px;
+    margin-top: -88px;
+    border-radius: 999px;
+    border: 1px solid rgba(96,165,250,0.22);
+    border-top-color: rgba(30,94,255,0.72);
+    border-bottom-color: rgba(139,92,246,0.48);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+    animation: cvhbLoaderOrbit 2.4s linear infinite;
+    opacity: 0.82;
+  }
+  .cvhb-loader-scene.is-compact .cvhb-loader-orbit {
+    width: 150px;
+    height: 150px;
+    margin-left: -75px;
+    margin-top: -75px;
   }
   .cvhb-loader-glow {
     position: absolute;
@@ -1367,9 +1401,38 @@ def inject_global_styles() -> None:
   }
   .cvhb-loader-dots span:nth-child(2) { animation-delay: 0.18s; }
   .cvhb-loader-dots span:nth-child(3) { animation-delay: 0.36s; }
+  .cvhb-loader-bar {
+    position: absolute;
+    left: 50%;
+    bottom: -10px;
+    width: 126px;
+    height: 6px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: rgba(148,163,184,0.18);
+    overflow: hidden;
+  }
+  .cvhb-loader-bar > span {
+    display: block;
+    width: 42%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(30,94,255,0.92), rgba(96,165,250,0.88), rgba(139,92,246,0.78));
+    box-shadow: 0 0 16px rgba(59,130,246,0.20);
+    animation: cvhbLoaderBar 1.8s ease-in-out infinite;
+  }
   @keyframes cvhbLoaderGlow {
     0%, 100% { transform: scale(0.96); opacity: 0.86; }
     50% { transform: scale(1.06); opacity: 1; }
+  }
+  @keyframes cvhbLoaderOrbit {
+    0% { transform: rotate(0deg) scale(0.98); }
+    100% { transform: rotate(360deg) scale(1.02); }
+  }
+  @keyframes cvhbLoaderBar {
+    0% { transform: translateX(-16%); }
+    50% { transform: translateX(132%); }
+    100% { transform: translateX(-16%); }
   }
   @keyframes cvhbLoaderCardA {
     0%, 100% { transform: translate(-34px, 16px) rotate(-8deg) scale(0.96); }
@@ -3649,7 +3712,7 @@ def inject_global_styles() -> None:
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, roTimers: {}, gen: {}, last: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, gen: {}, last: {} };
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -3737,10 +3800,6 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
       if(window.__cvhbFit.rafs && window.__cvhbFit.rafs[key]){
         cancelAnimationFrame(window.__cvhbFit.rafs[key]);
         delete window.__cvhbFit.rafs[key];
-      }
-      if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
-        clearTimeout(window.__cvhbFit.roTimers[key]);
-        delete window.__cvhbFit.roTimers[key];
       }
     }catch(e){}
 
@@ -3888,41 +3947,59 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           }catch(e){}
           try{
             const innerRect = inner.getBoundingClientRect();
-            const footer = inner.querySelector('.pv-footer');
+            const header = inner.querySelector('.pv-topbar-260218');
             const scroller = inner.querySelector('.pv-scroll');
+            const footer = inner.querySelector('.pv-footer');
             let bottom = 0;
 
             const pushBottom = function(el){
               try{
                 if(!el) return;
                 const rect = el.getBoundingClientRect();
+                if(!rect || safeNum(rect.height, 0) <= 0) return;
                 const raw = safeNum(rect.bottom, 0) - safeNum(innerRect.top, 0);
                 if(raw > bottom) bottom = raw;
               }catch(e){}
             };
 
             pushBottom(footer);
-            pushBottom(scroller);
             if(scroller && scroller.children){
-              Array.from(scroller.children).forEach(pushBottom);
+              Array.from(scroller.children).forEach(function(child){
+                if(child !== footer) pushBottom(child);
+              });
+              try{ pushBottom(scroller.lastElementChild); }catch(e){}
             }
 
             if(bottom <= 0){
-              const header = inner.querySelector('.pv-topbar-260218');
               const headerH = header ? Math.max(
                 safeNum(header.scrollHeight, 0),
                 safeNum(header.offsetHeight, 0),
                 safeNum(header.getBoundingClientRect().height, 0)
               ) : 0;
-              const scrollH = scroller ? Math.max(
-                safeNum(scroller.scrollHeight, 0),
-                safeNum(scroller.offsetHeight, 0),
-                safeNum(scroller.getBoundingClientRect().height, 0)
-              ) : 0;
+              let scrollH = 0;
+              if(scroller && scroller.children){
+                Array.from(scroller.children).forEach(function(child){
+                  try{
+                    if(!child) return;
+                    scrollH += Math.max(
+                      safeNum(child.scrollHeight, 0),
+                      safeNum(child.offsetHeight, 0),
+                      safeNum(child.getBoundingClientRect().height, 0)
+                    );
+                  }catch(e){}
+                });
+              }
+              if(scrollH <= 0 && scroller){
+                scrollH = Math.max(
+                  safeNum(scroller.scrollHeight, 0),
+                  safeNum(scroller.offsetHeight, 0),
+                  safeNum(scroller.getBoundingClientRect().height, 0)
+                );
+              }
               bottom = Math.max(1, headerH + scrollH);
             }
 
-            return Math.max(1, Math.ceil(bottom + 1));
+            return Math.max(1, Math.ceil(bottom));
           }catch(e){
             return Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
           }finally{
@@ -3956,6 +4033,13 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
             if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
               outer.style.height = nextH + 'px';
             }
+            outer.style.minHeight = nextH + 'px';
+            outer.style.maxHeight = nextH + 'px';
+          }catch(e){}
+        }else{
+          try{
+            outer.style.minHeight = '';
+            outer.style.maxHeight = '';
           }catch(e){}
         }
 
@@ -3970,63 +4054,50 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
 
     window.__cvhbFit.regs[key] = function(){ queueApply(0); };
 
-    const scheduleApply = function(delay){
-      try{
-        if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
-          clearTimeout(window.__cvhbFit.roTimers[key]);
-        }
-        window.__cvhbFit.roTimers[key] = setTimeout(function(){
-          try{ delete window.__cvhbFit.roTimers[key]; }catch(e){}
-          try{ queueApply(0); }catch(e){}
-        }, Math.max(0, delay || 90));
-      }catch(e){
-        try{ queueApply(0); }catch(_e){}
-      }
-    };
-
-    const attachMediaListeners = function(){
-      try{
-        const inner = document.getElementById(innerId);
-        if(!inner) return;
-        const stamp = key + ':' + myGen;
-        const medias = inner.querySelectorAll('img, iframe');
-        if(!medias || medias.length <= 0) return;
-        medias.forEach(function(el){
-          try{
-            if(el.__cvhbFitStamp === stamp) return;
-            el.__cvhbFitStamp = stamp;
-            const onDone = function(){ try{ scheduleApply(40); }catch(e){} };
-            el.addEventListener('load', onDone, { passive: true });
-            el.addEventListener('error', onDone, { passive: true });
-          }catch(e){}
-        });
-      }catch(e){}
-    };
-
     // ResizeObserver (一番安定)
     const ensureObserver = function(){
       try{
         if(!window.ResizeObserver) return;
         const outer = document.getElementById(outerId);
-        const inner = document.getElementById(innerId);
-        const scroller = inner ? (inner.querySelector('.pv-scroll') || inner) : null;
-        if(!outer || !scroller) return;
+        if(!outer) return;
 
         if(window.__cvhbFit.observers[key]){
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
         const obs = new ResizeObserver(function(){
-          try{ scheduleApply(90); }catch(e){ try{ queueApply(0); }catch(_e){} }
+          try{
+            if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
+              clearTimeout(window.__cvhbFit.roTimers[key]);
+            }
+            window.__cvhbFit.roTimers[key] = setTimeout(function(){
+              try{ delete window.__cvhbFit.roTimers[key]; }catch(e){}
+              try{ queueApply(0); }catch(e){}
+            }, 90);
+          }catch(e){
+            try{ queueApply(0); }catch(e){}
+          }
         });
         obs.observe(outer);
-        try{ obs.observe(scroller); }catch(e){}
+        try{
+          const innerEl = document.getElementById(innerId);
+          const scroller = innerEl ? innerEl.querySelector('.pv-scroll') : null;
+          if(scroller) obs.observe(scroller);
+        }catch(e){}
         window.__cvhbFit.observers[key] = obs;
       }catch(e){}
     };
-    try{ attachMediaListeners(); }catch(e){}
     try{ ensureObserver(); }catch(e){}
-    setTimeout(function(){ try{ attachMediaListeners(); ensureObserver(); scheduleApply(60); }catch(e){} }, 120);
+    setTimeout(function(){ try{ ensureObserver(); }catch(e){} }, 120);
+
+    try{
+      const medias = inner.querySelectorAll('img, iframe');
+      medias.forEach(function(el){
+        const onReady = function(){ try{ queueApply(0); }catch(e){} };
+        try{ el.addEventListener('load', onReady, { passive:true, once:true }); }catch(e){}
+        try{ el.addEventListener('error', onReady, { passive:true, once:true }); }catch(e){}
+      });
+    }catch(e){}
 
     // fallback: window resize
     if(!window.__cvhbFitInit){
@@ -4043,8 +4114,8 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
 
     // first runs (layout settle)
     queueApply(0);
-    queueApply(180);
-    queueApply(420);
+    queueApply(120);
+    queueApply(260);
   }catch(e){}
 };
 
@@ -7302,9 +7373,21 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   }
   .cvhb-loading-card {
     min-width: 280px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99)),
+      linear-gradient(135deg, rgba(30,94,255,0.05), rgba(139,92,246,0.04));
     border: 1px solid rgba(25,118,210,0.16);
-    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
+    box-shadow: 0 22px 56px rgba(15,23,42,0.14);
+  }
+  .cvhb-loading-card .column,
+  .cvhb-loading-card .items-center {
+    width: 100%;
+    align-items: center !important;
+    justify-content: center;
+    text-align: center;
   }
 
 
@@ -12926,7 +13009,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.2.2) ===== */
+/* ===== Export final viewport clamp (v1.2.3) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -13170,10 +13253,12 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         map_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
 
     # v0.6.995: GoogleMap iframe（任意 / 重い場合あり）
+    # v1.2.4: ビルダープレビューでは live iframe を使わず、軽量リンクカードに固定する
     try:
         map_embed = bool(access.get("embed_map", True))
     except Exception:
         map_embed = True
+    map_embed_live = bool(map_embed and not in_builder)
 
     contact = blocks.get("contact", {}) if isinstance(blocks.get("contact"), dict) else {}
     contact_message = _clean(contact.get("message"))
@@ -13441,7 +13526,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
                             iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
 
-                            if map_embed:
+                            if map_embed_live:
                                 with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
                                     ui.element("iframe").classes("pv-map-iframe").props(
                                         f'src="{iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"'
@@ -13608,7 +13693,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
             )
 
 def render_main(u: User) -> None:
-    inject_global_styles()
     cleanup_user_storage()
     sync_builder_shell(True)
 
@@ -15873,12 +15957,14 @@ def render_loading_visual(*, compact: bool = False) -> None:
         f"""
 <div class="cvhb-loader-scene {size_class}" aria-hidden="true">
   <div class="cvhb-loader-glow"></div>
+  <div class="cvhb-loader-orbit"></div>
   <div class="cvhb-loader-stage">
     <span class="cvhb-loader-card-mini cvhb-loader-card-a"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-b"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-c"></span>
   </div>
   <div class="cvhb-loader-dots"><span></span><span></span><span></span></div>
+  <div class="cvhb-loader-bar"><span></span></div>
 </div>
 """
     )
@@ -16011,8 +16097,8 @@ def projects_page():
                 ui.button("作成", on_click=create_new_project).props("color=primary unelevated")
 
         # --- 案件を開くときの読込中表示 ---
-        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
-            with ui.column().classes("items-center"):
+        with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
+            with ui.column().classes("w-full items-center justify-center text-center"):
                 render_loading_visual(compact=True)
                 open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm text-center")
                 ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs text-center")
@@ -16438,7 +16524,7 @@ def sync_builder_shell(enabled: bool) -> None:
         pass
 
 
-@ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
+@ui.page("/", response_timeout=45.0, reconnect_timeout=30.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
@@ -16452,9 +16538,9 @@ async def index():
                 "min-height: calc(100vh - 0px);"
                 "background: linear-gradient(180deg, rgba(245,247,251,1), rgba(238,244,255,1));"
             ):
-                with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
-                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw;").props("bordered"):
-                        with ui.column().classes("items-center"):
+                with ui.column().classes("w-full items-center justify-center text-center q-pa-xl").style("min-height: 68vh; width: 100%;"):
+                    with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw; margin: 0 auto;").props("bordered"):
+                        with ui.column().classes("w-full items-center justify-center text-center"):
                             render_loading_visual()
                             ui.label(title).classes("text-subtitle1 q-mt-sm text-center")
                             ui.label(detail).classes("cvhb-muted q-mt-xs text-center")
