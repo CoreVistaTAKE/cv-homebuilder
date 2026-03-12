@@ -3821,7 +3821,8 @@ def inject_global_styles() -> None:
   // Fit-to-width scaler for preview frames (e.g. 720px / 1920px)
 // - Previewカード内で「横が全部見える」ように自動で縮小する
 // - タブ切替 / 再描画の瞬間に width が 0 になることがあるため、リトライして安定化する
-window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, gen: {}, last: {} };
+window.__cvhbFit = window.__cvhbFit || { regs: {}, observers: {}, timers: {}, rafs: {}, roTimers: {}, gen: {}, last: {} };
+window.__cvhbFit.roTimers = window.__cvhbFit.roTimers || {};
 
   // Debug logger (DevTools で必要なときだけONにできる)
   window.__cvhbDebug = window.__cvhbDebug || { enabled: false, logs: [] };
@@ -4046,29 +4047,55 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         }
 
         const readContentHeight = function(){
+          let prevTransform = '';
+          let prevHeight = '';
           try{
+            prevTransform = inner.style.transform || '';
+            prevHeight = inner.style.height || '';
+            inner.style.transform = 'none';
             inner.style.height = 'auto';
           }catch(e){}
           try{
-            const header = inner.querySelector('.pv-topbar-260218');
             const scroller = inner.querySelector('.pv-scroll');
-            const headerH = header ? Math.max(
-              safeNum(header.scrollHeight, 0),
-              safeNum(header.offsetHeight, 0),
-              safeNum(header.getBoundingClientRect().height, 0)
-            ) : 0;
-            const scrollH = scroller ? Math.max(
-              safeNum(scroller.scrollHeight, 0),
-              safeNum(scroller.offsetHeight, 0),
-              safeNum(scroller.getBoundingClientRect().height, 0)
-            ) : 0;
-            const ownH = Math.max(
-              safeNum(inner.scrollHeight, 0),
-              safeNum(inner.offsetHeight, 0)
-            );
-            return Math.max(1, ownH, headerH + scrollH);
+            const footer = inner.querySelector('.pv-footer');
+            const scrollerTop = scroller ? safeNum(scroller.offsetTop, 0) : 0;
+            let bottom = 0;
+
+            const pushBottom = function(el){
+              try{
+                if(!el) return;
+                let top = safeNum(el.offsetTop, 0);
+                if(scroller && scroller.contains(el)) top += scrollerTop;
+                const height = Math.max(
+                  safeNum(el.offsetHeight, 0),
+                  safeNum(el.scrollHeight, 0)
+                );
+                const raw = top + height;
+                if(raw > bottom) bottom = raw;
+              }catch(e){}
+            };
+
+            pushBottom(footer);
+            if(scroller && scroller.children){
+              Array.from(scroller.children).forEach(function(child){ pushBottom(child); });
+              try{ pushBottom(scroller.lastElementChild); }catch(e){}
+            }
+
+            if(bottom <= 0 && scroller){
+              bottom = Math.max(bottom, scrollerTop + Math.max(
+                safeNum(scroller.scrollHeight, 0),
+                safeNum(scroller.offsetHeight, 0)
+              ));
+            }
+            if(bottom <= 0){
+              bottom = Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
+            }
+            return Math.max(1, Math.ceil(bottom));
           }catch(e){
             return Math.max(1, safeNum(inner.scrollHeight, 0), safeNum(inner.offsetHeight, 0));
+          }finally{
+            try{ inner.style.transform = prevTransform; }catch(e){}
+            try{ inner.style.height = prevHeight || 'auto'; }catch(e){}
           }
         };
 
@@ -4094,9 +4121,20 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
         if(autoHeight){
           try{
             const nextH = Math.max(1, Math.ceil(visualH));
-            if(Math.abs((safeNum(outer.offsetHeight, 0) || 0) - nextH) > 1){
+            const prevApplied = safeNum((outer.dataset && outer.dataset.cvhbFitHeight) || 0, 0);
+            if(Math.abs(prevApplied - nextH) > 1){
               outer.style.height = nextH + 'px';
+              outer.style.minHeight = nextH + 'px';
+              outer.style.maxHeight = nextH + 'px';
+              if(outer.dataset){ outer.dataset.cvhbFitHeight = String(nextH); }
             }
+          }catch(e){}
+        }else{
+          try{
+            outer.style.height = '';
+            outer.style.minHeight = '';
+            outer.style.maxHeight = '';
+            if(outer.dataset){ delete outer.dataset.cvhbFitHeight; }
           }catch(e){}
         }
 
@@ -4122,13 +4160,40 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
           window.__cvhbFit.observers[key].disconnect();
           delete window.__cvhbFit.observers[key];
         }
-        const obs = new ResizeObserver(function(){ try{ queueApply(0); }catch(e){} });
+        const obs = new ResizeObserver(function(){
+          try{
+            if(window.__cvhbFit.roTimers && window.__cvhbFit.roTimers[key]){
+              clearTimeout(window.__cvhbFit.roTimers[key]);
+            }
+            window.__cvhbFit.roTimers[key] = setTimeout(function(){
+              try{ delete window.__cvhbFit.roTimers[key]; }catch(e){}
+              try{ queueApply(0); }catch(e){}
+            }, 90);
+          }catch(e){
+            try{ queueApply(0); }catch(e){}
+          }
+        });
         obs.observe(outer);
+        try{
+          const innerEl = document.getElementById(innerId);
+          const scroller = innerEl ? innerEl.querySelector('.pv-scroll') : null;
+          if(scroller) obs.observe(scroller);
+        }catch(e){}
         window.__cvhbFit.observers[key] = obs;
       }catch(e){}
     };
     try{ ensureObserver(); }catch(e){}
     setTimeout(function(){ try{ ensureObserver(); }catch(e){} }, 120);
+
+    try{
+      const innerEl = document.getElementById(innerId);
+      const medias = innerEl ? innerEl.querySelectorAll('img, iframe') : [];
+      medias.forEach(function(el){
+        const onReady = function(){ try{ queueApply(0); }catch(e){} };
+        try{ el.addEventListener('load', onReady, { passive:true, once:true }); }catch(e){}
+        try{ el.addEventListener('error', onReady, { passive:true, once:true }); }catch(e){}
+      });
+    }catch(e){}
 
     // fallback: window resize
     if(!window.__cvhbFitInit){
@@ -4146,7 +4211,7 @@ window.cvhbFitRegister = window.cvhbFitRegister || function(key, outerId, innerI
     // first runs (layout settle)
     queueApply(0);
     queueApply(120);
-    queueApply(320);
+    queueApply(260);
   }catch(e){}
 };
 
@@ -7010,7 +7075,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
         "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label, privacy_body_html=privacy_body_html).encode("utf-8"),
     }
-EXPORT_FOOTER_VERSION = "1.2.8"
+EXPORT_FOOTER_VERSION = "1.2.9"
 COREVISTA_JAPAN_LABEL = "CoreVista Japan Co., Ltd."
 COREVISTA_JAPAN_URL = "https://www.corevista-japan.com/"
 
@@ -9675,16 +9740,20 @@ body.pv-page-body{
 }
 
 .pv-layout-260218 .pv-scroll{
-  min-height:calc(100dvh - 56px) !important;
-  display:flex;
-  flex:1 1 auto !important;
+  min-height:0 !important;
+  display:block !important;
+  flex:none !important;
   flex-direction:column;
   width:100%;
   max-width:100%;
   position:relative;
+  height:auto !important;
+  max-height:none !important;
   overflow-x:hidden !important;
-  overflow-y:visible !important;
-  overscroll-behavior:auto !important;
+  overflow-y:hidden !important;
+  overscroll-behavior:none !important;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y pinch-zoom;
   clip-path: inset(0);
 }
 
@@ -9891,7 +9960,7 @@ body.pv-modal-open{overflow:hidden !important;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 """
 
-    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + EXPORT_BASE_CSS + "\n" + DEPTH_BG_CSS
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + DEPTH_BG_CSS
     # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
     #   ただし重複許容（sizeより一致優先）
 
@@ -12860,7 +12929,7 @@ def _preview_stage_shell_style(step1_or_primary=None) -> str:
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.2.8) ===== */
+/* ===== Depth Background Rebuild (v1.2.9) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -12885,7 +12954,7 @@ body.pv-page-body{
   background-position: center top;
   background-repeat: no-repeat;
 }
-/* ===== Depth Background Rebuild (v1.2.8) ===== */
+/* ===== Depth Background Rebuild (v1.2.9) ===== */
 .pv-shell.pv-layout-260218{
   --pv-depth-overscan-x: max(12vw, 168px);
   --pv-depth-overscan-y: max(12vh, 132px);
@@ -13170,7 +13239,7 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.2.8) ===== */
+/* ===== Export final viewport clamp (v1.2.9) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -13234,8 +13303,8 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   height:auto !important;
   max-height:none !important;
   overflow-x:hidden !important;
-  overflow-y:visible !important;
-  overscroll-behavior:auto !important;
+  overflow-y:hidden !important;
+  overscroll-behavior:none !important;
   -webkit-overflow-scrolling:touch;
   touch-action:pan-y pinch-zoom;
   background:transparent !important;
@@ -13851,7 +13920,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
             )
 
 def render_main(u: User) -> None:
-    inject_global_styles()
     cleanup_user_storage()
     sync_builder_shell(True)
 
