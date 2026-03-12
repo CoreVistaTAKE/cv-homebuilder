@@ -334,7 +334,7 @@ def _company_profile_visible_extra_rows(profile: Optional[dict]) -> list[dict[st
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
 
-def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False, fit_mode: str = "cover", trim_transparent: bool = False) -> tuple[bytes, str]:
+def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int, force_png: bool = False, fit_mode: str = "cover", trim_transparent: bool = False, allow_upscale: bool = True) -> tuple[bytes, str]:
     """画像を target(max_w×max_h) に整えて返す。
 
     fit_mode:
@@ -388,6 +388,12 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
         target_h = int(max_h)
         if target_w <= 0 or target_h <= 0:
             return data, mime
+        if not allow_upscale:
+            try:
+                if w <= target_w and h <= target_h:
+                    return data, mime
+            except Exception:
+                pass
 
         target_ratio = target_w / float(target_h)
         src_ratio = w / float(h)
@@ -850,25 +856,44 @@ async def _upload_event_to_data_url(
 _PV_IMG_CACHE: dict[str, tuple[str, bytes]] = {}
 _PV_IMG_CACHE_MAX = 256  # safety cap
 
-def pv_img_src(url: Optional[str]) -> str:
-    """Preview用: data URL を短いURLに置き換える（巨大payload削減）"""
+def pv_img_src(url: Optional[str], *, max_w: int = 0, max_h: int = 0, fit_mode: str = "cover", force_png: bool = False, trim_transparent: bool = False) -> str:
+    """Preview用: data URL を短いURLに置き換える（巨大payload削減）。
+
+    - builderでは、必要に応じて軽量な派生画像を返す（初回だけ生成し、その後はキャッシュ）
+    - max_w/max_h を 0 にすると従来どおり元画像を使う
+    """
     if not url or not isinstance(url, str):
         return url or ''
     s = url.strip()
     if not s.startswith('data:') or 'base64,' not in s:
         return s
-    key = hashlib.sha1(s.encode('utf-8')).hexdigest()[:16]
+    key_seed = f"{s}|{int(max_w or 0)}|{int(max_h or 0)}|{fit_mode}|{int(bool(force_png))}|{int(bool(trim_transparent))}"
+    key = hashlib.sha1(key_seed.encode('utf-8')).hexdigest()[:24]
     if key not in _PV_IMG_CACHE:
         try:
             head, b64part = s.split('base64,', 1)
             mime = head[5:].split(';', 1)[0].strip() or 'application/octet-stream'
             data = base64.b64decode(b64part)
+            if data and max_w and max_h:
+                try:
+                    data, mime = _maybe_resize_image_bytes(
+                        data,
+                        mime,
+                        max_w=int(max_w),
+                        max_h=int(max_h),
+                        force_png=force_png,
+                        fit_mode=fit_mode,
+                        trim_transparent=trim_transparent,
+                        allow_upscale=False,
+                    )
+                except Exception:
+                    pass
             if len(_PV_IMG_CACHE) >= _PV_IMG_CACHE_MAX:
                 _PV_IMG_CACHE.clear()
             _PV_IMG_CACHE[key] = (mime, data)
         except Exception:
             return s
-    return f'/pv_img/{key}'
+    return f'/pv_img/{key}' 
 
 
 try:
@@ -1227,9 +1252,19 @@ def inject_global_styles() -> None:
   }
   .cvhb-loading-card {
     min-width: 280px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
     background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,250,255,0.99));
     border: 1px solid rgba(25,118,210,0.16);
     box-shadow: 0 18px 48px rgba(15,23,42,0.12);
+  }
+  .cvhb-loading-card .column,
+  .cvhb-loading-card .items-center {
+    width: 100%;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
   }
   .cvhb-preview-card {
     background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(255,255,255,0.28));
@@ -1287,6 +1322,49 @@ def inject_global_styles() -> None:
   .cvhb-loader-scene.is-compact .cvhb-loader-stage {
     width: 166px;
     height: 96px;
+  }
+  .cvhb-loader-orbit {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 176px;
+    height: 176px;
+    margin-left: -88px;
+    margin-top: -88px;
+    border-radius: 999px;
+    border: 1px solid rgba(96,165,250,0.20);
+    border-top-color: rgba(30,94,255,0.68);
+    border-bottom-color: rgba(139,92,246,0.40);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+    animation: cvhbLoaderOrbit 2.6s linear infinite;
+    opacity: 0.82;
+    pointer-events: none;
+  }
+  .cvhb-loader-scene.is-compact .cvhb-loader-orbit {
+    width: 150px;
+    height: 150px;
+    margin-left: -75px;
+    margin-top: -75px;
+  }
+  .cvhb-loader-bar {
+    position: absolute;
+    left: 50%;
+    bottom: -10px;
+    width: 126px;
+    height: 6px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: rgba(148,163,184,0.18);
+    overflow: hidden;
+  }
+  .cvhb-loader-bar > span {
+    display: block;
+    width: 42%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(30,94,255,0.92), rgba(96,165,250,0.88), rgba(139,92,246,0.78));
+    box-shadow: 0 0 16px rgba(59,130,246,0.20);
+    animation: cvhbLoaderBar 1.8s ease-in-out infinite;
   }
   .cvhb-loader-card-mini {
     position: absolute;
@@ -1370,6 +1448,15 @@ def inject_global_styles() -> None:
   @keyframes cvhbLoaderGlow {
     0%, 100% { transform: scale(0.96); opacity: 0.86; }
     50% { transform: scale(1.06); opacity: 1; }
+  }
+  @keyframes cvhbLoaderOrbit {
+    0% { transform: rotate(0deg) scale(0.98); }
+    100% { transform: rotate(360deg) scale(1.02); }
+  }
+  @keyframes cvhbLoaderBar {
+    0% { transform: translateX(-16%); }
+    50% { transform: translateX(132%); }
+    100% { transform: translateX(-16%); }
   }
   @keyframes cvhbLoaderCardA {
     0%, 100% { transform: translate(-34px, 16px) rotate(-8deg) scale(0.96); }
@@ -3255,6 +3342,11 @@ def inject_global_styles() -> None:
 .pv-layout-260218.pv-mode-pc .pv-mapframe,
 .pv-layout-260218.pv-mode-pc .pv-mapshot-img{
   height: clamp(260px, 34vw, 360px);
+  contain: paint;
+}
+.pv-layout-260218.pv-mode-pc .pv-section{
+  content-visibility: auto;
+  contain-intrinsic-size: 780px;
 }
 
 .pv-layout-260218.pv-dark .pv-mapshot-img{
@@ -3451,6 +3543,10 @@ def inject_global_styles() -> None:
   align-items: center;
 }
 .pv-layout-260218 .pv-footer-company-name{
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: clamp(6px, 2.55vw, 0.82rem);
   line-height: 1.2;
   font-weight: 900;
@@ -3462,9 +3558,12 @@ def inject_global_styles() -> None:
   grid-area: links;
   flex: none;
   justify-content: center;
+  align-items: center;
   width: 100%;
   margin: 0 auto;
   font-size: clamp(6px, 2.55vw, 0.82rem);
+  column-gap: 0.50em;
+  row-gap: 0;
 }
 .pv-layout-260218 .pv-footer-copy{
   grid-area: copy;
@@ -6817,7 +6916,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   {favicon_tags}
 
 </head>
-<body class="pv-page-body" style="{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;">
+<body class="pv-page-body" style="{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;background-image:var(--pv-bg-img);background-color:var(--pv-base-1);background-size:var(--pv-base-size);background-position:center top;background-repeat:no-repeat;">
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
@@ -6911,7 +7010,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
         "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label, privacy_body_html=privacy_body_html).encode("utf-8"),
     }
-EXPORT_FOOTER_VERSION = "1.2.7"
+EXPORT_FOOTER_VERSION = "1.2.8"
 COREVISTA_JAPAN_LABEL = "CoreVista Japan Co., Ltd."
 COREVISTA_JAPAN_URL = "https://www.corevista-japan.com/"
 
@@ -9798,25 +9897,64 @@ body.pv-modal-open{overflow:hidden !important;}
 
     files: dict[str, bytes] = {}
 
+    def _store_asset_from_url(
+        src_url: str,
+        *,
+        path_base: str,
+        fallback_ext: str,
+        max_w: int = 0,
+        max_h: int = 0,
+        fit_mode: str = "cover",
+        force_png: bool = False,
+        trim_transparent: bool = False,
+    ) -> str:
+        src = str(src_url or "").strip()
+        if not src:
+            return ""
+        if not _is_data_url(src):
+            return src
+        mime, data = _data_url_meta(src)
+        ext = _mime_to_ext(mime).lstrip('.').lower() or fallback_ext
+        if ext == 'bin':
+            ext = fallback_ext
+        if data and max_w and max_h:
+            try:
+                data, mime = _maybe_resize_image_bytes(
+                    data,
+                    mime,
+                    max_w=max_w,
+                    max_h=max_h,
+                    force_png=force_png,
+                    fit_mode=fit_mode,
+                    trim_transparent=trim_transparent,
+                    allow_upscale=False,
+                )
+                ext = _mime_to_ext(mime).lstrip('.').lower() or fallback_ext
+                if ext == 'bin':
+                    ext = fallback_ext
+            except Exception:
+                pass
+        if data:
+            path = f"{path_base}.{ext}"
+            files[path] = data
+            return path
+        return src
+
     # --------------------
     # favicon / images
     # --------------------
     favicon_href = ""
-    if favicon_url and _is_data_url(favicon_url):
-        mime, data = _data_url_meta(favicon_url)
-        ext = _mime_to_ext(mime).lstrip(".").lower()
-        if not ext or ext == "bin":
-            ext = "png"
-        if data:
-            # favicon は常に assets/favicon.xxx に落とす
-            path = f"assets/favicon.{ext}"
-            files[path] = data
-            favicon_href = path
-        else:
-            # 解析に失敗した場合は dataURL をそのまま使う（落とさない）
-            favicon_href = favicon_url
-    elif favicon_url:
-        favicon_href = favicon_url
+    if favicon_url:
+        favicon_href = _store_asset_from_url(
+            favicon_url,
+            path_base="assets/favicon",
+            fallback_ext="png",
+            max_w=96,
+            max_h=96,
+            fit_mode="contain",
+            force_png=True,
+            trim_transparent=True,
+        )
 
     # v0.9.11: favicon はキャッシュされやすい → URL に版数を付けて更新がすぐ反映されるようにする
     favicon_href_html = favicon_href
@@ -9835,36 +9973,31 @@ body.pv-modal-open{overflow:hidden !important;}
         if not url:
             continue
         u = str(url).strip()
-        if _is_data_url(u):
-            mime, bts = _data_url_meta(u)
-            ext = _mime_to_ext(mime).lstrip(".").lower()
-            if not ext or ext == "bin":
-                ext = "jpg"
-            if bts:
-                path = f"assets/hero_{i+1}.{ext}"
-                files[path] = bts
-                hero_urls.append(path)
-            else:
-                hero_urls.append(u)
-        else:
-            hero_urls.append(u)
+        hero_urls.append(
+            _store_asset_from_url(
+                u,
+                path_base=f"assets/hero_{i+1}",
+                fallback_ext="jpg",
+                max_w=1440,
+                max_h=810,
+                fit_mode="cover",
+            )
+        )
 
     # 施設ロゴ（faviconとは別）
     # logo_url は上で取得済み（faviconのフォールバックにも使う）
     logo_href = ""
-    if logo_url and _is_data_url(logo_url):
-        mime, bts = _data_url_meta(logo_url)
-        ext = _mime_to_ext(mime).lstrip(".").lower()
-        if not ext or ext == "bin":
-            ext = "png"
-        if bts:
-            path = f"assets/logo.{ext}"
-            files[path] = bts
-            logo_href = path
-        else:
-            logo_href = logo_url
-    elif logo_url:
-        logo_href = logo_url
+    if logo_url:
+        logo_href = _store_asset_from_url(
+            logo_url,
+            path_base="assets/logo",
+            fallback_ext="png",
+            max_w=420,
+            max_h=140,
+            fit_mode="contain",
+            force_png=True,
+            trim_transparent=True,
+        )
 
     # ヘッダー左の小アイコンは favicon を優先。ロゴは社名位置に表示する
     header_icon_href = favicon_href_html or ""
@@ -9879,37 +10012,29 @@ body.pv-modal-open{overflow:hidden !important;}
     ph = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
     ph_img_url = str(ph.get("image_url") or "").strip()
     ph_img_href = ""
-    if ph_img_url and _is_data_url(ph_img_url):
-        mime, bts = _data_url_meta(ph_img_url)
-        ext = _mime_to_ext(mime).lstrip(".").lower()
-        if not ext or ext == "bin":
-            ext = "jpg"
-        if bts:
-            path = f"assets/about.{ext}"
-            files[path] = bts
-            ph_img_href = path
-        else:
-            ph_img_href = ph_img_url
-    elif ph_img_url:
-        ph_img_href = ph_img_url
+    if ph_img_url:
+        ph_img_href = _store_asset_from_url(
+            ph_img_url,
+            path_base="assets/about",
+            fallback_ext="jpg",
+            max_w=1280,
+            max_h=720,
+            fit_mode="cover",
+        )
 
     # services は philosophy 内に統合（6ブロック固定方針）
     svc = ph.get("services") if isinstance(ph.get("services"), dict) else {}
     svc_img_url = str(svc.get("image_url") or "").strip()
     svc_img_href = ""
-    if svc_img_url and _is_data_url(svc_img_url):
-        mime, bts = _data_url_meta(svc_img_url)
-        ext = _mime_to_ext(mime).lstrip(".").lower()
-        if not ext or ext == "bin":
-            ext = "jpg"
-        if bts:
-            path = f"assets/services.{ext}"
-            files[path] = bts
-            svc_img_href = path
-        else:
-            svc_img_href = svc_img_url
-    elif svc_img_url:
-        svc_img_href = svc_img_url
+    if svc_img_url:
+        svc_img_href = _store_asset_from_url(
+            svc_img_url,
+            path_base="assets/services",
+            fallback_ext="jpg",
+            max_w=1280,
+            max_h=720,
+            fit_mode="cover",
+        )
 
     # v0.9.5: 完成品HPの「見出し文言」をビルダーと完全一致させる（重要）
     #   - ここがズレると「プレビューと公開結果が違う」事故になる
@@ -10467,7 +10592,8 @@ body.pv-modal-open{overflow:hidden !important;}
     if hero_urls:
         slides = []
         for u in hero_urls:
-            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt=""></div>')
+            img_attrs = "loading=\"eager\" fetchpriority=\"high\" decoding=\"async\"" if i == 0 else "loading=\"lazy\" fetchpriority=\"low\" decoding=\"async\""
+            slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt="" {img_attrs}></div>')
         slides_html = "".join(slides)
     else:
         slides_html = '<div class="pv-hero-slide"><div class="pv-hero-img pv-hero-img-placeholder"></div></div>'
@@ -10707,7 +10833,7 @@ body.pv-modal-open{overflow:hidden !important;}
             points_cards.append(f'<div class="pv-point-card">{_esc(pt)}</div>')
         points_html = f'<div class="pv-points">{"".join(points_cards)}</div>'
 
-    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
+    about_img_html = f'<img class="pv-about-img" src="{_esc(ph_img_href)}" alt="" loading="lazy" decoding="async">' if ph_img_href else '<div class="pv-about-img pv-about-img-placeholder"></div>'
 
     about_body_html = _paras(ph_body)
 
@@ -10758,7 +10884,7 @@ body.pv-modal-open{overflow:hidden !important;}
     svc_lead_html = _paras(svc_lead)
     svc_items = [it for it in (svc.get("items") or []) if isinstance(it, dict)]
 
-    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="">' if svc_img_href else ''
+    svc_img_html = f'<img class="pv-services-img" src="{_esc(svc_img_href)}" alt="" loading="lazy" decoding="async">' if svc_img_href else ''
 
     svc_cards = []
     for it in svc_items:
@@ -12632,22 +12758,22 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
             "orb_blur": "38px",
         },
         "strong": {
-            "base_size": "136% 136%",
-            "base_duration": "20s",
-            "radial_from": "translate3d(-3.2%, -1.6%, 0) scale(1.00)",
-            "radial_to": "translate3d(4.2%, 2.4%, 0) scale(1.10)",
-            "radial_duration": "14.5s",
-            "blob_from": "translate3d(-2.8%, 1.4%, 0) scale(1.00)",
-            "blob_to": "translate3d(3.8%, -2.4%, 0) scale(1.14)",
-            "blob_duration": "16.5s",
-            "blob_blur": "21px",
+            "base_size": "142% 142%",
+            "base_duration": "16s",
+            "radial_from": "translate3d(-4.4%, -2.2%, 0) scale(0.98)",
+            "radial_to": "translate3d(5.8%, 3.6%, 0) scale(1.15)",
+            "radial_duration": "11.8s",
+            "blob_from": "translate3d(-3.8%, 1.8%, 0) scale(0.96)",
+            "blob_to": "translate3d(5.2%, -3.4%, 0) scale(1.22)",
+            "blob_duration": "12.6s",
+            "blob_blur": "24px",
             "line_from": "translate3d(0, 0, 0) scale(1.02) rotate(0deg)",
-            "line_to": "translate3d(2.0%, -1.4%, 0) scale(1.07) rotate(0.34deg)",
-            "line_duration": "17.5s",
-            "orb_from": "translate3d(-1.8%, 0.3%, 0) scale(0.97)",
-            "orb_to": "translate3d(4.2%, -2.2%, 0) scale(1.12)",
-            "orb_duration": "12.8s",
-            "orb_blur": "41px",
+            "line_to": "translate3d(2.8%, -1.8%, 0) scale(1.10) rotate(0.42deg)",
+            "line_duration": "14.5s",
+            "orb_from": "translate3d(-2.4%, 0.4%, 0) scale(0.92)",
+            "orb_to": "translate3d(5.6%, -2.9%, 0) scale(1.24)",
+            "orb_duration": "9.8s",
+            "orb_blur": "46px",
         },
     }.get(motion_strength, {})
 
@@ -12718,23 +12844,51 @@ def _preview_glass_style(step1_or_primary=None, *, dark: Optional[bool] = None, 
     )
 
 
+def _preview_stage_shell_style(step1_or_primary=None) -> str:
+    """builder外枠にもページ本体と同じ背景を敷く（右上の白抜け対策）。"""
+    theme = _preview_glass_style(step1_or_primary)
+    return (
+        f"{theme};"
+        "background-image: var(--pv-bg-img);"
+        "background-color: var(--pv-base-1);"
+        "background-size: var(--pv-base-size);"
+        "background-position: center top;"
+        "background-repeat: no-repeat;"
+        "overflow: hidden;"
+        "contain: paint;"
+    )
+
+
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.0.15) ===== */
+/* ===== Depth Background Rebuild (v1.2.8) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
-  overflow-x: clip;
+  min-height: 100%;
+  overflow-x: hidden;
+}
+html{
+  background: #f4f8ff;
 }
 body.pv-page-body{
   width: 100%;
   max-width: 100vw;
-  overflow-x: clip !important;
+  overflow-x: hidden !important;
   overflow-y: auto;
+  overscroll-behavior-x: none;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y pinch-zoom;
+  background-image: var(--pv-bg-img) !important;
+  background-color: var(--pv-base-1, #f8fafc) !important;
+  background-size: var(--pv-base-size);
+  background-position: center top;
+  background-repeat: no-repeat;
 }
-/* ===== Depth Background Rebuild (v1.0.15) ===== */
+/* ===== Depth Background Rebuild (v1.2.8) ===== */
 .pv-shell.pv-layout-260218{
-  --pv-depth-overscan-x: max(9vw, 112px);
-  --pv-depth-overscan-y: max(9vh, 80px);
+  --pv-depth-overscan-x: max(12vw, 168px);
+  --pv-depth-overscan-y: max(12vh, 132px);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -12758,10 +12912,13 @@ body.pv-page-body{
   position: relative;
   width: 100%;
   max-width: 100%;
-  overflow-x: clip !important;
+  overflow-x: hidden !important;
   overflow-y: auto;
   clip-path: inset(0);
   background: transparent !important;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y pinch-zoom;
+  contain: layout paint;
 }
 .pv-shell.pv-layout-260218 .pv-scroll > *{
   position: relative;
@@ -12803,14 +12960,15 @@ body.pv-page-body{
   flex: 0 0 auto !important;
   min-height: 0 !important;
   height: auto !important;
-  overflow: visible !important;
-  overflow-y: visible !important;
+  overflow: hidden !important;
+  overflow-y: hidden !important;
   overflow-x: hidden !important;
-  overscroll-behavior: auto !important;
+  overscroll-behavior: contain !important;
   padding-bottom: 0 !important;
   background: transparent !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none;
+  touch-action: auto !important;
 }
 .pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::-webkit-scrollbar{
   width: 0 !important;
@@ -12930,8 +13088,20 @@ body.pv-page-body{
   to{ transform: var(--pv-line-to); }
 }
 @keyframes pvDepthOrb{
-  from{ transform: var(--pv-orb-from); }
-  to{ transform: var(--pv-orb-to); }
+  0%{
+    transform: var(--pv-orb-from);
+    opacity: calc(var(--pv-orb-opacity) * 0.82);
+    filter: blur(calc(var(--pv-orb-blur) * 1.12));
+  }
+  55%{
+    opacity: min(0.98, calc(var(--pv-orb-opacity) * 1.06));
+    filter: blur(calc(var(--pv-orb-blur) * 1.34));
+  }
+  100%{
+    transform: var(--pv-orb-to);
+    opacity: calc(var(--pv-orb-opacity) * 0.90);
+    filter: blur(calc(var(--pv-orb-blur) * 1.58));
+  }
 }
 
 @media (prefers-reduced-motion: reduce){
@@ -13000,36 +13170,33 @@ body.pv-page-body{
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.0.12) ===== */
+/* ===== Export final viewport clamp (v1.2.8) ===== */
 html,
 body.pv-page-body{
   margin:0;
   min-width:0;
   width:100%;
   max-width:100%;
+  min-height:100%;
   overflow-x:hidden !important;
+}
+html{
+  background-color:var(--pv-base-1, #f8fafc) !important;
 }
 body.pv-page-body{
   overflow-y:auto !important;
   overscroll-behavior-x:none;
   overscroll-behavior-y:auto;
-  background:none !important;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y pinch-zoom;
+  background-image:var(--pv-bg-img) !important;
   background-color:var(--pv-base-1, #f8fafc) !important;
+  background-size:var(--pv-base-size);
+  background-position:center top;
+  background-repeat:no-repeat;
 }
 body.pv-page-body::before{
-  content:"";
-  position:fixed;
-  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
-  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
-  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px)));
-  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px)));
-  pointer-events:none;
-  z-index:0;
-  background-image:var(--pv-bg-img);
-  background-color:var(--pv-base-1, #f8fafc);
-  background-size:var(--pv-base-size);
-  background-position:0% 0%;
-  animation:pvDepthBase var(--pv-base-duration) ease-in-out infinite alternate;
+  content:none !important;
 }
 body.pv-page-body > #pv-root.pv-shell{
   position:relative;
@@ -13039,7 +13206,11 @@ body.pv-page-body > #pv-root.pv-shell{
   min-width:0;
   min-height:100dvh;
   height:auto !important;
-  background:none !important;
+  background-image:var(--pv-bg-img) !important;
+  background-color:var(--pv-base-1, #f8fafc) !important;
+  background-size:var(--pv-base-size);
+  background-position:center top;
+  background-repeat:no-repeat;
   overflow:hidden !important;
   clip-path:inset(0);
 }
@@ -13047,33 +13218,30 @@ body.pv-page-body > #pv-root.pv-shell::before,
 body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
-  position:fixed !important;
-  top:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
-  right:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
-  bottom:calc(-1 * var(--pv-depth-overscan-y, max(10vh, 84px))) !important;
-  left:calc(-1 * var(--pv-depth-overscan-x, max(10vw, 120px))) !important;
+  position:absolute !important;
+  inset:0 !important;
   pointer-events:none;
   transform-origin:center center;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   position:relative;
   z-index:2;
-  display:flex;
-  flex:1 1 auto !important;
-  flex-direction:column;
+  display:block;
   width:100%;
   max-width:100% !important;
   min-width:0;
-  min-height:calc(100dvh - 56px) !important;
+  min-height:0 !important;
   height:auto !important;
   max-height:none !important;
   overflow-x:hidden !important;
   overflow-y:visible !important;
   overscroll-behavior:auto !important;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y pinch-zoom;
   background:transparent !important;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main{
-  flex:1 0 auto;
+  flex:none;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main,
 body.pv-page-body > #pv-root.pv-shell .pv-section,
@@ -13266,9 +13434,9 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                 # brand (favicon + logo or company name)
                 with ui.row().classes("items-center no-wrap pv-brand").on("click", lambda e: scroll_to("top")):
                     if favicon_url:
-                        ui.html(f'<img class="pv-favicon" src="{html.escape(pv_img_src(favicon_url), quote=True)}" alt="">')
+                        ui.html(f'<img class="pv-favicon" src="{html.escape(pv_img_src(favicon_url, max_w=72, max_h=72, fit_mode="contain", force_png=True, trim_transparent=True), quote=True)}" alt="">')
                     if logo_url:
-                        ui.html(f'<img class="pv-brand-logo" src="{html.escape(pv_img_src(logo_url), quote=True)}" alt="{html.escape(company_name, quote=True)}">')
+                        ui.html(f'<img class="pv-brand-logo" src="{html.escape(pv_img_src(logo_url, max_w=360, max_h=120, fit_mode="contain", force_png=True, trim_transparent=True), quote=True)}" alt="{html.escape(company_name, quote=True)}">')
                     else:
                         ui.label(company_name).classes("pv-brand-name")
 
@@ -13328,7 +13496,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                         with ui.element("div").classes("pv-hero-track"):
                             for url in hero_urls:
                                 with ui.element("div").classes("pv-hero-slide"):
-                                    ui.image(pv_img_src(url)).classes("pv-hero-img")
+                                    ui.image(pv_img_src(url, max_w=(1024 if mode == "pc" else 720), max_h=(576 if mode == "pc" else 405))).classes("pv-hero-img")
 
                     # dots (4 dots)
                     if len(hero_urls) > 1:
@@ -13396,7 +13564,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                     # 並び：見出し → 画像 → 要点 → 本文
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
                         if about_image_url:
-                            ui.image(pv_img_src(about_image_url)).classes("pv-about-img q-mb-sm")
+                            ui.image(pv_img_src(about_image_url, max_w=(1100 if mode == "pc" else 720), max_h=(619 if mode == "pc" else 405))).classes("pv-about-img q-mb-sm")
 
                         # points (cards)
                         if about_points:
@@ -13433,7 +13601,7 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                     # 並び：業務内容タイトル → 画像 → リード文 → 項目
                     with ui.element("div").classes("pv-panel pv-panel-glass"):
                         if svc_image_url:
-                            ui.image(pv_img_src(svc_image_url)).classes("pv-services-img q-mb-sm")
+                            ui.image(pv_img_src(svc_image_url, max_w=(1100 if mode == "pc" else 720), max_h=(619 if mode == "pc" else 405))).classes("pv-services-img q-mb-sm")
 
                         if svc_lead:
                             ui.label(svc_lead).classes("pv-services-lead")
@@ -13513,7 +13681,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             _murl = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
                             iframe_src = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
 
-                            if map_embed:
+                            map_embed_live = bool(map_embed and not in_builder)
+                            if map_embed_live:
                                 with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
                                     ui.element("iframe").classes("pv-map-iframe").props(
                                         f'src="{iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"'
@@ -15881,8 +16050,10 @@ def render_main(u: User) -> None:
                                 f"{'width: min(100%, 1280px);' if mode == 'pc' else 'width: 100%;'} min-height: 0; height: auto; overflow: hidden; border-radius: {radius}px; margin: 0 auto;"
                             )
                             fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"'
+                            preview_step1 = ((p.get("data") or {}).get("step1") if isinstance(p, dict) and isinstance(p.get("data"), dict) else (p.get("step1") if isinstance(p, dict) else {})) or {}
                             fit_style = (
-                                "width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; background: transparent;"
+                                "width: 100%; min-height: 0; height: auto; display: block; overflow-x: hidden; overflow-y: hidden; position: relative; "
+                                + _preview_stage_shell_style(preview_step1)
                             )
                             with ui.card().classes(f"cvhb-preview-card cvhb-preview-card-{mode}").style(frame_style).props("flat bordered"):
                                 with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
@@ -15940,12 +16111,14 @@ def render_loading_visual(*, compact: bool = False) -> None:
         f"""
 <div class="cvhb-loader-scene {size_class}" aria-hidden="true">
   <div class="cvhb-loader-glow"></div>
+  <div class="cvhb-loader-orbit"></div>
   <div class="cvhb-loader-stage">
     <span class="cvhb-loader-card-mini cvhb-loader-card-a"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-b"></span>
     <span class="cvhb-loader-card-mini cvhb-loader-card-c"></span>
   </div>
   <div class="cvhb-loader-dots"><span></span><span></span><span></span></div>
+  <div class="cvhb-loader-bar"><span></span></div>
 </div>
 """
     )
@@ -16079,10 +16252,10 @@ def projects_page():
 
         # --- 案件を開くときの読込中表示 ---
         with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card").props("bordered"):
-            with ui.column().classes("items-center"):
+            with ui.column().classes("w-full items-center justify-center text-center"):
                 render_loading_visual(compact=True)
-                open_project_label = ui.label("案件を読み込み中...").classes("text-subtitle1 q-mt-sm text-center")
-                ui.label("少しお待ちください。").classes("cvhb-muted q-mt-xs text-center")
+                open_project_label = ui.label("案件を読み込み中...").classes("w-full text-subtitle1 q-mt-sm text-center")
+                ui.label("少しお待ちください。").classes("w-full cvhb-muted q-mt-xs text-center")
 
         open_project_state = {"busy": False}
 
@@ -16505,7 +16678,7 @@ def sync_builder_shell(enabled: bool) -> None:
         pass
 
 
-@ui.page("/", response_timeout=20.0, reconnect_timeout=15.0)
+@ui.page("/", response_timeout=45.0, reconnect_timeout=30.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
@@ -16519,12 +16692,12 @@ async def index():
                 "min-height: calc(100vh - 0px);"
                 "background: linear-gradient(180deg, rgba(245,247,251,1), rgba(238,244,255,1));"
             ):
-                with ui.column().classes("w-full items-center justify-center q-pa-xl").style("min-height: 68vh;"):
+                with ui.column().classes("w-full items-center justify-center text-center q-pa-xl").style("min-height: 68vh;"):
                     with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card").style("width: 440px; max-width: 92vw;").props("bordered"):
-                        with ui.column().classes("items-center"):
+                        with ui.column().classes("w-full items-center justify-center text-center"):
                             render_loading_visual()
-                            ui.label(title).classes("text-subtitle1 q-mt-sm text-center")
-                            ui.label(detail).classes("cvhb-muted q-mt-xs text-center")
+                            ui.label(title).classes("w-full text-subtitle1 q-mt-sm text-center")
+                            ui.label(detail).classes("w-full cvhb-muted q-mt-xs text-center")
 
     @ui.refreshable
     def root_refresh():
@@ -16607,13 +16780,14 @@ async def index():
                                     "margin:0 auto; overflow:hidden; padding:12px;"
                                 ):
                                     fit_props = 'id="pv-fit" data-cvhb-fit-auto-height="1"'
+                                    preview_step1 = ((p_fallback.get("data") or {}).get("step1") if isinstance(p_fallback, dict) and isinstance(p_fallback.get("data"), dict) else (p_fallback.get("step1") if isinstance(p_fallback, dict) else {})) or {}
                                     fit_style = (
                                         f"max-width:{fit_max_w}px; width:100%;"
                                         + "min-height:0;height:auto;"
                                         + "margin:0 auto; overflow:hidden;"
                                         + "border-radius:18px;"
                                         + "border:1px solid rgba(0,0,0,0.10);"
-                                        + "background:rgba(255,255,255,0.35);"
+                                        + _preview_stage_shell_style(preview_step1)
                                     )
                                     with ui.element("div").classes(f"cvhb-preview-stage cvhb-preview-stage-{mode}").props(fit_props).style(fit_style):
                                         try:
