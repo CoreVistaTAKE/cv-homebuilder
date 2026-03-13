@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CV-HomeBuilder | アプリ紹介</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap");
+
+    :root {
+      --bg: #f4f6f8;
+      --ink: #0f1113;
+      --muted: #4b535d;
+      --line: #1b1f24;
+      --card: #ffffff;
+      --accent: #1b5aa6;
+      --soft: #dce3eb;
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Sans JP", "IBM Plex Sans JP", sans-serif;
+      background:
+        linear-gradient(165deg, #e8edf2 0%, transparent 48%),
+        linear-gradient(345deg, #edf1f5 0%, transparent 38%),
+        var(--bg);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 42px;
+    }
+
+    .hero {
+      border: 2px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+      grid-template-columns: 1.2fr 0.8fr;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--line);
+      padding: 5px 10px;
+      letter-spacing: 0.03em;
+    }
+
+    h1 {
+      margin: 12px 0 10px;
+      font-size: clamp(32px, 5.8vw, 62px);
+      line-height: 1.08;
+      letter-spacing: 0.01em;
+      font-family: "IBM Plex Sans JP", "Noto Sans JP", sans-serif;
+      font-weight: 700;
+    }
+
+    .lead {
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(14px, 2vw, 18px);
+      line-height: 1.8;
+      max-width: 40ch;
+    }
+
+    .meta {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+      background: linear-gradient(180deg, #fff, #f9fbfd);
+    }
+
+    .meta p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #26313d;
+      font-weight: 700;
+    }
+
+    .meta a {
+      color: #1b4f8f;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    section {
+      margin-top: 18px;
+      border: 1.5px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 20px;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: clamp(22px, 3.2vw, 36px);
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+
+    .grid3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: #fff;
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .card p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.75;
+      color: var(--muted);
+    }
+
+    .time {
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .industry-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .industry-table th,
+    .industry-table td {
+      border: 1px solid var(--line);
+      padding: 10px 9px;
+      text-align: left;
+      vertical-align: top;
+      line-height: 1.6;
+    }
+
+    .industry-table th {
+      background: #f2f5f9;
+      font-weight: 800;
+    }
+
+    .note {
+      margin-top: 8px;
+      color: #505a66;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .ai {
+      border: 2px solid #111;
+      background: linear-gradient(180deg, #171a1f, #0f1113);
+      color: #fff;
+      padding: 16px;
+      border-radius: 12px;
+    }
+
+    .ai h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .ai p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.75;
+      color: #e9eef5;
+    }
+
+    .chips {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid #2f3742;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #f8fafc;
+      color: #1e2731;
+    }
+
+    .site-box {
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: linear-gradient(180deg, #fbfdff, #f2f6fb);
+    }
+
+    .site-box p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.8;
+      color: #33404f;
+      font-weight: 700;
+    }
+
+    .site-link {
+      display: inline-block;
+      margin-top: 10px;
+      border: 1px solid #111;
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: #0f1113;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 800;
+      transition: background-color 0.2s ease;
+    }
+
+    .site-link:hover {
+      background: #eef3f8;
+    }
+
+    footer {
+      margin-top: 14px;
+      border-top: 2px solid #1c2229;
+      padding-top: 12px;
+    }
+
+    footer p {
+      margin: 0;
+      font-size: 12px;
+      color: #3b4551;
+      line-height: 1.8;
+      font-weight: 700;
+    }
+
+    @media (max-width: 940px) {
+      .hero,
+      .grid3 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <span class="tag">CoreVista-Japan株式会社</span>
+        <h1>CV-HomeBuilder</h1>
+        <p class="lead">
+          制作業務と報告業務を、1つの流れで整理。<br>
+          現場が止まりにくい、業務向けWeb制作アプリです。
+        </p>
+      </div>
+      <aside class="meta">
+        <p>会社名: CoreVista-Japan株式会社</p>
+        <p>CEO: 中尾武利</p>
+        <p>用途: 制作・更新・報告の標準化</p>
+        <p>公式HP: <a href="https://www.corevista-japan.com/" target="_blank" rel="noopener noreferrer">https://www.corevista-japan.com/</a></p>
+      </aside>
+    </section>
+
+    <section>
+      <h2>会社情報・公式サイト</h2>
+      <div class="site-box">
+        <p>運営: CoreVista-Japan株式会社</p>
+        <p>ブランド表記: COVE VISTA</p>
+        <p>公式サイト記載のメッセージ: AI agent generation factory</p>
+        <a class="site-link" href="https://www.corevista-japan.com/" target="_blank" rel="noopener noreferrer">公式サイトを見る</a>
+      </div>
+    </section>
+
+    <section>
+      <h2>報告書を簡単にするメリット</h2>
+      <div class="grid3">
+        <article class="card">
+          <h3>入力ミスが減る</h3>
+          <p>入力項目が整理されるため、報告の抜け漏れを抑えやすくなります。</p>
+          <p class="time">報告作業: 1件あたり約20〜35分短縮</p>
+        </article>
+        <article class="card">
+          <h3>確認が速い</h3>
+          <p>同じ形式で提出できるため、上長確認と差し戻し対応が短くなります。</p>
+          <p class="time">確認作業: 1件あたり約10〜20分短縮</p>
+        </article>
+        <article class="card">
+          <h3>引き継ぎがしやすい</h3>
+          <p>担当者が変わっても、同じ手順で運用できるため、属人化を抑制します。</p>
+          <p class="time">引継ぎ準備: 月あたり約2〜4時間短縮</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>業種別の効果（時間目安）</h2>
+      <table class="industry-table">
+        <thead>
+          <tr>
+            <th>業種</th>
+            <th>主な効果</th>
+            <th>削減時間の目安</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>福祉・介護</td>
+            <td>支援内容の更新報告と承認が標準化</td>
+            <td>週3〜6時間</td>
+          </tr>
+          <tr>
+            <td>建設・設備</td>
+            <td>案件進捗の報告フォーマットが統一</td>
+            <td>週2〜5時間</td>
+          </tr>
+          <tr>
+            <td>士業・コンサル</td>
+            <td>顧客向けの更新報告が短時間で作成可能</td>
+            <td>週2〜4時間</td>
+          </tr>
+          <tr>
+            <td>医療・クリニック</td>
+            <td>告知更新と監修確認の往復を削減</td>
+            <td>週2〜5時間</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">※時間は導入初期の一般的な運用を想定した目安です。業務量・体制で変動します。</p>
+    </section>
+
+    <section>
+      <h2>AI利用の考え方</h2>
+      <div class="ai">
+        <h3>AIは補助。最終判断は人が行います。</h3>
+        <p>
+          本アプリは、文面のたたき台作成や構成整理などをAIで支援します。<br>
+          承認・公開・最終責任は、必ず担当者または管理者が行う設計です。
+        </p>
+      </div>
+      <div class="chips">
+        <span class="chip">福祉</span>
+        <span class="chip">建設</span>
+        <span class="chip">医療</span>
+        <span class="chip">小売</span>
+        <span class="chip">製造</span>
+        <span class="chip">士業</span>
+        <span class="chip">サービス業</span>
+        <span class="chip">その他あらゆる業種</span>
+      </div>
+      <p class="note">業種テンプレートを起点に、どの業界でも実運用に合わせて作成できます。</p>
+    </section>
+
+    <footer>
+      <p>
+        CV-HomeBuilder / CoreVista-Japan株式会社 / CEO 中尾武利<br>
+        Official: <a href="https://www.corevista-japan.com/" target="_blank" rel="noopener noreferrer">https://www.corevista-japan.com/</a>
+      </p>
+    </footer>
+  </main>
+</body>
+</html>
