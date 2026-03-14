@@ -3863,7 +3863,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section > .pv-company-profi
   object-position: center center;
 }
 
-/* ===== Image full-view (v1.3.5) ===== */
+/* ===== Image full-view (v1.3.6) ===== */
 .pv-layout-260218 .pv-hero-stage,
 .pv-layout-260218 .pv-hero-slider-wide,
 .pv-layout-260218 .pv-hero-slide{
@@ -7294,7 +7294,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   {favicon_tags}
 
 </head>
-<body class="pv-page-body" style="{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;background-image:var(--pv-bg-img);background-color:var(--pv-base-1);background-size:var(--pv-base-size);background-position:center top;background-repeat:no-repeat;">
+<body class="pv-page-body" style="{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;background-image:var(--pv-bg-img);background-color:var(--pv-base-1);background-size:var(--pv-base-size);background-position:var(--pv-base-pos-from,center top);background-repeat:no-repeat;">
   <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}" style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
@@ -7388,7 +7388,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
         "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label, privacy_body_html=privacy_body_html).encode("utf-8"),
     }
-EXPORT_FOOTER_VERSION = "1.3.5"
+EXPORT_FOOTER_VERSION = "1.3.7"
 COREVISTA_JAPAN_LABEL = "CoreVista Japan Co., Ltd."
 COREVISTA_JAPAN_URL = "https://www.corevista-japan.com/"
 
@@ -9853,7 +9853,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section > .pv-company-profi
   object-position: center center;
 }
 
-/* ===== Image full-view (v1.3.5) ===== */
+/* ===== Image full-view (v1.3.6) ===== */
 .pv-layout-260218 .pv-hero-stage,
 .pv-layout-260218 .pv-hero-slider-wide,
 .pv-layout-260218 .pv-hero-slide{
@@ -13399,7 +13399,7 @@ def _preview_stage_shell_style(step1_or_primary=None) -> str:
 
 
 DEPTH_BG_CSS = r"""
-/* ===== Depth Background Rebuild (v1.3.4) ===== */
+/* ===== Depth Background Rebuild (v1.3.7) ===== */
 html, body{
   width: 100%;
   max-width: 100vw;
@@ -13421,7 +13421,7 @@ body.pv-page-body{
   background-image: var(--pv-bg-img) !important;
   background-color: var(--pv-base-1, #f8fafc) !important;
   background-size: var(--pv-base-size);
-  background-position: center top;
+  background-position: var(--pv-base-pos-from, center top);
   background-repeat: no-repeat;
   animation: none;
 }
@@ -13429,6 +13429,10 @@ body.pv-page-body{
 .pv-shell.pv-layout-260218{
   --pv-depth-overscan-x: max(64vw, 1180px);
   --pv-depth-overscan-y: max(40vh, 560px);
+  --pv-depth-safe-scale-radial: 1;
+  --pv-depth-safe-scale-line: 1;
+  --pv-depth-safe-scale-blob: 1;
+  --pv-depth-safe-scale-orb: 1;
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -13439,7 +13443,7 @@ body.pv-page-body{
   background-image: var(--pv-bg-img) !important;
   background-color: var(--pv-base-1);
   background-size: var(--pv-base-size);
-  background-position: center top;
+  background-position: var(--pv-base-pos-from, center top);
   background-repeat: no-repeat;
   animation: none;
 }
@@ -13543,7 +13547,7 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
     radial-gradient(1940px 1340px at 88% 14%, var(--pv-radial-2) 0%, transparent 64%),
     radial-gradient(1880px 1280px at 58% 76%, var(--pv-line-1-soft) 0%, transparent 72%);
   opacity: var(--pv-radial-opacity);
-  transform: var(--pv-radial-from);
+  transform: var(--pv-radial-from) scale(var(--pv-depth-safe-scale-radial, 1));
   animation: pvDepthRadial var(--pv-radial-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
 
@@ -13586,7 +13590,7 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
       transparent 49.7%,
       transparent 100%);
   opacity: var(--pv-line-opacity);
-  transform: var(--pv-line-from);
+  transform: var(--pv-line-from) scale(var(--pv-depth-safe-scale-line, 1));
   animation: pvDepthLine var(--pv-line-duration) cubic-bezier(0.44, 0.02, 0.18, 1) infinite alternate;
 }
 
@@ -13599,7 +13603,7 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
     radial-gradient(1880px 1280px at 60% 42%, var(--pv-radial-2) 0%, transparent 76%);
   opacity: var(--pv-blob-opacity);
   filter: blur(var(--pv-blob-blur));
-  transform: var(--pv-blob-from);
+  transform: var(--pv-blob-from) scale(var(--pv-depth-safe-scale-blob, 1));
   animation: pvDepthBlob var(--pv-blob-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
 .pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::before{
@@ -13617,7 +13621,7 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
     radial-gradient(2060px 2060px at 70% 82%, var(--pv-orb-2) 0%, transparent 84%);
   opacity: var(--pv-orb-opacity);
   filter: blur(calc(var(--pv-orb-blur) * 1.42));
-  transform: var(--pv-orb-from);
+  transform: var(--pv-orb-from) scale(var(--pv-depth-safe-scale-orb, 1));
   animation: pvDepthOrb var(--pv-orb-duration) cubic-bezier(0.42, 0.04, 0.20, 1) infinite alternate;
 }
 .pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::after{
@@ -13663,20 +13667,20 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
   to{ background-position: var(--pv-base-pos-to, 50.5% 100%); }
 }
 @keyframes pvDepthRadial{
-  from{ transform: var(--pv-radial-from); }
-  to{ transform: var(--pv-radial-to); }
+  from{ transform: var(--pv-radial-from) scale(var(--pv-depth-safe-scale-radial, 1)); }
+  to{ transform: var(--pv-radial-to) scale(var(--pv-depth-safe-scale-radial, 1)); }
 }
 @keyframes pvDepthBlob{
-  from{ transform: var(--pv-blob-from); }
-  to{ transform: var(--pv-blob-to); }
+  from{ transform: var(--pv-blob-from) scale(var(--pv-depth-safe-scale-blob, 1)); }
+  to{ transform: var(--pv-blob-to) scale(var(--pv-depth-safe-scale-blob, 1)); }
 }
 @keyframes pvDepthLine{
-  from{ transform: var(--pv-line-from); }
-  to{ transform: var(--pv-line-to); }
+  from{ transform: var(--pv-line-from) scale(var(--pv-depth-safe-scale-line, 1)); }
+  to{ transform: var(--pv-line-to) scale(var(--pv-depth-safe-scale-line, 1)); }
 }
 @keyframes pvDepthOrb{
   0%{
-    transform: var(--pv-orb-from);
+    transform: var(--pv-orb-from) scale(var(--pv-depth-safe-scale-orb, 1));
     opacity: calc(var(--pv-orb-opacity) * 0.82);
     filter: blur(calc(var(--pv-orb-blur) * 1.12));
   }
@@ -13685,7 +13689,7 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
     filter: blur(calc(var(--pv-orb-blur) * 1.34));
   }
   100%{
-    transform: var(--pv-orb-to);
+    transform: var(--pv-orb-to) scale(var(--pv-depth-safe-scale-orb, 1));
     opacity: calc(var(--pv-orb-opacity) * 0.90);
     filter: blur(calc(var(--pv-orb-blur) * 1.58));
   }
@@ -13757,7 +13761,7 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
   background: rgba(6, 10, 18, 0.92);
 }
 
-/* ===== Export final viewport clamp (v1.2.9) ===== */
+/* ===== Export final viewport clamp (v1.3.7) ===== */
 html,
 body.pv-page-body{
   margin:0;
@@ -13775,11 +13779,11 @@ body.pv-page-body{
   overscroll-behavior-x:none;
   overscroll-behavior-y:auto;
   -webkit-overflow-scrolling:touch;
-  touch-action:pan-y pinch-zoom;
+  touch-action:auto;
   background-image:var(--pv-bg-img) !important;
   background-color:var(--pv-base-1, #f8fafc) !important;
-  background-size:max(172%, var(--pv-base-size));
-  background-position:center top;
+  background-size:max(186%, 1860px) max(186%, 1860px);
+  background-position:var(--pv-base-pos-from, center top);
   background-repeat:no-repeat;
   animation:none !important;
 }
@@ -13787,8 +13791,12 @@ body.pv-page-body::before{
   content:none !important;
 }
 body.pv-page-body > #pv-root.pv-shell{
-  --pv-depth-overscan-x:max(96vw, 1680px);
-  --pv-depth-overscan-y:max(56vh, 760px);
+  --pv-depth-overscan-x:max(120vw, 2160px);
+  --pv-depth-overscan-y:max(70vh, 980px);
+  --pv-depth-safe-scale-radial:1.12;
+  --pv-depth-safe-scale-line:1.16;
+  --pv-depth-safe-scale-blob:1.18;
+  --pv-depth-safe-scale-orb:1.28;
   position:relative;
   z-index:1;
   width:100% !important;
@@ -13798,10 +13806,13 @@ body.pv-page-body > #pv-root.pv-shell{
   height:auto !important;
   background-image:var(--pv-bg-img) !important;
   background-color:var(--pv-base-1, #f8fafc) !important;
-  background-size:max(172%, var(--pv-base-size));
-  background-position:center top;
+  background-size:max(186%, 1860px) max(186%, 1860px);
+  background-position:var(--pv-base-pos-from, center top);
   background-repeat:no-repeat;
   overflow:hidden !important;
+  overflow:clip !important;
+  overflow-x:clip !important;
+  overflow-y:clip !important;
   clip-path:inset(0);
 }
 body.pv-page-body > #pv-root.pv-shell::before,
@@ -13809,9 +13820,13 @@ body.pv-page-body > #pv-root.pv-shell::after,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::before,
 body.pv-page-body > #pv-root.pv-shell .pv-scroll::after{
   position:absolute !important;
-  inset:0 !important;
+  top:calc(-1 * var(--pv-depth-overscan-y)) !important;
+  right:calc(-1 * var(--pv-depth-overscan-x)) !important;
+  bottom:calc(-1 * var(--pv-depth-overscan-y)) !important;
+  left:calc(-1 * var(--pv-depth-overscan-x)) !important;
   pointer-events:none;
   transform-origin:center center;
+  will-change:transform, opacity, background-position;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   position:relative;
@@ -13823,12 +13838,15 @@ body.pv-page-body > #pv-root.pv-shell .pv-scroll{
   min-height:0 !important;
   height:auto !important;
   max-height:none !important;
-  overflow-x:hidden !important;
-  overflow-y:hidden !important;
-  overscroll-behavior:none !important;
+  overflow:hidden !important;
+  overflow:clip !important;
+  overflow-x:clip !important;
+  overflow-y:clip !important;
+  overscroll-behavior:auto !important;
   -webkit-overflow-scrolling:touch;
-  touch-action:pan-y pinch-zoom;
+  touch-action:auto;
   background:transparent !important;
+  contain:none !important;
 }
 body.pv-page-body > #pv-root.pv-shell .pv-main{
   flex:none;
