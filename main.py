@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 import json
 import os
 import re
 import fnmatch
 import secrets
+import socket
 import stat
+import time
 import traceback
 import asyncio
 import mimetypes
@@ -4777,6 +4780,28 @@ def version_static_asset_href(href: str, version: str = CURRENT_APP_VERSION) -> 
         return str(href or "").strip()
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, default)).strip())
+    except Exception:
+        return int(default)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(str(os.getenv(name, default)).strip())
+    except Exception:
+        return float(default)
+
+
+SFTP_CONNECT_TIMEOUT_SEC = max(3.0, _env_float("CVHB_SFTP_CONNECT_TIMEOUT_SEC", 10.0))
+SFTP_IO_TIMEOUT_SEC = max(5.0, _env_float("CVHB_SFTP_IO_TIMEOUT_SEC", 20.0))
+SFTP_RETRY_COUNT = max(1, _env_int("CVHB_SFTP_RETRY_COUNT", 3))
+SFTP_KEEPALIVE_SEC = max(10, _env_int("CVHB_SFTP_KEEPALIVE_SEC", 20))
+PROJECT_SHARED_CACHE_TTL_SEC = max(15.0, _env_float("CVHB_PROJECT_SHARED_CACHE_TTL_SEC", 180.0))
+PROJECT_LIST_CACHE_TTL_SEC = max(5.0, _env_float("CVHB_PROJECT_LIST_CACHE_TTL_SEC", 20.0))
+
+
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -5180,6 +5205,80 @@ def clear_pending_open_project() -> None:
 # =========================
 
 PROJECT_CACHE: dict[int, dict] = {}
+PROJECT_LOAD_CACHE: dict[str, dict] = {}
+_PROJECT_LIST_CACHE: dict[str, object] = {"ts": 0.0, "items": []}
+
+
+def _clone_json_data(value):
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False))
+    except Exception:
+        return value
+
+
+def _project_load_cache_get(project_id: str) -> Optional[dict]:
+    pid = str(project_id or "").strip()
+    if not pid:
+        return None
+    item = PROJECT_LOAD_CACHE.get(pid)
+    if not isinstance(item, dict):
+        return None
+    try:
+        age = time.monotonic() - float(item.get("ts") or 0.0)
+    except Exception:
+        age = PROJECT_SHARED_CACHE_TTL_SEC + 1.0
+    if age > float(PROJECT_SHARED_CACHE_TTL_SEC):
+        PROJECT_LOAD_CACHE.pop(pid, None)
+        return None
+    cached_project = item.get("project")
+    if not isinstance(cached_project, dict):
+        PROJECT_LOAD_CACHE.pop(pid, None)
+        return None
+    cloned = _clone_json_data(cached_project)
+    return normalize_project(cloned) if isinstance(cloned, dict) else None
+
+
+def _project_load_cache_put(project_id: str, project: dict) -> None:
+    pid = str(project_id or "").strip()
+    if not pid or not isinstance(project, dict):
+        return
+    PROJECT_LOAD_CACHE[pid] = {
+        "ts": time.monotonic(),
+        "project": _clone_json_data(project),
+    }
+
+
+def _project_load_cache_invalidate(project_id: str = "") -> None:
+    pid = str(project_id or "").strip()
+    if pid:
+        PROJECT_LOAD_CACHE.pop(pid, None)
+    else:
+        PROJECT_LOAD_CACHE.clear()
+
+
+def _project_list_cache_get() -> Optional[list[dict]]:
+    try:
+        age = time.monotonic() - float(_PROJECT_LIST_CACHE.get("ts") or 0.0)
+    except Exception:
+        age = PROJECT_LIST_CACHE_TTL_SEC + 1.0
+    if age > float(PROJECT_LIST_CACHE_TTL_SEC):
+        return None
+    items = _PROJECT_LIST_CACHE.get("items")
+    if not isinstance(items, list):
+        return None
+    cloned = _clone_json_data(items)
+    return cloned if isinstance(cloned, list) else None
+
+
+def _project_list_cache_put(items: list[dict]) -> None:
+    _PROJECT_LIST_CACHE["ts"] = time.monotonic()
+    _PROJECT_LIST_CACHE["items"] = _clone_json_data(items or [])
+
+
+def _project_list_cache_invalidate() -> None:
+    _PROJECT_LIST_CACHE["ts"] = 0.0
+    _PROJECT_LIST_CACHE["items"] = []
+
 
 def project_cache_hit(user: Optional[User], project_id: str = "") -> bool:
     """現在ユーザーの案件キャッシュが使える状態かを返す。"""
@@ -5194,7 +5293,9 @@ def project_cache_hit(user: Optional[User], project_id: str = "") -> bool:
     if not pid:
         return False
     cached = PROJECT_CACHE.get(user.id)
-    return bool(isinstance(cached, dict) and str(cached.get("project_id") or "").strip() == pid)
+    if bool(isinstance(cached, dict) and str(cached.get("project_id") or "").strip() == pid):
+        return True
+    return _project_load_cache_get(pid) is not None
 
 # HELP_MODE用: ローカルだけで案件を保持（SFTP/DB無し）
 HELP_PROJECT_STORE: dict[str, dict] = {}
@@ -5251,6 +5352,46 @@ def parse_sftp_url(url: str) -> tuple[str, int, str, str]:
     return host, port, user, pwd
 
 
+def _open_sftp_client_once() -> tuple["paramiko.Transport", "paramiko.SFTPClient"]:
+    if paramiko is None:
+        raise RuntimeError("paramiko が未インストールです（SFTPが使えません）")
+    host, port, user, pwd = parse_sftp_url(SFTPTOGO_URL)
+    sock = socket.create_connection((host, port), timeout=float(SFTP_CONNECT_TIMEOUT_SEC))
+    try:
+        sock.settimeout(float(SFTP_IO_TIMEOUT_SEC))
+    except Exception:
+        pass
+
+    transport = paramiko.Transport(sock)
+    try:
+        try:
+            transport.banner_timeout = float(SFTP_CONNECT_TIMEOUT_SEC)
+        except Exception:
+            pass
+        try:
+            transport.auth_timeout = float(SFTP_CONNECT_TIMEOUT_SEC)
+        except Exception:
+            pass
+        transport.connect(username=user, password=pwd)
+        try:
+            transport.set_keepalive(int(SFTP_KEEPALIVE_SEC))
+        except Exception:
+            pass
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        try:
+            ch = sftp.get_channel()
+            ch.settimeout(float(SFTP_IO_TIMEOUT_SEC))
+        except Exception:
+            pass
+        return transport, sftp
+    except Exception:
+        try:
+            transport.close()
+        except Exception:
+            pass
+        raise
+
+
 @contextmanager
 def sftp_client():
     # HELP_MODE: ローカルでのヘルプ作成は「完全オフライン」を想定するためSFTPは使わない
@@ -5260,13 +5401,38 @@ def sftp_client():
         raise RuntimeError("paramiko が未インストールです（SFTPが使えません）")
     if not SFTPTOGO_URL:
         raise RuntimeError("SFTPTOGO_URL が未設定です")
-    host, port, user, pwd = parse_sftp_url(SFTPTOGO_URL)
-    transport = paramiko.Transport((host, port))
+
+    transport = None
+    sftp = None
+    last_error: Optional[Exception] = None
+
+    for attempt in range(1, int(SFTP_RETRY_COUNT) + 1):
+        try:
+            transport, sftp = _open_sftp_client_once()
+            break
+        except Exception as e:
+            last_error = e
+            if attempt >= int(SFTP_RETRY_COUNT):
+                break
+            try:
+                print(
+                    f"[sftp] connect retry {attempt}/{int(SFTP_RETRY_COUNT)}: {sanitize_error_text(e)}",
+                    flush=True,
+                )
+            except Exception:
+                pass
+            time.sleep(min(2.0, 0.4 * attempt))
+
+    if sftp is None or transport is None:
+        raise RuntimeError(f"SFTP接続に失敗しました: {sanitize_error_text(last_error or 'unknown error')}")
+
     try:
-        transport.connect(username=user, password=pwd)
-        sftp = paramiko.SFTPClient.from_transport(transport)
         yield sftp
     finally:
+        try:
+            sftp.close()
+        except Exception:
+            pass
         try:
             transport.close()
         except Exception:
@@ -5307,7 +5473,10 @@ def sftp_write_bytes(sftp: paramiko.SFTPClient, remote_path: str, data: bytes) -
 
 def sftp_read_text(sftp: paramiko.SFTPClient, remote_path: str) -> str:
     with sftp.open(remote_path, "r") as f:
-        return f.read()
+        body = f.read()
+        if isinstance(body, bytes):
+            return body.decode("utf-8", errors="replace")
+        return str(body or "")
 
 
 def sftp_read_bytes(sftp: paramiko.SFTPClient, remote_path: str) -> bytes:
@@ -5371,11 +5540,9 @@ def delete_project_from_sftp(project_id: str, user: Optional[User]) -> None:
     with sftp_client() as sftp:
         sftp_rmtree(sftp, remote_dir)
 
-    # 案件一覧キャッシュを無効化（削除が即反映されるように）
-    try:
-        _projects_cache["ts"] = 0
-    except Exception:
-        pass
+    # 案件一覧・案件本文キャッシュを無効化（削除が即反映されるように）
+    _project_list_cache_invalidate()
+    _project_load_cache_invalidate(pid)
 
     if user:
         safe_log_action(user, "project_delete", details=json.dumps({"project_id": pid}, ensure_ascii=False))
@@ -5596,6 +5763,14 @@ def project_dir(project_id: str) -> str:
 
 def project_json_path(project_id: str) -> str:
     return f"{project_dir(project_id)}/project.json"
+
+
+def project_json_gz_path(project_id: str) -> str:
+    return f"{project_dir(project_id)}/project.json.gz"
+
+
+def project_meta_path(project_id: str) -> str:
+    return f"{project_dir(project_id)}/project.meta.json"
 
 
 def new_project_id() -> str:
@@ -6399,6 +6574,16 @@ def get_current_project(user: Optional[User]) -> Optional[dict]:
     if isinstance(cached, dict) and cached.get("project_id") == pid:
         return normalize_project(cached)
 
+    shared_cached = _project_load_cache_get(str(pid or ""))
+    if isinstance(shared_cached, dict):
+        PROJECT_CACHE[user.id] = shared_cached
+        try:
+            app.storage.user["current_project_name"] = shared_cached.get("project_name", "")
+        except Exception:
+            pass
+        cleanup_user_storage()
+        return normalize_project(shared_cached)
+
     # キャッシュが無い場合だけロード
     try:
         p = load_project_from_sftp(pid, user)
@@ -6591,6 +6776,50 @@ def _help_ensure_sample_project(user: Optional[User]) -> dict:
         return p
 
 
+def _project_storage_payload(p: dict) -> dict:
+    """SFTP保存向けに payload を整える（互換性を壊さず、無駄だけ減らす）。"""
+    payload = _clone_json_data(normalize_project(p))
+    if not isinstance(payload, dict):
+        return normalize_project(p)
+
+    try:
+        data = payload.get("data")
+        if isinstance(data, dict):
+            step1 = data.get("step1")
+            if isinstance(step1, dict):
+                if str(step1.get("_applied_template_id") or "").strip() == str(step1.get("template_id") or "").strip():
+                    step1.pop("_applied_template_id", None)
+
+            blocks = data.get("blocks")
+            if isinstance(blocks, dict):
+                hero = blocks.get("hero")
+                if isinstance(hero, dict):
+                    hero_urls = hero.get("hero_image_urls")
+                    if isinstance(hero_urls, list):
+                        head = str(hero_urls[0] or "").strip() if hero_urls else ""
+                        if str(hero.get("hero_image_url") or "").strip() == head:
+                            hero.pop("hero_image_url", None)
+    except Exception:
+        pass
+
+    return payload
+
+
+def _build_project_meta(p: dict, *, json_bytes: int = 0, gz_bytes: int = 0) -> dict:
+    p = normalize_project(p)
+    return {
+        "project_id": str(p.get("project_id") or ""),
+        "project_name": str(p.get("project_name") or ""),
+        "created_at": str(p.get("created_at") or ""),
+        "updated_at": str(p.get("updated_at") or ""),
+        "created_by": str(p.get("created_by") or ""),
+        "updated_by": str(p.get("updated_by") or ""),
+        "schema_version": str(p.get("schema_version") or ""),
+        "project_json_bytes": int(json_bytes or 0),
+        "project_json_gz_bytes": int(gz_bytes or 0),
+    }
+
+
 def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
     p = normalize_project(p)
     p["updated_at"] = now_jst_iso()
@@ -6602,13 +6831,26 @@ def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
         HELP_PROJECT_STORE[p["project_id"]] = p
         return
 
+    storage_payload = _project_storage_payload(p)
+    body_text = json.dumps(storage_payload, ensure_ascii=False, separators=(",", ":"))
+    body_bytes = body_text.encode("utf-8")
+    gz_bytes = gzip.compress(body_bytes, compresslevel=6)
+    meta = _build_project_meta(storage_payload, json_bytes=len(body_bytes), gz_bytes=len(gz_bytes))
+
     remote = project_json_path(p["project_id"])
-    body = json.dumps(p, ensure_ascii=False, indent=2)
+    remote_gz = project_json_gz_path(p["project_id"])
+    remote_meta = project_meta_path(p["project_id"])
+
     with sftp_client() as sftp:
-        sftp_write_text(sftp, remote, body)
+        sftp_write_bytes(sftp, remote, body_bytes)
+        sftp_write_bytes(sftp, remote_gz, gz_bytes)
+        sftp_write_text(sftp, remote_meta, json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
+
+    _project_load_cache_put(str(p.get("project_id") or ""), storage_payload)
+    _project_list_cache_invalidate()
 
     if user:
-        safe_log_action(user, "project_save", details=json.dumps({"project_id": p["project_id"]}, ensure_ascii=False))
+        safe_log_action(user, "project_save", details=json.dumps({"project_id": p["project_id"], "json_bytes": len(body_bytes), "json_gz_bytes": len(gz_bytes)}, ensure_ascii=False))
 
 
 def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
@@ -6621,17 +6863,53 @@ def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
             p = _help_ensure_sample_project(user)
         return normalize_project(p)
 
-    remote = project_json_path(project_id)
-    with sftp_client() as sftp:
-        body = sftp_read_text(sftp, remote)
+    pid = str(project_id or "").strip()
+    if not pid:
+        raise ValueError("project_id is empty")
+
+    cached = _project_load_cache_get(pid)
+    if isinstance(cached, dict):
+        return normalize_project(cached)
+
+    remote_plain = project_json_path(pid)
+    remote_gz = project_json_gz_path(pid)
+    last_error: Optional[Exception] = None
+    body = ""
+
+    for attempt in range(1, int(SFTP_RETRY_COUNT) + 1):
+        try:
+            with sftp_client() as sftp:
+                try:
+                    gz_body = sftp_read_bytes(sftp, remote_gz)
+                    if gz_body:
+                        body = gzip.decompress(gz_body).decode("utf-8")
+                    else:
+                        body = ""
+                except Exception:
+                    body = ""
+
+                if not body:
+                    body = sftp_read_text(sftp, remote_plain)
+            if body:
+                break
+        except Exception as e:
+            last_error = e
+            if attempt >= int(SFTP_RETRY_COUNT):
+                break
+            time.sleep(min(2.0, 0.35 * attempt))
+
+    if not body:
+        raise RuntimeError(f"案件の読み込みに失敗しました: {sanitize_error_text(last_error or 'empty project body')}")
+
     p = normalize_project(json.loads(body))
+    _project_load_cache_put(pid, p)
     if user:
-        safe_log_action(user, "project_load", details=json.dumps({"project_id": project_id}, ensure_ascii=False))
+        safe_log_action(user, "project_load", details=json.dumps({"project_id": pid}, ensure_ascii=False))
     return p
 
 
 def list_projects_from_sftp() -> list[dict]:
-    """案件一覧は project.json が肥大化しやすい（data URL画像）ため、先頭だけ読んでメタ情報を抜く。
+    """案件一覧は project.json が肥大化しやすい（data URL画像）ため、軽いメタ情報を優先して読む。
 
     目的:
     - /projects の表示を高速化（SFTP転送量・JSONデコード量を最小化）
@@ -6655,6 +6933,10 @@ def list_projects_from_sftp() -> list[dict]:
         projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return projects
 
+    cached_items = _project_list_cache_get()
+    if isinstance(cached_items, list):
+        return cached_items
+
     HEAD_BYTES = 24 * 1024
 
     def _json_head_get_str(head: str, key: str) -> str:
@@ -6671,6 +6953,27 @@ def list_projects_from_sftp() -> list[dict]:
         dirs = sftp_list_dirs(sftp, SFTP_PROJECTS_DIR)
         for d in dirs:
             try:
+                meta_text = ""
+                try:
+                    meta_text = sftp_read_text(sftp, project_meta_path(d))
+                except Exception:
+                    meta_text = ""
+
+                if meta_text:
+                    try:
+                        meta = json.loads(meta_text)
+                    except Exception:
+                        meta = {}
+                    if isinstance(meta, dict):
+                        projects.append({
+                            "project_id": str(meta.get("project_id") or d),
+                            "project_name": str(meta.get("project_name") or "(no name)"),
+                            "updated_at": str(meta.get("updated_at") or ""),
+                            "created_at": str(meta.get("created_at") or ""),
+                            "updated_by": str(meta.get("updated_by") or ""),
+                        })
+                        continue
+
                 path = project_json_path(d)
                 head = ""
                 try:
@@ -6698,6 +7001,7 @@ def list_projects_from_sftp() -> list[dict]:
                 projects.append({"project_id": d, "project_name": "(broken project.json)", "updated_at": "", "created_at": "", "updated_by": ""})
 
     projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    _project_list_cache_put(projects)
     return projects
 
 
@@ -15054,17 +15358,29 @@ def render_main(u: User) -> None:
                 pass
         _preview_refresh_handle = loop.call_later(_preview_debounce_sec(), _do_refresh)
 
-    def save_now() -> None:
+    save_state = {"busy": False}
+
+    async def save_now() -> None:
         nonlocal p
         if not p:
             ui.notify("案件が選択されていません", type="warning")
             return
+        if save_state["busy"]:
+            return
+        save_state["busy"] = True
         try:
-            save_project_to_sftp(p, u)
+            ui.notify("保存しています...", type="info")
+
+            def _save_work(project_obj: dict, user_obj: User) -> None:
+                save_project_to_sftp(_clone_json_data(project_obj), user_obj)
+
+            await asyncio.to_thread(_save_work, p, u)
             set_current_project(p, u)
             ui.notify("保存しました（project.json）", type="positive")
         except Exception as e:
             ui.notify(f"保存に失敗しました: {sanitize_error_text(e)}", type="negative")
+        finally:
+            save_state["busy"] = False
 
     with ui.element("div").classes("cvhb-page"):
         with ui.element("div").classes("cvhb-container"):
@@ -17331,7 +17647,7 @@ def help_page():
                 ui.button("ビルダーへ", on_click=lambda: navigate_to("/")).props("color=primary flat")
 
 
-@ui.page("/projects")
+@ui.page("/projects", response_timeout=75.0, reconnect_timeout=60.0)
 def projects_page():
     inject_global_styles()
     cleanup_user_storage()
@@ -17748,7 +18064,7 @@ def projects_page():
 
 
 
-@ui.page("/audit")
+@ui.page("/audit", response_timeout=60.0, reconnect_timeout=45.0)
 def audit_page():
     inject_global_styles()
     cleanup_user_storage()
@@ -17842,7 +18158,7 @@ def sync_builder_shell(enabled: bool) -> None:
         pass
 
 
-@ui.page("/", response_timeout=45.0, reconnect_timeout=30.0)
+@ui.page("/", response_timeout=75.0, reconnect_timeout=60.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()

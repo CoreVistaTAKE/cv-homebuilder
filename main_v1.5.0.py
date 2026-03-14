@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 import json
 import os
 import re
 import fnmatch
 import secrets
+import socket
 import stat
+import time
 import traceback
 import asyncio
 import mimetypes
@@ -348,7 +351,8 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
     仕様:
     - Pillow(PIL) が無い環境では元データを返す（安全優先）
     - EXIF の回転を補正してから処理する
-    - 出力は基本: 透過あり -> PNG / 透過なし -> JPEG(quality=85)
+    - 出力は基本: 透過あり -> PNG / 透過なし -> WebP(quality=80)
+      WebP に失敗した場合は JPEG(quality=82) へ安全にフォールバックする
       ただし force_png=True の場合は常に PNG を返す
     """
     try:
@@ -498,16 +502,22 @@ def _maybe_resize_image_bytes(data: bytes, mime: str, *, max_w: int, max_h: int,
             except Exception:
                 return data, mime
         else:
-            out_mime = "image/jpeg"
             if im.mode != "RGB":
                 try:
                     im = im.convert("RGB")
                 except Exception:
                     pass
+
+            out_mime = "image/webp"
             try:
-                im.save(out, format="JPEG", quality=85, optimize=True, progressive=True)
+                im.save(out, format="WEBP", quality=80, method=6)
             except Exception:
-                return data, mime
+                out = BytesIO()
+                out_mime = "image/jpeg"
+                try:
+                    im.save(out, format="JPEG", quality=82, optimize=True, progressive=True)
+                except Exception:
+                    return data, mime
 
         out_bytes = out.getvalue()
         return (out_bytes, out_mime) if out_bytes else (data, mime)
@@ -1118,8 +1128,18 @@ def inject_global_styles() -> None:
     """
     ui.add_head_html(
         """
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2360a5fa'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='8' width='48' height='48' rx='14' fill='url(%23g)'/%3E%3Cpath d='M20 36c8 8 16 8 24 0' stroke='rgba(255,255,255,.85)' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
-<style>
+<script>
+(function(){
+  try{
+    var oldStyle = document.getElementById('cvhb-global-styles');
+    if(oldStyle) oldStyle.remove();
+    var oldIcon = document.getElementById('cvhb-default-favicon');
+    if(oldIcon) oldIcon.remove();
+  }catch(e){}
+})();
+</script>
+<link id="cvhb-default-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2360a5fa'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='8' width='48' height='48' rx='14' fill='url(%23g)'/%3E%3Cpath d='M20 36c8 8 16 8 24 0' stroke='rgba(255,255,255,.85)' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<style id="cvhb-global-styles">
   /* ====== Page base ====== */
   .cvhb-page {
     background: #f5f5f5;
@@ -3913,11 +3933,31 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section > .pv-company-profi
 """
     )
 
-    ui.add_head_html(f"<style>{DEPTH_BG_CSS}</style>")
+    ui.add_head_html(
+        f"""
+<script>
+(function(){{
+  try{{
+    var oldDepth = document.getElementById('cvhb-depth-bg-styles');
+    if(oldDepth) oldDepth.remove();
+  }}catch(e){{}}
+}})();
+</script>
+<style id="cvhb-depth-bg-styles">{DEPTH_BG_CSS}</style>
+"""
+    )
 
     ui.add_head_html(
         """
 <script>
+(function(){
+  try{
+    var oldScript = document.getElementById('cvhb-head-behavior-script');
+    if(oldScript) oldScript.remove();
+  }catch(e){}
+})();
+</script>
+<script id="cvhb-head-behavior-script">
 (function(){
   window.__cvhbHeroIntervals = window.__cvhbHeroIntervals || {};
   window.cvhbInitHeroSlider = function(sliderId, axis, intervalMs){
@@ -4084,7 +4124,8 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section > .pv-company-profi
         sc.scrollHeight > (sc.clientHeight + 2) &&
         scStyle &&
         scStyle.overflowY !== 'visible' &&
-        scStyle.overflowY !== 'hidden'
+        scStyle.overflowY !== 'hidden' &&
+        scStyle.overflowY !== 'clip'
       );
 
       if(canUseInnerScroll){
@@ -4102,6 +4143,178 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section > .pv-company-profi
       const top = outer.scrollTop + (elRect.top - outerRect.top) - 72;
       outer.scrollTo({top: top, behavior: 'smooth'});
     } catch(e){}
+  };
+
+  function cvhbPreviewDeltaToPx(ev){
+    var dy = ev && typeof ev.deltaY === 'number' ? ev.deltaY : 0;
+    if(!dy) return 0;
+    if(ev.deltaMode === 1) return dy * 16;
+    if(ev.deltaMode === 2) return dy * Math.max(window.innerHeight * 0.9, 360);
+    return dy;
+  }
+
+  function cvhbPreviewFindScrollHost(root){
+    try{
+      if(!root) return null;
+      var cur = root.parentElement;
+      while(cur){
+        try{
+          if(cur.classList && cur.classList.contains('cvhb-right-col')) return cur;
+          var cs = window.getComputedStyle(cur);
+          var oy = String((cs && cs.overflowY) || '').toLowerCase();
+          var canScroll = (oy === 'auto' || oy === 'scroll' || oy === 'overlay') && (cur.scrollHeight > (cur.clientHeight + 2));
+          if(canScroll) return cur;
+        }catch(_e){}
+        cur = cur.parentElement;
+      }
+    }catch(_e){}
+    return null;
+  }
+
+  function cvhbPreviewTextInputTarget(target){
+    var el = target && target.nodeType === 1 ? target : (target && target.parentElement ? target.parentElement : null);
+    if(!el) return false;
+    return !!el.closest('input, textarea, select, option, [contenteditable], iframe, video, audio');
+  }
+
+  function cvhbPreviewActionTarget(target){
+    var el = target && target.nodeType === 1 ? target : (target && target.parentElement ? target.parentElement : null);
+    if(!el) return false;
+    return !!el.closest('button, summary, a, [role="button"], .q-btn');
+  }
+
+  window.__cvhbPreviewScrollBridges = window.__cvhbPreviewScrollBridges || {};
+  window.cvhbInitPreviewScrollBridge = window.cvhbInitPreviewScrollBridge || function(rootId){
+    try{
+      var root = document.getElementById(rootId);
+      if(!root) return;
+
+      var registry = window.__cvhbPreviewScrollBridges || {};
+      var prev = registry[rootId];
+      if(prev && prev.root === root) return;
+
+      try{
+        if(prev){
+          document.removeEventListener('wheel', prev.wheelHandler, true);
+          document.removeEventListener('keydown', prev.keyHandler, true);
+          prev.root.removeEventListener('pointerenter', prev.enterHandler, true);
+          prev.root.removeEventListener('pointerleave', prev.leaveHandler, true);
+        }
+      }catch(_e){}
+
+      var pointerInside = false;
+
+      var enterHandler = function(){ pointerInside = true; };
+      var leaveHandler = function(ev){
+        try{
+          if(ev && ev.relatedTarget && root.contains(ev.relatedTarget)) return;
+        }catch(_e){}
+        pointerInside = false;
+      };
+
+      var canBridgeTarget = function(target){
+        var el = target && target.nodeType === 1 ? target : (target && target.parentElement ? target.parentElement : null);
+        if(!el) return false;
+        if(!root.contains(el)) return false;
+        if(el.closest('.q-dialog__inner, .q-menu, .q-popup-proxy, .q-tooltip')) return false;
+        return true;
+      };
+
+      var wheelHandler = function(ev){
+        try{
+          if(ev.defaultPrevented) return;
+          if(ev.ctrlKey || ev.metaKey) return;
+          if(Math.abs(ev.deltaY || 0) < Math.abs(ev.deltaX || 0)) return;
+          if(!canBridgeTarget(ev.target)) return;
+
+          var host = cvhbPreviewFindScrollHost(root);
+          if(!host) return;
+          var maxTop = Math.max(0, (host.scrollHeight || 0) - (host.clientHeight || 0));
+          if(maxTop <= 0) return;
+
+          var delta = cvhbPreviewDeltaToPx(ev);
+          if(!delta) return;
+
+          var before = host.scrollTop || 0;
+          var next = Math.max(0, Math.min(maxTop, before + delta));
+          if(next === before) return;
+
+          ev.preventDefault();
+          host.scrollTop = next;
+        }catch(_e){}
+      };
+
+      var keyHandler = function(ev){
+        try{
+          if(ev.defaultPrevented) return;
+          if(ev.altKey || ev.ctrlKey || ev.metaKey) return;
+
+          var target = ev.target;
+          var el = target && target.nodeType === 1 ? target : (target && target.parentElement ? target.parentElement : null);
+          var focusInside = !!(el && root.contains(el));
+          if(!focusInside && !pointerInside) return;
+          if(cvhbPreviewTextInputTarget(target)) return;
+          if(cvhbPreviewActionTarget(target) && (ev.key === ' ' || ev.key === 'Spacebar' || ev.key === 'Enter')) return;
+
+          var host = cvhbPreviewFindScrollHost(root);
+          if(!host) return;
+          var before = host.scrollTop || 0;
+          var maxTop = Math.max(0, (host.scrollHeight || 0) - (host.clientHeight || 0));
+          if(maxTop <= 0) return;
+
+          var lineStep = Math.max(56, Math.round(window.innerHeight * 0.12));
+          var pageStep = Math.max(180, Math.round(window.innerHeight * 0.88));
+          var next = null;
+
+          switch(ev.key){
+            case 'ArrowDown':
+              next = before + lineStep;
+              break;
+            case 'ArrowUp':
+              next = before - lineStep;
+              break;
+            case 'PageDown':
+              next = before + pageStep;
+              break;
+            case 'PageUp':
+              next = before - pageStep;
+              break;
+            case 'Home':
+              next = 0;
+              break;
+            case 'End':
+              next = maxTop;
+              break;
+            case ' ':
+            case 'Spacebar':
+              next = before + (ev.shiftKey ? -pageStep : pageStep);
+              break;
+            default:
+              return;
+          }
+
+          next = Math.max(0, Math.min(maxTop, next));
+          if(next === before) return;
+
+          ev.preventDefault();
+          host.scrollTop = next;
+        }catch(_e){}
+      };
+
+      root.addEventListener('pointerenter', enterHandler, true);
+      root.addEventListener('pointerleave', leaveHandler, true);
+      document.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
+      document.addEventListener('keydown', keyHandler, { capture: true, passive: false });
+
+      registry[rootId] = {
+        root: root,
+        wheelHandler: wheelHandler,
+        keyHandler: keyHandler,
+        enterHandler: enterHandler,
+        leaveHandler: leaveHandler,
+      };
+      window.__cvhbPreviewScrollBridges = registry;
+    }catch(_e){}
   };
 
   // Fit-to-width scaler for preview frames (e.g. 860px / 1920px)
@@ -4536,6 +4749,59 @@ def read_text_file(path: str, default: str = "") -> str:
 
 
 VERSION = read_text_file("VERSION", "0.9.11")
+
+
+def detect_file_version(path: str) -> str:
+    try:
+        name = Path(str(path or "")).name
+        m = re.search(r"main_v(\d+\.\d+\.\d+)\.py$", name)
+        if m:
+            return str(m.group(1) or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "0.9.11"
+
+
+def version_static_asset_href(href: str, version: str = CURRENT_APP_VERSION) -> str:
+    try:
+        s = str(href or "").strip()
+        if not s or "?" in s:
+            return s
+        low = s.lower()
+        if re.match(r"^(?:https?:|data:|mailto:|tel:|#|//)", low):
+            return s
+        if low.startswith("assets/") or low.startswith("../assets/"):
+            return f"{s}?v={str(version or CURRENT_APP_VERSION).strip() or CURRENT_APP_VERSION}"
+        return s
+    except Exception:
+        return str(href or "").strip()
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, default)).strip())
+    except Exception:
+        return int(default)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(str(os.getenv(name, default)).strip())
+    except Exception:
+        return float(default)
+
+
+SFTP_CONNECT_TIMEOUT_SEC = max(3.0, _env_float("CVHB_SFTP_CONNECT_TIMEOUT_SEC", 10.0))
+SFTP_IO_TIMEOUT_SEC = max(5.0, _env_float("CVHB_SFTP_IO_TIMEOUT_SEC", 20.0))
+SFTP_RETRY_COUNT = max(1, _env_int("CVHB_SFTP_RETRY_COUNT", 3))
+SFTP_KEEPALIVE_SEC = max(10, _env_int("CVHB_SFTP_KEEPALIVE_SEC", 20))
+PROJECT_SHARED_CACHE_TTL_SEC = max(15.0, _env_float("CVHB_PROJECT_SHARED_CACHE_TTL_SEC", 180.0))
+PROJECT_LIST_CACHE_TTL_SEC = max(5.0, _env_float("CVHB_PROJECT_LIST_CACHE_TTL_SEC", 20.0))
+
+
 APP_ENV = (os.getenv("APP_ENV") or ("help" if HELP_MODE else "prod")).lower().strip()
 
 # NiceGUI のユーザーセッション（Cookie）に使う秘密鍵
@@ -4939,6 +5205,97 @@ def clear_pending_open_project() -> None:
 # =========================
 
 PROJECT_CACHE: dict[int, dict] = {}
+PROJECT_LOAD_CACHE: dict[str, dict] = {}
+_PROJECT_LIST_CACHE: dict[str, object] = {"ts": 0.0, "items": []}
+
+
+def _clone_json_data(value):
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False))
+    except Exception:
+        return value
+
+
+def _project_load_cache_get(project_id: str) -> Optional[dict]:
+    pid = str(project_id or "").strip()
+    if not pid:
+        return None
+    item = PROJECT_LOAD_CACHE.get(pid)
+    if not isinstance(item, dict):
+        return None
+    try:
+        age = time.monotonic() - float(item.get("ts") or 0.0)
+    except Exception:
+        age = PROJECT_SHARED_CACHE_TTL_SEC + 1.0
+    if age > float(PROJECT_SHARED_CACHE_TTL_SEC):
+        PROJECT_LOAD_CACHE.pop(pid, None)
+        return None
+    cached_project = item.get("project")
+    if not isinstance(cached_project, dict):
+        PROJECT_LOAD_CACHE.pop(pid, None)
+        return None
+    cloned = _clone_json_data(cached_project)
+    return normalize_project(cloned) if isinstance(cloned, dict) else None
+
+
+def _project_load_cache_put(project_id: str, project: dict) -> None:
+    pid = str(project_id or "").strip()
+    if not pid or not isinstance(project, dict):
+        return
+    PROJECT_LOAD_CACHE[pid] = {
+        "ts": time.monotonic(),
+        "project": _clone_json_data(project),
+    }
+
+
+def _project_load_cache_invalidate(project_id: str = "") -> None:
+    pid = str(project_id or "").strip()
+    if pid:
+        PROJECT_LOAD_CACHE.pop(pid, None)
+    else:
+        PROJECT_LOAD_CACHE.clear()
+
+
+def _project_list_cache_get() -> Optional[list[dict]]:
+    try:
+        age = time.monotonic() - float(_PROJECT_LIST_CACHE.get("ts") or 0.0)
+    except Exception:
+        age = PROJECT_LIST_CACHE_TTL_SEC + 1.0
+    if age > float(PROJECT_LIST_CACHE_TTL_SEC):
+        return None
+    items = _PROJECT_LIST_CACHE.get("items")
+    if not isinstance(items, list):
+        return None
+    cloned = _clone_json_data(items)
+    return cloned if isinstance(cloned, list) else None
+
+
+def _project_list_cache_put(items: list[dict]) -> None:
+    _PROJECT_LIST_CACHE["ts"] = time.monotonic()
+    _PROJECT_LIST_CACHE["items"] = _clone_json_data(items or [])
+
+
+def _project_list_cache_invalidate() -> None:
+    _PROJECT_LIST_CACHE["ts"] = 0.0
+    _PROJECT_LIST_CACHE["items"] = []
+
+
+def project_cache_hit(user: Optional[User], project_id: str = "") -> bool:
+    """現在ユーザーの案件キャッシュが使える状態かを返す。"""
+    if not user:
+        return False
+    pid = str(project_id or "").strip()
+    if not pid:
+        try:
+            pid = str(app.storage.user.get("current_project_id") or "").strip()
+        except Exception:
+            pid = ""
+    if not pid:
+        return False
+    cached = PROJECT_CACHE.get(user.id)
+    if bool(isinstance(cached, dict) and str(cached.get("project_id") or "").strip() == pid):
+        return True
+    return _project_load_cache_get(pid) is not None
 
 # HELP_MODE用: ローカルだけで案件を保持（SFTP/DB無し）
 HELP_PROJECT_STORE: dict[str, dict] = {}
@@ -4995,6 +5352,46 @@ def parse_sftp_url(url: str) -> tuple[str, int, str, str]:
     return host, port, user, pwd
 
 
+def _open_sftp_client_once() -> tuple["paramiko.Transport", "paramiko.SFTPClient"]:
+    if paramiko is None:
+        raise RuntimeError("paramiko が未インストールです（SFTPが使えません）")
+    host, port, user, pwd = parse_sftp_url(SFTPTOGO_URL)
+    sock = socket.create_connection((host, port), timeout=float(SFTP_CONNECT_TIMEOUT_SEC))
+    try:
+        sock.settimeout(float(SFTP_IO_TIMEOUT_SEC))
+    except Exception:
+        pass
+
+    transport = paramiko.Transport(sock)
+    try:
+        try:
+            transport.banner_timeout = float(SFTP_CONNECT_TIMEOUT_SEC)
+        except Exception:
+            pass
+        try:
+            transport.auth_timeout = float(SFTP_CONNECT_TIMEOUT_SEC)
+        except Exception:
+            pass
+        transport.connect(username=user, password=pwd)
+        try:
+            transport.set_keepalive(int(SFTP_KEEPALIVE_SEC))
+        except Exception:
+            pass
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        try:
+            ch = sftp.get_channel()
+            ch.settimeout(float(SFTP_IO_TIMEOUT_SEC))
+        except Exception:
+            pass
+        return transport, sftp
+    except Exception:
+        try:
+            transport.close()
+        except Exception:
+            pass
+        raise
+
+
 @contextmanager
 def sftp_client():
     # HELP_MODE: ローカルでのヘルプ作成は「完全オフライン」を想定するためSFTPは使わない
@@ -5004,13 +5401,38 @@ def sftp_client():
         raise RuntimeError("paramiko が未インストールです（SFTPが使えません）")
     if not SFTPTOGO_URL:
         raise RuntimeError("SFTPTOGO_URL が未設定です")
-    host, port, user, pwd = parse_sftp_url(SFTPTOGO_URL)
-    transport = paramiko.Transport((host, port))
+
+    transport = None
+    sftp = None
+    last_error: Optional[Exception] = None
+
+    for attempt in range(1, int(SFTP_RETRY_COUNT) + 1):
+        try:
+            transport, sftp = _open_sftp_client_once()
+            break
+        except Exception as e:
+            last_error = e
+            if attempt >= int(SFTP_RETRY_COUNT):
+                break
+            try:
+                print(
+                    f"[sftp] connect retry {attempt}/{int(SFTP_RETRY_COUNT)}: {sanitize_error_text(e)}",
+                    flush=True,
+                )
+            except Exception:
+                pass
+            time.sleep(min(2.0, 0.4 * attempt))
+
+    if sftp is None or transport is None:
+        raise RuntimeError(f"SFTP接続に失敗しました: {sanitize_error_text(last_error or 'unknown error')}")
+
     try:
-        transport.connect(username=user, password=pwd)
-        sftp = paramiko.SFTPClient.from_transport(transport)
         yield sftp
     finally:
+        try:
+            sftp.close()
+        except Exception:
+            pass
         try:
             transport.close()
         except Exception:
@@ -5051,7 +5473,10 @@ def sftp_write_bytes(sftp: paramiko.SFTPClient, remote_path: str, data: bytes) -
 
 def sftp_read_text(sftp: paramiko.SFTPClient, remote_path: str) -> str:
     with sftp.open(remote_path, "r") as f:
-        return f.read()
+        body = f.read()
+        if isinstance(body, bytes):
+            return body.decode("utf-8", errors="replace")
+        return str(body or "")
 
 
 def sftp_read_bytes(sftp: paramiko.SFTPClient, remote_path: str) -> bytes:
@@ -5115,11 +5540,9 @@ def delete_project_from_sftp(project_id: str, user: Optional[User]) -> None:
     with sftp_client() as sftp:
         sftp_rmtree(sftp, remote_dir)
 
-    # 案件一覧キャッシュを無効化（削除が即反映されるように）
-    try:
-        _projects_cache["ts"] = 0
-    except Exception:
-        pass
+    # 案件一覧・案件本文キャッシュを無効化（削除が即反映されるように）
+    _project_list_cache_invalidate()
+    _project_load_cache_invalidate(pid)
 
     if user:
         safe_log_action(user, "project_delete", details=json.dumps({"project_id": pid}, ensure_ascii=False))
@@ -5340,6 +5763,14 @@ def project_dir(project_id: str) -> str:
 
 def project_json_path(project_id: str) -> str:
     return f"{project_dir(project_id)}/project.json"
+
+
+def project_json_gz_path(project_id: str) -> str:
+    return f"{project_dir(project_id)}/project.json.gz"
+
+
+def project_meta_path(project_id: str) -> str:
+    return f"{project_dir(project_id)}/project.meta.json"
 
 
 def new_project_id() -> str:
@@ -6143,6 +6574,16 @@ def get_current_project(user: Optional[User]) -> Optional[dict]:
     if isinstance(cached, dict) and cached.get("project_id") == pid:
         return normalize_project(cached)
 
+    shared_cached = _project_load_cache_get(str(pid or ""))
+    if isinstance(shared_cached, dict):
+        PROJECT_CACHE[user.id] = shared_cached
+        try:
+            app.storage.user["current_project_name"] = shared_cached.get("project_name", "")
+        except Exception:
+            pass
+        cleanup_user_storage()
+        return normalize_project(shared_cached)
+
     # キャッシュが無い場合だけロード
     try:
         p = load_project_from_sftp(pid, user)
@@ -6162,6 +6603,7 @@ def set_current_project(p: dict, user: Optional[User]) -> None:
         PROJECT_CACHE[user.id] = p
         app.storage.user["current_project_id"] = p.get("project_id")
         app.storage.user["current_project_name"] = p.get("project_name", "")
+    clear_pending_open_project()
     cleanup_user_storage()
 
 
@@ -6334,6 +6776,50 @@ def _help_ensure_sample_project(user: Optional[User]) -> dict:
         return p
 
 
+def _project_storage_payload(p: dict) -> dict:
+    """SFTP保存向けに payload を整える（互換性を壊さず、無駄だけ減らす）。"""
+    payload = _clone_json_data(normalize_project(p))
+    if not isinstance(payload, dict):
+        return normalize_project(p)
+
+    try:
+        data = payload.get("data")
+        if isinstance(data, dict):
+            step1 = data.get("step1")
+            if isinstance(step1, dict):
+                if str(step1.get("_applied_template_id") or "").strip() == str(step1.get("template_id") or "").strip():
+                    step1.pop("_applied_template_id", None)
+
+            blocks = data.get("blocks")
+            if isinstance(blocks, dict):
+                hero = blocks.get("hero")
+                if isinstance(hero, dict):
+                    hero_urls = hero.get("hero_image_urls")
+                    if isinstance(hero_urls, list):
+                        head = str(hero_urls[0] or "").strip() if hero_urls else ""
+                        if str(hero.get("hero_image_url") or "").strip() == head:
+                            hero.pop("hero_image_url", None)
+    except Exception:
+        pass
+
+    return payload
+
+
+def _build_project_meta(p: dict, *, json_bytes: int = 0, gz_bytes: int = 0) -> dict:
+    p = normalize_project(p)
+    return {
+        "project_id": str(p.get("project_id") or ""),
+        "project_name": str(p.get("project_name") or ""),
+        "created_at": str(p.get("created_at") or ""),
+        "updated_at": str(p.get("updated_at") or ""),
+        "created_by": str(p.get("created_by") or ""),
+        "updated_by": str(p.get("updated_by") or ""),
+        "schema_version": str(p.get("schema_version") or ""),
+        "project_json_bytes": int(json_bytes or 0),
+        "project_json_gz_bytes": int(gz_bytes or 0),
+    }
+
+
 def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
     p = normalize_project(p)
     p["updated_at"] = now_jst_iso()
@@ -6345,13 +6831,26 @@ def save_project_to_sftp(p: dict, user: Optional[User]) -> None:
         HELP_PROJECT_STORE[p["project_id"]] = p
         return
 
+    storage_payload = _project_storage_payload(p)
+    body_text = json.dumps(storage_payload, ensure_ascii=False, separators=(",", ":"))
+    body_bytes = body_text.encode("utf-8")
+    gz_bytes = gzip.compress(body_bytes, compresslevel=6)
+    meta = _build_project_meta(storage_payload, json_bytes=len(body_bytes), gz_bytes=len(gz_bytes))
+
     remote = project_json_path(p["project_id"])
-    body = json.dumps(p, ensure_ascii=False, indent=2)
+    remote_gz = project_json_gz_path(p["project_id"])
+    remote_meta = project_meta_path(p["project_id"])
+
     with sftp_client() as sftp:
-        sftp_write_text(sftp, remote, body)
+        sftp_write_bytes(sftp, remote, body_bytes)
+        sftp_write_bytes(sftp, remote_gz, gz_bytes)
+        sftp_write_text(sftp, remote_meta, json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
+
+    _project_load_cache_put(str(p.get("project_id") or ""), storage_payload)
+    _project_list_cache_invalidate()
 
     if user:
-        safe_log_action(user, "project_save", details=json.dumps({"project_id": p["project_id"]}, ensure_ascii=False))
+        safe_log_action(user, "project_save", details=json.dumps({"project_id": p["project_id"], "json_bytes": len(body_bytes), "json_gz_bytes": len(gz_bytes)}, ensure_ascii=False))
 
 
 def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
@@ -6364,17 +6863,53 @@ def load_project_from_sftp(project_id: str, user: Optional[User]) -> dict:
             p = _help_ensure_sample_project(user)
         return normalize_project(p)
 
-    remote = project_json_path(project_id)
-    with sftp_client() as sftp:
-        body = sftp_read_text(sftp, remote)
+    pid = str(project_id or "").strip()
+    if not pid:
+        raise ValueError("project_id is empty")
+
+    cached = _project_load_cache_get(pid)
+    if isinstance(cached, dict):
+        return normalize_project(cached)
+
+    remote_plain = project_json_path(pid)
+    remote_gz = project_json_gz_path(pid)
+    last_error: Optional[Exception] = None
+    body = ""
+
+    for attempt in range(1, int(SFTP_RETRY_COUNT) + 1):
+        try:
+            with sftp_client() as sftp:
+                try:
+                    gz_body = sftp_read_bytes(sftp, remote_gz)
+                    if gz_body:
+                        body = gzip.decompress(gz_body).decode("utf-8")
+                    else:
+                        body = ""
+                except Exception:
+                    body = ""
+
+                if not body:
+                    body = sftp_read_text(sftp, remote_plain)
+            if body:
+                break
+        except Exception as e:
+            last_error = e
+            if attempt >= int(SFTP_RETRY_COUNT):
+                break
+            time.sleep(min(2.0, 0.35 * attempt))
+
+    if not body:
+        raise RuntimeError(f"案件の読み込みに失敗しました: {sanitize_error_text(last_error or 'empty project body')}")
+
     p = normalize_project(json.loads(body))
+    _project_load_cache_put(pid, p)
     if user:
-        safe_log_action(user, "project_load", details=json.dumps({"project_id": project_id}, ensure_ascii=False))
+        safe_log_action(user, "project_load", details=json.dumps({"project_id": pid}, ensure_ascii=False))
     return p
 
 
 def list_projects_from_sftp() -> list[dict]:
-    """案件一覧は project.json が肥大化しやすい（data URL画像）ため、先頭だけ読んでメタ情報を抜く。
+    """案件一覧は project.json が肥大化しやすい（data URL画像）ため、軽いメタ情報を優先して読む。
 
     目的:
     - /projects の表示を高速化（SFTP転送量・JSONデコード量を最小化）
@@ -6398,6 +6933,10 @@ def list_projects_from_sftp() -> list[dict]:
         projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return projects
 
+    cached_items = _project_list_cache_get()
+    if isinstance(cached_items, list):
+        return cached_items
+
     HEAD_BYTES = 24 * 1024
 
     def _json_head_get_str(head: str, key: str) -> str:
@@ -6414,6 +6953,27 @@ def list_projects_from_sftp() -> list[dict]:
         dirs = sftp_list_dirs(sftp, SFTP_PROJECTS_DIR)
         for d in dirs:
             try:
+                meta_text = ""
+                try:
+                    meta_text = sftp_read_text(sftp, project_meta_path(d))
+                except Exception:
+                    meta_text = ""
+
+                if meta_text:
+                    try:
+                        meta = json.loads(meta_text)
+                    except Exception:
+                        meta = {}
+                    if isinstance(meta, dict):
+                        projects.append({
+                            "project_id": str(meta.get("project_id") or d),
+                            "project_name": str(meta.get("project_name") or "(no name)"),
+                            "updated_at": str(meta.get("updated_at") or ""),
+                            "created_at": str(meta.get("created_at") or ""),
+                            "updated_by": str(meta.get("updated_by") or ""),
+                        })
+                        continue
+
                 path = project_json_path(d)
                 head = ""
                 try:
@@ -6441,6 +7001,7 @@ def list_projects_from_sftp() -> list[dict]:
                 projects.append({"project_id": d, "project_name": "(broken project.json)", "updated_at": "", "created_at": "", "updated_by": ""})
 
     projects.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    _project_list_cache_put(projects)
     return projects
 
 
@@ -7209,8 +7770,8 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     esc_company = html.escape(company_name)
     esc_email = html.escape(to_email)
 
-    favicon_href = (favicon_href or "").strip()
-    logo_href = (logo_href or "").strip()
+    favicon_href = version_static_asset_href((favicon_href or "").strip())
+    logo_href = version_static_asset_href((logo_href or "").strip())
     favicon_tags = ""
     header_icon_html = ""
     brand_label_html = f'<span class="pv-brand-name">{esc_company}</span>'
@@ -7290,7 +7851,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{esc_company}｜送信結果</title>
-  <link rel="stylesheet" href="assets/site.css">
+  <link rel="stylesheet" href="{html.escape(version_static_asset_href('assets/site.css'), quote=True)}">
   {favicon_tags}
 
 </head>
@@ -7349,7 +7910,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     </div>
   </div>
 
-  <script src="assets/site.js"></script>
+  <script src="{html.escape(version_static_asset_href('assets/site.js'), quote=True)}"></script>
   <script>
   // 送信結果表示（contact.php から status / reason をクエリで受け取る想定）
   (function(){{
@@ -7388,7 +7949,7 @@ def build_contact_form_files(*, company_name: str, to_email: str, step1: dict, p
         "config/config.php": build_contact_config_php(company_name=company_name, to_email=to_email, phone=phone).encode("utf-8"),
         "thanks.html": build_thanks_html(company_name=company_name, to_email=to_email, step1=step1, favicon_href=favicon_href, logo_href=logo_href, about_label=about_label, profile_label=profile_label, services_label=services_label, contact_label=contact_label, privacy_body_html=privacy_body_html).encode("utf-8"),
     }
-EXPORT_FOOTER_VERSION = "1.3.8"
+EXPORT_FOOTER_VERSION = CURRENT_APP_VERSION
 COREVISTA_JAPAN_LABEL = "CoreVista Japan Co., Ltd."
 COREVISTA_JAPAN_URL = "https://www.corevista-japan.com/"
 
@@ -10445,9 +11006,9 @@ body.pv-modal-open{overflow:hidden !important;}
         )
 
     # v0.9.11: favicon はキャッシュされやすい → URL に版数を付けて更新がすぐ反映されるようにする
-    favicon_href_html = favicon_href
-    if favicon_href_html and ("?" not in favicon_href_html) and favicon_href_html.startswith("assets/"):
-        favicon_href_html = f"{favicon_href_html}?v={VERSION}"
+    favicon_href_html = version_static_asset_href(favicon_href)
+    site_css_href = version_static_asset_href("assets/site.css")
+    site_js_href = version_static_asset_href("assets/site.js")
 
     # ヒーロー画像（最大4枚）
     hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
@@ -10466,11 +11027,12 @@ body.pv-modal-open{overflow:hidden !important;}
                 u,
                 path_base=f"assets/hero_{i+1}",
                 fallback_ext="jpg",
-                max_w=1080,
-                max_h=608,
+                max_w=1024,
+                max_h=576,
                 fit_mode="contain",
             )
         )
+    hero_urls_html = [version_static_asset_href(u) for u in hero_urls]
 
     # 施設ロゴ（faviconとは別）
     # logo_url は上で取得済み（faviconのフォールバックにも使う）
@@ -10489,7 +11051,7 @@ body.pv-modal-open{overflow:hidden !important;}
 
     # ヘッダー左の小アイコンは favicon を優先。ロゴは社名位置に表示する
     header_icon_href = favicon_href_html or ""
-    brand_logo_href = logo_href or ""
+    brand_logo_href = version_static_asset_href(logo_href or "")
     brand_label_html = (
         f'<img class="pv-brand-logo" src="{html.escape(brand_logo_href, quote=True)}" alt="{html.escape(company_name, quote=True)}">'
         if brand_logo_href
@@ -10501,28 +11063,28 @@ body.pv-modal-open{overflow:hidden !important;}
     ph_img_url = str(ph.get("image_url") or "").strip()
     ph_img_href = ""
     if ph_img_url:
-        ph_img_href = _store_asset_from_url(
+        ph_img_href = version_static_asset_href(_store_asset_from_url(
             ph_img_url,
             path_base="assets/about",
             fallback_ext="jpg",
-            max_w=1080,
-            max_h=608,
+            max_w=1024,
+            max_h=576,
             fit_mode="contain",
-        )
+        ))
 
     # services は philosophy 内に統合（6ブロック固定方針）
     svc = ph.get("services") if isinstance(ph.get("services"), dict) else {}
     svc_img_url = str(svc.get("image_url") or "").strip()
     svc_img_href = ""
     if svc_img_url:
-        svc_img_href = _store_asset_from_url(
+        svc_img_href = version_static_asset_href(_store_asset_from_url(
             svc_img_url,
             path_base="assets/services",
             fallback_ext="jpg",
-            max_w=1080,
-            max_h=608,
+            max_w=1024,
+            max_h=576,
             fit_mode="contain",
-        )
+        ))
 
     # v0.9.5: 完成品HPの「見出し文言」をビルダーと完全一致させる（重要）
     #   - ここがズレると「プレビューと公開結果が違う」事故になる
@@ -10948,9 +11510,13 @@ body.pv-modal-open{overflow:hidden !important;}
   function isScrollEditableTarget(target){
     var el = target && target.nodeType === 1 ? target : (target && target.parentElement ? target.parentElement : null);
     if(!el) return false;
-    if(el.closest('input, textarea, select, option, [contenteditable], iframe, video, audio')) return true;
-    if(el.closest('button, summary')) return true;
-    return false;
+    return !!el.closest('input, textarea, select, option, [contenteditable], iframe, video, audio');
+  }
+
+  function isScrollKeyActionTarget(target){
+    var el = target && target.nodeType === 1 ? target : (target && target.parentElement ? target.parentElement : null);
+    if(!el) return false;
+    return !!el.closest('button, summary, a, [role="button"]');
   }
 
   function isScrollLockedState(){
@@ -10994,7 +11560,7 @@ body.pv-modal-open{overflow:hidden !important;}
     if(!root || root.__cvhbViewportScrollBridgeInit) return;
     root.__cvhbViewportScrollBridgeInit = true;
 
-    root.addEventListener('wheel', function(ev){
+    document.addEventListener('wheel', function(ev){
       if(!isScrollBridgeTarget(ev.target)) return;
       if(ev.defaultPrevented) return;
       if(ev.ctrlKey || ev.metaKey) return;
@@ -11019,6 +11585,7 @@ body.pv-modal-open{overflow:hidden !important;}
       if(ev.defaultPrevented) return;
       if(ev.altKey || ev.ctrlKey || ev.metaKey) return;
       if(isScrollEditableTarget(ev.target)) return;
+      if(isScrollKeyActionTarget(ev.target) && (ev.key === ' ' || ev.key === 'Spacebar' || ev.key === 'Enter')) return;
 
       var before = getPageTop();
       var maxTop = getPageMaxTop();
@@ -11060,7 +11627,7 @@ body.pv-modal-open{overflow:hidden !important;}
 
       ev.preventDefault();
       setPageTop(next);
-    }, { passive: false });
+    }, { passive: false, capture: true });
   }
 
   ready(function(){
@@ -11095,7 +11662,6 @@ body.pv-modal-open{overflow:hidden !important;}
 
     initNav();
     initPrivacyModal();
-    initViewportScrollBridge(root);
     initSmoothScroll();
     initHeroSlider(root);
     initScrollReveal(root);
@@ -11232,10 +11798,10 @@ body.pv-modal-open{overflow:hidden !important;}
     hero_sub_html = f'<div class="pv-hero-caption-sub {_size_class(sub_catch_size)}">{_esc(hero_sub)}</div>' if hero_sub else ""
 
     slides_html = ""
-    if hero_urls:
+    if hero_urls_html:
         slides = []
-        for u in hero_urls:
-            img_attrs = "loading=\"eager\" fetchpriority=\"high\" decoding=\"async\"" if i == 0 else "loading=\"lazy\" fetchpriority=\"low\" decoding=\"async\""
+        for i, u in enumerate(hero_urls_html):
+            img_attrs = "loading=\"eager\" fetchpriority=\"high\" decoding=\"async\" width=\"1024\" height=\"576\"" if i == 0 else "loading=\"lazy\" fetchpriority=\"low\" decoding=\"async\" width=\"1024\" height=\"576\""
             slides.append(f'<div class="pv-hero-slide"><img class="pv-hero-img" src="{_esc(u)}" alt="" {img_attrs}></div>')
         slides_html = "".join(slides)
     else:
@@ -11314,6 +11880,9 @@ body.pv-modal-open{overflow:hidden !important;}
     # news/index.html と個別記事
     def _wrap_page(*, title: str, css_href: str, js_href: str, favicon_href_: str, body_inner: str, root_prefix: str = "") -> str:
         esc_title = _esc(title)
+        css_href = version_static_asset_href(css_href)
+        js_href = version_static_asset_href(js_href)
+        favicon_href_ = version_static_asset_href(favicon_href_)
         icon_tag = _favicon_head_tags(favicon_href_)
 
         # index 以外のページは、常にトップページ（index.html）の各セクションへ戻す
@@ -11476,7 +12045,7 @@ body.pv-modal-open{overflow:hidden !important;}
             points_cards.append(f'<div class="pv-point-card">{_esc(pt)}</div>')
         points_html = f'<div class="pv-points">{"".join(points_cards)}</div>'
 
-    about_img_html = f'<div class="pv-media-frame pv-media-frame-about"><img class="pv-about-img" src="{_esc(ph_img_href)}" alt="" loading="lazy" decoding="async"></div>' if ph_img_href else '<div class="pv-media-frame pv-media-frame-about"><div class="pv-about-img pv-about-img-placeholder"></div></div>'
+    about_img_html = f'<div class="pv-media-frame pv-media-frame-about"><img class="pv-about-img" src="{_esc(ph_img_href)}" alt="" loading="lazy" fetchpriority="low" decoding="async" width="1024" height="576"></div>' if ph_img_href else '<div class="pv-media-frame pv-media-frame-about"><div class="pv-about-img pv-about-img-placeholder"></div></div>'
 
     about_body_html = _paras(ph_body)
 
@@ -11527,7 +12096,7 @@ body.pv-modal-open{overflow:hidden !important;}
     svc_lead_html = _paras(svc_lead)
     svc_items = [it for it in (svc.get("items") or []) if isinstance(it, dict)]
 
-    svc_img_html = f'<div class="pv-media-frame pv-media-frame-services"><img class="pv-services-img" src="{_esc(svc_img_href)}" alt="" loading="lazy" decoding="async"></div>' if svc_img_href else ''
+    svc_img_html = f'<div class="pv-media-frame pv-media-frame-services"><img class="pv-services-img" src="{_esc(svc_img_href)}" alt="" loading="lazy" fetchpriority="low" decoding="async" width="1024" height="576"></div>' if svc_img_href else ''
 
     svc_cards = []
     for it in svc_items:
@@ -11710,7 +12279,7 @@ body.pv-modal-open{overflow:hidden !important;}
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <title>{_esc(company_name)}</title>
-  <link rel=\"stylesheet\" href=\"assets/site.css\">
+  <link rel=\"stylesheet\" href=\"{_esc(site_css_href)}\">
   {favicon_tag}
 </head>
 <body class=\"pv-page-body\" style=\"{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;\">
@@ -11758,7 +12327,7 @@ body.pv-modal-open{overflow:hidden !important;}
     </div>
   </div>
 
-  <script src=\"assets/site.js\"></script>
+  <script src=\"{_esc(site_js_href)}\"></script>
 </body>
 </html>
 """
@@ -13591,8 +14160,10 @@ body.pv-page-body{
   isolation: isolate;
   width: 100%;
   max-width: 100%;
+  overflow: hidden !important;
+  overflow: clip !important;
   overflow-x: clip !important;
-  overflow-y: hidden !important;
+  overflow-y: clip !important;
   clip-path: inset(0);
   background-image: var(--pv-bg-img) !important;
   background-color: var(--pv-base-1);
@@ -13657,6 +14228,10 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
 .pv-shell.pv-layout-260218.pv-preview-live{
   height: auto !important;
   min-height: 0 !important;
+  overflow: hidden !important;
+  overflow: clip !important;
+  overflow-x: clip !important;
+  overflow-y: clip !important;
 }
 .pv-shell.pv-layout-260218.pv-preview-live .pv-scroll{
   display: block !important;
@@ -13664,14 +14239,16 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
   min-height: 0 !important;
   height: auto !important;
   overflow: hidden !important;
-  overflow-y: hidden !important;
-  overflow-x: hidden !important;
-  overscroll-behavior: contain !important;
+  overflow: clip !important;
+  overflow-y: clip !important;
+  overflow-x: clip !important;
+  overscroll-behavior: auto !important;
+  overscroll-behavior-y: auto !important;
   padding-bottom: 0 !important;
   background: transparent !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none;
-  touch-action: auto !important;
+  touch-action: pan-y pinch-zoom !important;
 }
 .pv-shell.pv-layout-260218.pv-preview-live .pv-scroll::-webkit-scrollbar{
   width: 0 !important;
@@ -13814,6 +14391,11 @@ body.pv-page-body > .pv-shell.pv-layout-260218:not(.pv-preview-live){
 .pv-shell.pv-layout-260218.pv-preview-static .pv-surface-white,
 .pv-shell.pv-layout-260218.pv-preview-static .pv-point-card{
   backdrop-filter: blur(4px);
+}
+.pv-shell.pv-layout-260218.pv-preview-static .pv-section,
+.pv-shell.pv-layout-260218.pv-preview-static .pv-hero-wide{
+  content-visibility: visible !important;
+  contain-intrinsic-size: auto !important;
 }
 
 @keyframes pvDepthBase{
@@ -14012,6 +14594,20 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
   z-index:2;
   max-width:100%;
   overflow-x:hidden;
+}
+@media (max-width:760px){
+  body.pv-page-body > #pv-root.pv-shell .pv-panel::after{
+    backdrop-filter: blur(10px) saturate(1.04) !important;
+    -webkit-backdrop-filter: blur(10px) saturate(1.04) !important;
+  }
+  body.pv-page-body > #pv-root.pv-shell .pv-nav-card{
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+  }
+  body.pv-page-body > #pv-root.pv-shell .pv-privacy-dialog{
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+  }
 }
 """
 
@@ -14762,17 +15358,29 @@ def render_main(u: User) -> None:
                 pass
         _preview_refresh_handle = loop.call_later(_preview_debounce_sec(), _do_refresh)
 
-    def save_now() -> None:
+    save_state = {"busy": False}
+
+    async def save_now() -> None:
         nonlocal p
         if not p:
             ui.notify("案件が選択されていません", type="warning")
             return
+        if save_state["busy"]:
+            return
+        save_state["busy"] = True
         try:
-            save_project_to_sftp(p, u)
+            ui.notify("保存しています...", type="info")
+
+            def _save_work(project_obj: dict, user_obj: User) -> None:
+                save_project_to_sftp(_clone_json_data(project_obj), user_obj)
+
+            await asyncio.to_thread(_save_work, p, u)
             set_current_project(p, u)
             ui.notify("保存しました（project.json）", type="positive")
         except Exception as e:
             ui.notify(f"保存に失敗しました: {sanitize_error_text(e)}", type="negative")
+        finally:
+            save_state["busy"] = False
 
     with ui.element("div").classes("cvhb-page"):
         with ui.element("div").classes("cvhb-container"):
@@ -15209,7 +15817,7 @@ def render_main(u: User) -> None:
                                                 name = str(step2.get("favicon_filename") or "").strip()
                                                 show_url = cur or DEFAULT_FAVICON_DATA_URL
                                                 with ui.row().classes("items-center q-gutter-sm"):
-                                                    ui.image(show_url).style("width:32px;height:32px;border-radius:6px;")
+                                                    ui.image(pv_img_src(show_url, max_w=32, max_h=32, fit_mode="contain", force_png=True, trim_transparent=True)).style("width:32px;height:32px;border-radius:6px;")
                                                     ui.upload(on_upload=_on_upload_favicon, auto_upload=True).props("accept=image/*")
                                                     ui.button("反映して保存", icon="save", on_click=lambda: (refresh_preview(force=True), save_now())).props(
                                                         "color=primary unelevated dense no-caps"
@@ -15258,7 +15866,7 @@ def render_main(u: User) -> None:
                                                     with ui.row().classes("items-center q-gutter-sm"):
                                                         with ui.element("div").style("width:180px;height:56px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;padding:6px 10px;"):
                                                             if cur:
-                                                                ui.image(cur).style("width:100%;height:100%;object-fit:contain;")
+                                                                ui.image(pv_img_src(cur, max_w=240, max_h=80, fit_mode="contain", force_png=True, trim_transparent=True)).style("width:100%;height:100%;object-fit:contain;")
                                                             else:
                                                                 ui.label("未設定").classes("cvhb-muted")
                                                         ui.upload(on_upload=_on_upload_logo, auto_upload=True).props("accept=image/*")
@@ -15446,7 +16054,7 @@ def render_main(u: User) -> None:
                                                                         with ui.row().classes("items-center q-gutter-sm"):
                                                                             # 現在反映されている画像（サムネ）
                                                                             try:
-                                                                                ui.image(uu[_i]).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
+                                                                                ui.image(pv_img_src(uu[_i], max_w=240, max_h=136, fit_mode="cover")).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
                                                                             except Exception:
                                                                                 pass
                                                                             ui.upload(on_upload=_upload_handler, auto_upload=True).props("accept=image/*")
@@ -15505,7 +16113,7 @@ def render_main(u: User) -> None:
                                                             with ui.row().classes("items-center q-gutter-sm"):
                                                                 # 現在反映されている画像（サムネ）
                                                                 try:
-                                                                    ui.image(show_url).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
+                                                                    ui.image(pv_img_src(show_url, max_w=240, max_h=136, fit_mode="cover")).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
                                                                 except Exception:
                                                                     pass
                                                                 ui.upload(on_upload=_on_upload_ph_image, auto_upload=True).props("accept=image/*")
@@ -15633,7 +16241,7 @@ def render_main(u: User) -> None:
                                                             with ui.row().classes("items-center q-gutter-sm"):
                                                                 # 現在反映されている画像（サムネ）
                                                                 try:
-                                                                    ui.image(show_url).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
+                                                                    ui.image(pv_img_src(show_url, max_w=240, max_h=136, fit_mode="cover")).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
                                                                 except Exception:
                                                                     pass
                                                                 ui.upload(on_upload=_on_upload_svc_image, auto_upload=True).props("accept=image/*")
@@ -17039,7 +17647,7 @@ def help_page():
                 ui.button("ビルダーへ", on_click=lambda: navigate_to("/")).props("color=primary flat")
 
 
-@ui.page("/projects")
+@ui.page("/projects", response_timeout=75.0, reconnect_timeout=60.0)
 def projects_page():
     inject_global_styles()
     cleanup_user_storage()
@@ -17174,7 +17782,7 @@ def projects_page():
 
                         with ui.row().classes("items-center q-gutter-sm q-mb-sm"):
                             try:
-                                ui.image(data_url).style(
+                                ui.image(pv_img_src(data_url, max_w=184, max_h=104, fit_mode="cover")).style(
                                     "width: 92px; height: 52px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15);"
                                 )
                             except Exception:
@@ -17215,7 +17823,7 @@ def projects_page():
 
                 with ui.row().classes("items-center q-gutter-sm"):
                     try:
-                        ui.image(data_url).style(
+                        ui.image(pv_img_src(data_url, max_w=440, max_h=248, fit_mode="cover")).style(
                             "width: 220px; height: 124px; object-fit: cover; border-radius: 12px; border: 1px solid rgba(0,0,0,0.15);"
                         )
                     except Exception:
@@ -17363,13 +17971,53 @@ def projects_page():
 
         # --- 案件を開く ---
         async def open_project(project_id: str, project_name: str = "") -> None:
-            if open_project_state["busy"]:
+            pid = str(project_id or "").strip()
+            pname = str(project_name or "").strip()
+            if open_project_state["busy"] or not pid:
                 return
             open_project_state["busy"] = True
             try:
-                set_pending_open_project(project_id, project_name)
+                try:
+                    open_project_label.text = f"「{pname or '案件'}」を読み込み中..."
+                except Exception:
+                    pass
+                try:
+                    open_project_dialog.open()
+                except Exception:
+                    pass
+                await asyncio.sleep(0.05)
+
+                if project_cache_hit(u, pid):
+                    try:
+                        app.storage.user["current_project_id"] = pid
+                        app.storage.user["current_project_name"] = pname
+                    except Exception:
+                        pass
+                    clear_pending_open_project()
+                    try:
+                        open_project_dialog.close()
+                    except Exception:
+                        pass
+                    navigate_to("/")
+                    await asyncio.sleep(0)
+                    return
+
+                p_loaded = await asyncio.to_thread(load_project_from_sftp, pid, u)
+                set_current_project(p_loaded, u)
+                clear_pending_open_project()
+                try:
+                    open_project_dialog.close()
+                except Exception:
+                    pass
+                ui.notify("案件を開きました", type="positive")
                 navigate_to("/")
                 await asyncio.sleep(0)
+            except Exception as e:
+                try:
+                    open_project_dialog.close()
+                except Exception:
+                    pass
+                ui.notify(f"開けませんでした: {sanitize_error_text(e)}", type="negative")
             finally:
                 open_project_state["busy"] = False
 
@@ -17416,7 +18064,7 @@ def projects_page():
 
 
 
-@ui.page("/audit")
+@ui.page("/audit", response_timeout=60.0, reconnect_timeout=45.0)
 def audit_page():
     inject_global_styles()
     cleanup_user_storage()
@@ -17510,7 +18158,7 @@ def sync_builder_shell(enabled: bool) -> None:
         pass
 
 
-@ui.page("/", response_timeout=45.0, reconnect_timeout=30.0)
+@ui.page("/", response_timeout=75.0, reconnect_timeout=60.0)
 async def index():
     ui.page_title("CV-HomeBuilder")
     inject_global_styles()
@@ -17645,45 +18293,78 @@ try {{
                             traceback.print_exc()
 
     needs_builder_loading = False
+    pending_project_id = ""
+    pending_project_name = ""
+    restore_project_id = ""
+    restore_project_name = ""
     try:
         cleanup_user_storage()
-        needs_builder_loading = HELP_MODE or (current_user() is not None)
+        u_boot = current_user()
+        if u_boot:
+            try:
+                pending_project_id = str(app.storage.user.get(PENDING_OPEN_PROJECT_ID_KEY, "") or "").strip()
+                pending_project_name = str(app.storage.user.get(PENDING_OPEN_PROJECT_NAME_KEY, "") or "").strip()
+                restore_project_id = str(app.storage.user.get("current_project_id", "") or "").strip()
+                restore_project_name = str(app.storage.user.get("current_project_name", "") or "").strip()
+            except Exception:
+                pending_project_id = ""
+                pending_project_name = ""
+                restore_project_id = ""
+                restore_project_name = ""
+            if pending_project_id:
+                needs_builder_loading = True
+            elif restore_project_id and not project_cache_hit(u_boot, restore_project_id):
+                needs_builder_loading = True
     except Exception:
-        needs_builder_loading = HELP_MODE
+        needs_builder_loading = False
+        pending_project_id = ""
+        pending_project_name = ""
+        restore_project_id = ""
+        restore_project_name = ""
 
     startup_notice_type = ""
     startup_notice_message = ""
 
     if needs_builder_loading:
-        pending_project_id = ""
-        pending_project_name = ""
-        try:
-            pending_project_id = str(app.storage.user.get(PENDING_OPEN_PROJECT_ID_KEY, "") or "")
-            pending_project_name = str(app.storage.user.get(PENDING_OPEN_PROJECT_NAME_KEY, "") or "")
-        except Exception:
-            pending_project_id = ""
-            pending_project_name = ""
-
         title = "ビルダーを準備しています..."
         detail = "入力画面とプレビューを読み込んでいます。"
+        preload_project_id = ""
+        preload_project_name = ""
+        preload_reason = ""
+
         if pending_project_id:
             title = f"「{pending_project_name or '案件'}」を開いています..."
             detail = "案件を読み込んでからビルダーを表示します。"
+            preload_reason = "pending_open"
+            render_startup_loading(title, detail)
+            await ui.context.client.connected()
+            await asyncio.sleep(0.05)
+            preload_project_id, preload_project_name = pop_pending_open_project()
+        elif restore_project_id:
+            title = f"「{restore_project_name or '前回の案件'}」を復元しています..."
+            detail = "表示に必要な案件データを読み込んでいます。"
+            preload_reason = "restore_current"
+            render_startup_loading(title, detail)
+            await ui.context.client.connected()
+            await asyncio.sleep(0.05)
+            preload_project_id = restore_project_id
+            preload_project_name = restore_project_name
 
-        render_startup_loading(title, detail)
-        await ui.context.client.connected()
-        await asyncio.sleep(0.05)
-
-        pending_project_id, pending_project_name = pop_pending_open_project()
-        if pending_project_id:
+        if preload_project_id:
             try:
                 u_pending = current_user()
                 if u_pending:
-                    p_pending = await asyncio.to_thread(load_project_from_sftp, pending_project_id, u_pending)
+                    p_pending = await asyncio.to_thread(load_project_from_sftp, preload_project_id, u_pending)
                     set_current_project(p_pending, u_pending)
-                    startup_notice_type = "positive"
-                    startup_notice_message = "案件を開きました"
+                    if preload_reason == "pending_open":
+                        startup_notice_type = "positive"
+                        startup_notice_message = "案件を開きました"
             except Exception as e:
+                if preload_reason == "restore_current":
+                    try:
+                        clear_current_project(current_user())
+                    except Exception:
+                        pass
                 startup_notice_type = "negative"
                 startup_notice_message = f"開けませんでした: {sanitize_error_text(e)}"
 
