@@ -15492,27 +15492,55 @@ def render_main(u: User) -> None:
             pass
 
     def _event_value(e) -> str:
-        """NiceGUIのイベントから value を安全に取り出す（型ゆれ吸収）"""
-        try:
-            v = getattr(e, "value", None)
+        """NiceGUIのイベントから value を安全に取り出す（型ゆれ吸収）。
+
+        1.5.4:
+        - list / tuple / JSON文字列化された値を継続対応
+        - dict で args / payload / detail / data に入る形も吸収
+        - object 側も value / args / payload / detail / data を順に見る
+
+        ねらい:
+        - lazy mount 化後の step / block 切替を、イベント形の差で止めない
+        - NiceGUI / Quasar 側の payload 揺れをここで閉じ込める
+        """
+        def _coerce(v) -> str:
             if isinstance(v, str):
+                s = v.strip()
+                if not s:
+                    return ""
+                try:
+                    decoded = json.loads(s)
+                except Exception:
+                    decoded = None
+                if isinstance(decoded, str):
+                    return decoded.strip()
+                if decoded is not None:
+                    return _coerce(decoded)
+                return s
+            if isinstance(v, (list, tuple)):
+                for item in v:
+                    normalized = _coerce(item)
+                    if normalized:
+                        return normalized
+                return ""
+            if isinstance(v, dict):
+                for key in ("value", "modelValue", "model_value", "args", "payload", "detail", "data"):
+                    normalized = _coerce(v.get(key))
+                    if normalized:
+                        return normalized
+            return ""
+
+        try:
+            for attr in ("value", "args", "payload", "detail", "data"):
+                v = _coerce(getattr(e, attr, None))
+                if v:
+                    return v
+        except Exception:
+            pass
+        try:
+            v = _coerce(e)
+            if v:
                 return v
-        except Exception:
-            pass
-        try:
-            args = getattr(e, "args", None)
-            if isinstance(args, dict):
-                # Quasar系の update:model-value は args.value / args.modelValue になることがある
-                v = args.get("value") or args.get("modelValue") or args.get("model_value")
-                if isinstance(v, str):
-                    return v
-        except Exception:
-            pass
-        try:
-            if isinstance(e, dict):
-                v = e.get("value") or e.get("modelValue") or e.get("model_value")
-                if isinstance(v, str):
-                    return v
         except Exception:
             pass
         return ""
