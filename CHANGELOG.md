@@ -1,5 +1,8 @@
 # Changelog
 
+## [1.5.6] - 2026-03-25
+- PageFlow AI / Studio / Assist / Connect / Publish の名称へ統一し、builder・ページタイトル・作成HPフッター・生成物コメントの旧名表記を差し替え
+
 ## [0.9.15] - 2026-03-04
 - ConoHa手順の可読性改善 / SFTP折りたたみ / 改行と連続スペース表示
 
@@ -52,6 +55,7 @@
 - Herokuにデプロイして起動確認
 - 独自ドメイン cvh.visone-ai.jp + SSL(ACM) OK
 - GitHubに最小構成を追加
+
 
 
 
