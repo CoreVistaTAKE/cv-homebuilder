@@ -333,6 +333,59 @@ def _company_profile_visible_extra_rows(profile: Optional[dict]) -> list[dict[st
         })
     return visible
 
+RECRUITMENT_BADGE_DEFAULT = "現在スタッフ募集中"
+RECRUITMENT_DETAIL_DEFS = [
+    ("employment_types", "募集形態", "正社員 / パート / アルバイト"),
+    ("qualification_note", "資格・歓迎条件", "有資格者歓迎 / 未経験可 / 経験者優遇 など"),
+    ("target_person", "求める人物像", "丁寧に対応できる方 / チームで協力できる方 など"),
+    ("work_details", "仕事内容", "担当業務の内容、1日の流れ、関わるお客様や利用者さまなど"),
+    ("conditions", "勤務条件", "勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生 など"),
+    ("application_flow", "応募方法・選考の流れ", "応募 → 面談 → 採用 など、応募後の流れ"),
+    ("contact_note", "採用に関するお問い合わせ", "求人に関する質問は、お問い合わせフォームからご連絡ください。"),
+]
+
+
+def _normalize_recruitment_block(block: Optional[dict]) -> dict:
+    rec = block if isinstance(block, dict) else {}
+    rec.setdefault("enabled", False)
+    rec.setdefault("title", "求人情報")
+    rec.setdefault("lead", "現在、一緒に働く仲間を募集しています。ご興味のある方はお気軽にご連絡ください。")
+    rec.setdefault("header_badge_text", RECRUITMENT_BADGE_DEFAULT)
+    for _key, _label, _sample in RECRUITMENT_DETAIL_DEFS:
+        rec.setdefault(_key, "")
+    return rec
+
+
+def _recruitment_rows(block: Optional[dict]) -> list[tuple[str, str]]:
+    rec = _normalize_recruitment_block(block)
+    rows: list[tuple[str, str]] = []
+    for key, label, _sample in RECRUITMENT_DETAIL_DEFS:
+        value = str(rec.get(key) or "").strip()
+        if value:
+            rows.append((label, value))
+    return rows
+
+
+def _recruitment_has_content(block: Optional[dict]) -> bool:
+    rec = _normalize_recruitment_block(block)
+    if str(rec.get("lead") or "").strip():
+        return True
+    return bool(_recruitment_rows(rec))
+
+
+def _recruitment_is_visible(block: Optional[dict]) -> bool:
+    rec = _normalize_recruitment_block(block)
+    try:
+        enabled = bool(rec.get("enabled", False))
+    except Exception:
+        enabled = False
+    return enabled and _recruitment_has_content(rec)
+
+
+def _recruitment_badge_text(block: Optional[dict]) -> str:
+    rec = _normalize_recruitment_block(block)
+    return str(rec.get("header_badge_text") or "").strip() or RECRUITMENT_BADGE_DEFAULT
+
 # 事故防止：極端に大きいファイルは弾く（Heroku/ブラウザの負荷対策）
 MAX_UPLOAD_BYTES = 10_000_000  # 10MB
 
@@ -2365,6 +2418,8 @@ def inject_global_styles() -> None:
   padding: 20px 18px 0;
   font-size: 16px; /* v0.9.3: 公開PCでも読みやすい標準サイズへ */
   line-height: 1.8;
+  display:flex;
+  flex-direction:column;
 }
 
 /* 文章の段落は「余白」をCSSで統一（export/previewの差をなくす） */
@@ -2374,6 +2429,15 @@ def inject_global_styles() -> None:
 .pv-layout-260218 .pv-section{
   margin: 22px 0 34px;
 }
+.pv-layout-260218 #pv-about{ order: 10; }
+.pv-layout-260218 #pv-company-profile{ order: 20; }
+.pv-layout-260218 #pv-services{ order: 30; }
+.pv-layout-260218 #pv-recruitment{ order: 40; }
+.pv-layout-260218 #pv-news{ order: 50; }
+.pv-layout-260218 #pv-faq{ order: 60; }
+.pv-layout-260218 #pv-access-contact{ order: 70; }
+.pv-layout-260218 #pv-access,
+.pv-layout-260218 #pv-contact{ display: none !important; }
 
 .pv-layout-260218 .pv-section-head{
   display: flex;
@@ -5616,7 +5680,7 @@ INDUSTRY_PRESETS = [
     {
         "value": "会社サイト（企業）",
         "label": "会社・企業サイト",
-        "features": "特徴：6ブロック（ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ）",
+        "features": "特徴：6ブロック（ヒーロー / 理念・概要 / 求人 / お知らせ / FAQ / アクセス・お問い合わせ）",
     },
     {
 "value": "福祉事業所",
@@ -6560,6 +6624,9 @@ def normalize_project(p: dict) -> dict:
     contact.setdefault("form_mode", "フォーム方式（おすすめ）")
     contact.setdefault("external_form_url", "")
 
+    recruitment = _normalize_recruitment_block(blocks.setdefault("recruitment", {}))
+    blocks["recruitment"] = recruitment
+
     # ---- Template-specific starter defaults (safe) ----
     # 業種を切り替えたときに「文章が変わらない」問題を避けるため、
     # 初期文（空/サンプル）だけをテンプレに合わせて差し替える。
@@ -7323,16 +7390,16 @@ def compute_final_checks(p: dict) -> dict:
 
     required = [
         {"key": "company_name", "label": "会社名（基本情報）", "ok": bool(company_name), "hint": "2. 基本情報設定で入力します"},
-        {"key": "contact", "label": "お問い合わせ（メール / 外部フォームURL）", "ok": (bool(external_form_url) if contact_mode == "external" else bool(email)), "hint": "2. 基本情報設定（メール）または 3. お問い合わせブロック（外部フォームURL）で入力します"},
+        {"key": "contact", "label": "お問い合わせ（メール / 外部フォームURL）", "ok": (bool(external_form_url) if contact_mode == "external" else bool(email)), "hint": "2. 基本情報設定（メール）または 3. アクセス・お問い合わせブロック（外部フォームURL）で入力します"},
         {"key": "address", "label": "住所（アクセス用）", "ok": bool(address), "hint": "2. 基本情報設定で入力します"},
     ]
 
     recommended = [
         {"key": "catch_copy", "label": "キャッチコピー（ヒーロー）", "ok": bool(catch_copy), "hint": "2. 基本情報設定で入力します"},
-        {"key": "philosophy", "label": "私たちの想い（文章）", "ok": bool(str(philosophy.get("body") or "").strip()), "hint": "3. ブロックで入力します"},
-        {"key": "service", "label": "業務内容（最低1件）", "ok": any(str(it.get("title") or "").strip() and str(it.get("body") or "").strip() for it in svc_items), "hint": "3. ブロックで入力します"},
-        {"key": "faq", "label": "FAQ（任意: 1件以上あると親切）", "ok": any(str(it.get("q") or "").strip() and str(it.get("a") or "").strip() for it in faq_items), "hint": "3. ブロックで入力します"},
-        {"key": "news", "label": "お知らせ（任意: 1件以上あると更新感）", "ok": any(str(it.get("title") or "").strip() for it in news_items), "hint": "3. ブロックで入力します"},
+        {"key": "philosophy", "label": "私たちの想い（文章）", "ok": bool(str(philosophy.get("body") or "").strip()), "hint": "3. ページ内容詳細設定で入力します"},
+        {"key": "service", "label": "業務内容（最低1件）", "ok": any(str(it.get("title") or "").strip() and str(it.get("body") or "").strip() for it in svc_items), "hint": "3. ページ内容詳細設定で入力します"},
+        {"key": "faq", "label": "FAQ（任意: 1件以上あると親切）", "ok": any(str(it.get("q") or "").strip() and str(it.get("a") or "").strip() for it in faq_items), "hint": "3. ページ内容詳細設定で入力します"},
+        {"key": "news", "label": "お知らせ（任意: 1件以上あると更新感）", "ok": any(str(it.get("title") or "").strip() for it in news_items), "hint": "3. ページ内容詳細設定で入力します"},
     ]
 
     ok_required = all(bool(x.get("ok")) for x in required)
@@ -8023,8 +8090,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     nav_links += [
         (sec("pv-services"), services_label),
         (sec("pv-faq"), "よくある質問"),
-        (sec("pv-access"), "アクセス"),
-        (sec("pv-contact"), contact_label),
+        (sec("pv-access-contact"), "アクセス・お問い合わせ"),
     ]
 
     desktop_nav_html = "".join(
@@ -8053,8 +8119,7 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
         f'<a class="pv-footer-link" href="index.html#pv-company-profile">{html.escape(profile_label)}</a>' if profile_label else '',
         f'<a class="pv-footer-link" href="index.html#pv-services">{html.escape(services_label)}</a>',
         '<a class="pv-footer-link" href="index.html#pv-faq">よくある質問</a>',
-        '<a class="pv-footer-link" href="index.html#pv-access">アクセス</a>',
-        f'<a class="pv-footer-link" href="index.html#pv-contact">{html.escape(contact_label)}</a>',
+        '<a class="pv-footer-link" href="index.html#pv-access-contact">アクセス・お問い合わせ</a>',
         '<a class="pv-footer-link" href="privacy.html" data-pv-privacy-open="1">プライバシーポリシー</a>',
     ])
     thanks_footer_html = build_footer_markup(company_name=company_name, footer_links_html=thanks_footer_links_html)
@@ -9244,6 +9309,8 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
   padding: 20px 18px 0;
   font-size: 16px; /* v0.9.3: 公開PCでも読みやすい標準サイズへ */
   line-height: 1.8;
+  display:flex;
+  flex-direction:column;
 }
 
 /* 文章の段落は「余白」をCSSで統一（export/previewの差をなくす） */
@@ -9253,6 +9320,15 @@ def build_static_site_files(p: dict) -> dict[str, bytes]:
 .pv-layout-260218 .pv-section{
   margin: 22px 0 34px;
 }
+.pv-layout-260218 #pv-about{ order: 10; }
+.pv-layout-260218 #pv-company-profile{ order: 20; }
+.pv-layout-260218 #pv-services{ order: 30; }
+.pv-layout-260218 #pv-recruitment{ order: 40; }
+.pv-layout-260218 #pv-news{ order: 50; }
+.pv-layout-260218 #pv-faq{ order: 60; }
+.pv-layout-260218 #pv-access-contact{ order: 70; }
+.pv-layout-260218 #pv-access,
+.pv-layout-260218 #pv-contact{ display: none !important; }
 
 .pv-layout-260218 .pv-section-head{
   display: flex;
@@ -11306,6 +11382,14 @@ body.pv-modal-open{overflow:hidden !important;}
     services_nav_label = str(svc.get("title") or "").strip() or "業務内容"
     _contact_meta = blocks.get("contact") if isinstance(blocks.get("contact"), dict) else {}
     contact_nav_label = str(_contact_meta.get("button_text") or "").strip() or "お問い合わせ"
+    access_contact_nav_label = "アクセス・お問い合わせ"
+    recruitment = _normalize_recruitment_block(blocks.get("recruitment") if isinstance(blocks.get("recruitment"), dict) else {})
+    recruitment_visible = _recruitment_is_visible(recruitment)
+    recruitment_nav_label = str(recruitment.get("title") or "").strip() or "採用情報"
+    recruitment_badge_text = _recruitment_badge_text(recruitment)
+    recruitment_title = recruitment_nav_label
+    recruitment_lead = str(recruitment.get("lead") or "").strip()
+    recruitment_rows = _recruitment_rows(recruitment)
 
     # 会社概要 / 会社沿革 は「実際に表示される内容」がある時だけ各ページのナビへ出す
     # 参照順を先に確定して、書き出し時の NameError とページ間ズレを防ぐ
@@ -11968,16 +12052,14 @@ body.pv-modal-open{overflow:hidden !important;}
 
     # 共通ナビ（index内リンク）
     nav_items = [
-        ("pv-news", "お知らせ"),
         ("pv-about", about_nav_label),
     ]
-    if profile_nav_label:
-        nav_items.append(("pv-company-profile", profile_nav_label))
+    if recruitment_visible:
+        nav_items.append(("pv-recruitment", recruitment_nav_label))
     nav_items += [
-        ("pv-services", services_nav_label),
+        ("pv-news", "お知らせ"),
         ("pv-faq", "よくある質問"),
-        ("pv-access", "アクセス"),
-        ("pv-contact", contact_nav_label),
+        ("pv-access-contact", access_contact_nav_label),
     ]
 
     desktop_nav_html = "".join([f'<a class="pv-desktop-nav-btn" href="#{sid}">{_esc(lbl)}</a>' for sid, lbl in nav_items])
@@ -11989,16 +12071,14 @@ body.pv-modal-open{overflow:hidden !important;}
 
     footer_links = [
         ("#pv-top", "トップ"),
-        ("news/index.html", "お知らせ一覧"),
         ("#pv-about", about_nav_label),
     ]
-    if profile_nav_label:
-        footer_links.append(("#pv-company-profile", profile_nav_label))
+    if recruitment_visible:
+        footer_links.append(("#pv-recruitment", recruitment_nav_label))
     footer_links += [
-        ("#pv-services", services_nav_label),
+        ("news/index.html", "お知らせ一覧"),
         ("#pv-faq", "よくある質問"),
-        ("#pv-access", "アクセス"),
-        ("#pv-contact", contact_nav_label),
+        ("#pv-access-contact", access_contact_nav_label),
     ]
     footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links]) + _privacy_anchor(href="privacy.html", classes="pv-footer-link")
     index_footer_html = build_footer_markup(company_name=company_name, footer_links_html=footer_links_html)
@@ -12111,16 +12191,14 @@ body.pv-modal-open{overflow:hidden !important;}
 
         footer_links = [
             (sec_href("pv-top"), "トップ"),
-            (f"{root_prefix}news/index.html", "お知らせ一覧"),
             (sec_href("pv-about"), about_nav_label),
         ]
-        if profile_nav_label:
-            footer_links.append((sec_href("pv-company-profile"), profile_nav_label))
+        if recruitment_visible:
+            footer_links.append((sec_href("pv-recruitment"), recruitment_nav_label))
         footer_links += [
-            (sec_href("pv-services"), services_nav_label),
+            (f"{root_prefix}news/index.html", "お知らせ一覧"),
             (sec_href("pv-faq"), "よくある質問"),
-            (sec_href("pv-access"), "アクセス"),
-            (sec_href("pv-contact"), contact_nav_label),
+            (sec_href("pv-access-contact"), access_contact_nav_label),
         ]
         footer_links_html = "".join([f'<a class="pv-footer-link" href="{href}">{_esc(label)}</a>' for href, label in footer_links]) + _privacy_anchor(href=f"{root_prefix}privacy.html", classes="pv-footer-link")
         page_footer_html = build_footer_markup(company_name=company_name, footer_links_html=footer_links_html)
@@ -12144,6 +12222,8 @@ body.pv-modal-open{overflow:hidden !important;}
           {f'<img class="pv-favicon" src="{_esc(header_icon_href)}" alt="">' if header_icon_href else ''}
           {brand_label_html}
         </a>
+
+        {f'<a class="pv-link-btn pv-btn-primary" style="margin-left:12px;white-space:nowrap;" href="{sec_href('pv-recruitment')}">{_esc(recruitment_badge_text)}</a>' if recruitment_visible else ""}
 
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
           {nav_html}
@@ -12478,6 +12558,42 @@ body.pv-modal-open{overflow:hidden !important;}
 </section>
 """
 
+    recruitment_rows_html = "".join(
+        [
+            f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{_esc(lbl)}</div><div class="pv-company-profile-value">{_esc(val).replace("\n", "<br>")}</div></div>'
+            for lbl, val in recruitment_rows
+        ]
+    )
+    recruitment_section_html = ""
+    if recruitment_visible:
+        recruitment_section_html = f"""
+<section class="pv-section pv-section-260218" id="pv-recruitment">
+  {_section_head(recruitment_title, "RECRUIT")}
+  <div class="pv-panel pv-panel-glass pv-company-profile-panel">
+    {f'<div class="pv-about-text">{_paras(recruitment_lead)}</div>' if recruitment_lead else ''}
+    <div class="pv-company-profile-list">{recruitment_rows_html}</div>
+  </div>
+</section>
+"""
+
+    access_contact_section_html = f"""
+<section class="pv-section pv-section-260218" id="pv-access-contact">
+  {_section_head(access_contact_nav_label, "ACCESS / CONTACT")}
+  <div class="pv-access-grid" style="grid-template-columns:minmax(0,1fr);gap:18px;">
+    <div class="pv-panel pv-panel-glass">
+      <div class="pv-access-card">
+        <div class="pv-access-title">所在地</div>
+        <div class="pv-access-text">{access_addr_html}</div>
+        <div class="pv-access-notes">{access_notes_html}</div>
+        {map_openlink_html}
+      </div>
+      <div class="pv-access-map">{map_frame_html}</div>
+    </div>
+    {contact_card_html}
+  </div>
+</section>
+"""
+
     # phpフォームの場合は contact.php / config / thanks を同梱
     if contact_mode == "php":
         files.update(build_contact_form_files(company_name=company_name, to_email=email, step1=step1, phone=phone, favicon_href=favicon_href_html, logo_href=brand_logo_href, about_label=about_nav_label, profile_label=profile_nav_label, services_label=services_nav_label, contact_label=contact_button_text, privacy_body_html=privacy_body))
@@ -12505,6 +12621,8 @@ body.pv-modal-open{overflow:hidden !important;}
           {brand_label_html}
         </a>
 
+        {f'<a class="pv-link-btn pv-btn-primary" style="margin-left:12px;white-space:nowrap;" href="#pv-recruitment">{_esc(recruitment_badge_text)}</a>' if recruitment_visible else ""}
+
         <nav class=\"row pv-desktop-nav items-center no-wrap\" aria-label=\"グローバルナビ\">
           {desktop_nav_html}
         </nav>
@@ -12530,9 +12648,11 @@ body.pv-modal-open{overflow:hidden !important;}
         {about_section_html}
         {profile_section_html}
         {services_section_html}
+        {recruitment_section_html}
         {faq_section_html}
         {access_section_html}
         {contact_section_html}
+        {access_contact_section_html}
       </main>
 
       <footer class=\"pv-footer\">
@@ -14902,9 +15022,11 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         "about": "pv-about",
         "company_profile": "pv-company-profile",
         "services": "pv-services",
+        "recruitment": "pv-recruitment",
         "faq": "pv-faq",
-        "access": "pv-access",
-        "contact": "pv-contact",
+        "access": "pv-access-contact",
+        "contact": "pv-access-contact",
+        "access_contact": "pv-access-contact",
     }
 
     def scroll_to(section_id: str) -> None:
@@ -15035,6 +15157,14 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
     contact_mode = _normalize_contact_form_mode(str(contact.get("form_mode") or ""))
     contact_external_url = _clean(contact.get("external_form_url"))
 
+    recruitment = _normalize_recruitment_block(blocks.get("recruitment") if isinstance(blocks.get("recruitment"), dict) else {})
+    recruitment_visible = _recruitment_is_visible(recruitment)
+    recruitment_badge = _clean(_recruitment_badge_text(recruitment), RECRUITMENT_BADGE_DEFAULT)
+    recruitment_title = _clean(recruitment.get("title"), "採用情報")
+    recruitment_lead = _clean(recruitment.get("lead"))
+    recruitment_rows = _recruitment_rows(recruitment)
+    access_contact_label = "アクセス・お問い合わせ"
+
     # -------- render --------
     dark_class = " pv-dark" if is_dark else ""
     builder_class = (" pv-preview-live pv-preview-lite pv-preview-static" if (in_builder and preview_light_images) else (" pv-preview-live" if in_builder else ""))
@@ -15055,25 +15185,24 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                     else:
                         ui.label(company_name).classes("pv-brand-name")
 
+                if recruitment_visible:
+                    ui.button(recruitment_badge, on_click=lambda: scroll_to("recruitment")).props("dense no-caps unelevated color=warning").classes("q-ml-sm")
+
                 if mode == "pc":
                     # desktop nav (PC only)
                     with ui.row().classes("pv-desktop-nav items-center no-wrap"):
                         _desktop_nav_items = [
-                            ("お知らせ", "news"),
                             (about_title, "about"),
                         ]
-                        if profile_nav_label:
-                            _desktop_nav_items.append((profile_nav_label, "company_profile"))
+                        if recruitment_visible:
+                            _desktop_nav_items.append((recruitment_title, "recruitment"))
                         _desktop_nav_items += [
-                            (svc_title, "services"),
+                            ("お知らせ", "news"),
                             ("よくある質問", "faq"),
-                            ("アクセス", "access"),
+                            (access_contact_label, "access_contact"),
                         ]
                         for label, sec in _desktop_nav_items:
                             ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-desktop-nav-btn")
-                        ui.button(contact_btn, on_click=lambda: scroll_to("contact")).props(
-                            "no-caps outline color=primary"
-                        ).classes("pv-desktop-nav-btn pv-nav-contact")
                 else:
                     # hamburger menu（先にdialogを作ってからボタンで開く）
                     with ui.dialog() as nav_dialog:
@@ -15081,16 +15210,14 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             ui.label("メニュー").classes("text-subtitle1 q-mb-sm")
                             _mobile_nav_items = [
                                 ("トップ", "top"),
-                                ("お知らせ", "news"),
                                 (about_title, "about"),
                             ]
-                            if profile_nav_label:
-                                _mobile_nav_items.append((profile_nav_label, "company_profile"))
+                            if recruitment_visible:
+                                _mobile_nav_items.append((recruitment_title, "recruitment"))
                             _mobile_nav_items += [
-                                (svc_title, "services"),
+                                ("お知らせ", "news"),
                                 ("よくある質問", "faq"),
-                                ("アクセス", "access"),
-                                (contact_btn, "contact"),
+                                (access_contact_label, "access_contact"),
                             ]
                             for label, sec in _mobile_nav_items:
                                 ui.button(
@@ -15381,7 +15508,90 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
 
                                 # 電話ボタンは出さない（フォーム/メール導線に統一）
 
-            # LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
+                            # RECRUITMENT（求人 / 任意表示）
+                if recruitment_visible:
+                    with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-recruitment"'):
+                        with ui.element("div").classes("pv-section-head"):
+                            ui.label(recruitment_title).classes("pv-section-title")
+                            ui.label("RECRUIT").classes("pv-section-en")
+                        with ui.element("div").classes("pv-panel pv-panel-glass pv-company-profile-panel"):
+                            if recruitment_lead:
+                                ui.label(recruitment_lead).classes("pv-bodytext q-mb-sm")
+                            if recruitment_rows:
+                                ui.html('<div class="pv-company-profile-list">' + ''.join([f'<div class="pv-company-profile-row"><div class="pv-company-profile-label">{html.escape(lbl)}</div><div class="pv-company-profile-value">{html.escape(val).replace("\n", "<br>")}</div></div>' for lbl, val in recruitment_rows]) + '</div>')
+
+                # ACCESS / CONTACT（6ブロック維持のため統合表示）
+                with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-access-contact"'):
+                    with ui.element("div").classes("pv-section-head"):
+                        ui.label(access_contact_label).classes("pv-section-title")
+                        ui.label("ACCESS / CONTACT").classes("pv-section-en")
+                    with ui.element("div").style("display:grid;gap:16px;"):
+                        with ui.element("div").classes("pv-panel pv-panel-glass pv-access-card"):
+                            ui.label(company_name).classes("pv-access-company")
+                            if address:
+                                ui.label(address).classes("pv-bodytext")
+                            else:
+                                ui.label("住所を入力すると、ここに表示されます。")
+                            if email:
+                                with ui.row().classes("pv-access-meta items-center q-gutter-md q-mt-sm"):
+                                    with ui.row().classes("items-center q-gutter-xs"):
+                                        ui.icon("mail").classes("pv-access-icon")
+                                        ui.label(email).classes("pv-muted")
+                            if access_notes:
+                                ui.label(access_notes).classes("pv-bodytext q-mt-sm")
+                            if address:
+                                _murl2 = map_url or f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
+                                iframe_src2 = f"https://www.google.com/maps?q={quote_plus(address)}&output=embed"
+                                map_embed_live2 = bool(map_embed and not in_builder)
+                                if map_embed_live2:
+                                    with ui.element("div").classes("pv-mapframe pv-mapframe-live"):
+                                        ui.element("iframe").classes("pv-map-iframe").props(f'src="{iframe_src2}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"')
+                                        with ui.element("div").classes("pv-mapframe-ui"):
+                                            ui.label("MAP").classes("pv-mapframe-badge")
+                                            with ui.element("div").classes("pv-mapframe-bottom"):
+                                                ui.label(address).classes("pv-mapframe-label")
+                                                with ui.element("a").props(f'href="{_murl2}" target="_blank" rel="noopener"').classes("pv-mapframe-open"):
+                                                    ui.label("地図を開く")
+                                else:
+                                    with ui.element("a").props(f'href="{_murl2}" target="_blank" rel="noopener"').classes("pv-mapframe-link"):
+                                        with ui.element("div").classes("pv-mapframe"):
+                                            ui.label("MAP").classes("pv-mapframe-badge")
+                                            ui.icon("place").classes("pv-mapframe-pin")
+                                            with ui.element("div").classes("pv-mapframe-bottom"):
+                                                ui.label(address).classes("pv-mapframe-label")
+                                                ui.label("地図を開く").classes("pv-mapframe-open")
+                                with ui.element("a").props(f'href="{_murl2}" target="_blank" rel="noopener"').classes("pv-map-openlink"):
+                                    ui.icon("open_in_new")
+                                    ui.label("地図を開く（Googleマップ）")
+                        with ui.element("div").classes("pv-panel pv-panel-glass pv-contact-card"):
+                            with ui.element("details").classes("pv-contact-details"):
+                                with ui.element("summary").classes("pv-contact-summary"):
+                                    ui.label("お問い合わせを開く")
+                                with ui.element("div").classes("pv-contact-fold"):
+                                    if contact_message:
+                                        ui.label(contact_message).classes("pv-bodytext")
+                                    if contact_hours:
+                                        ui.label(contact_hours).classes("pv-muted q-mt-sm")
+                                    if contact_mode == "external":
+                                        if contact_external_url:
+                                            ui.button("フォームを開く").props(f'no-caps unelevated color=primary type=a href="{contact_external_url}" target="_blank" rel="noopener"').classes("pv-btn pv-btn-primary q-mt-sm")
+                                            ui.label("※ 外部フォームが別タブで開きます（送信前にプライバシーポリシー同意が必要です）").classes("pv-muted q-mt-sm")
+                                        else:
+                                            ui.label("外部フォームURLが未入力です（左の入力で設定）").classes("pv-muted q-mt-sm")
+                                    elif contact_mode == "mail":
+                                        ui.label("メール対応（メール作成フォーム）").classes("pv-muted q-mt-sm")
+                                        ui.label("※ 送信ボタンでメールアプリが開きます（PHP不要）").classes("pv-muted")
+                                        if not email:
+                                            ui.label("⚠ 基本情報のメールが未入力なので、メール作成できません").classes("pv-muted q-mt-sm")
+                                        ui.button("メールを作成（プレビューでは無効）").props("no-caps unelevated color=primary disable").classes("pv-btn pv-btn-primary q-mt-sm")
+                                    else:
+                                        ui.label("フォーム方式（おすすめ / PHP対応サーバー向け）").classes("pv-muted q-mt-sm")
+                                        ui.label("※ メールと内容は必須。送信前にプライバシーポリシー同意が必要です。").classes("pv-muted")
+                                        if not email:
+                                            ui.label("⚠ 基本情報のメールが未入力なので、フォーム送信できません").classes("pv-muted q-mt-sm")
+                                        ui.button("送信（プレビューでは無効）").props("no-caps unelevated color=primary disable").classes("pv-btn pv-btn-primary q-mt-sm")
+
+# LEGAL: プライバシーポリシー（プレビュー内モーダル / v0.6.994）
             privacy_contact = ""
             try:
                 if address:
@@ -15449,16 +15659,14 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                     with ui.element("div").classes("pv-footer-links"):
                         _footer_nav_items = [
                             ("トップ", "top"),
-                            ("お知らせ一覧", "news"),
                             (about_title, "about"),
                         ]
-                        if profile_nav_label:
-                            _footer_nav_items.append((profile_nav_label, "company_profile"))
+                        if recruitment_visible:
+                            _footer_nav_items.append((recruitment_title, "recruitment"))
                         _footer_nav_items += [
-                            (svc_title, "services"),
+                            ("お知らせ一覧", "news"),
                             ("よくある質問", "faq"),
-                            ("アクセス", "access"),
-                            (contact_btn, "contact"),
+                            (access_contact_label, "access_contact"),
                         ]
                         for label, sec in _footer_nav_items:
                             ui.button(label, on_click=lambda s=sec: scroll_to(s)).props("flat no-caps").classes("pv-footer-link text-white")
@@ -16240,19 +16448,19 @@ def render_main(u: User) -> None:
                                         def block_editor_panel():
                                             with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
                                                 ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
-                                                ui.label("ヒーロー / 理念 / お知らせ / FAQ / アクセス / お問い合わせ").classes("cvhb-muted q-mb-sm")
+                                                ui.label("ヒーロー / 理念・概要 / 求人 / お知らせ / FAQ / アクセス・お問い合わせ").classes("cvhb-muted q-mb-sm")
 
                                                 # UIの「今のブロック」を覚える（接続が切れても戻らないように）
-                                                allowed_blocks = ["hero", "philosophy", "news", "faq", "access", "contact"]
+                                                allowed_blocks = ["hero", "philosophy", "recruitment", "news", "faq", "access_contact"]
                                                 block_initial = _ui_get(UI_BLOCK_KEY, "hero", allowed_blocks)
 
                                                 with ui.tabs(value=block_initial).props("dense").classes("w-full cvhb-block-tabs") as block_tabs:
                                                     ui.tab("hero", label="ヒーロー")
                                                     ui.tab("philosophy", label="理念/概要")
+                                                    ui.tab("recruitment", label="求人")
                                                     ui.tab("news", label="お知らせ")
                                                     ui.tab("faq", label="FAQ")
-                                                    ui.tab("access", label="アクセス")
-                                                    ui.tab("contact", label="お問い合わせ")
+                                                    ui.tab("access_contact", label="アクセス/お問い合わせ")
 
                                                 block_content_ref = {"refresh": (lambda: None)}
 
@@ -16652,6 +16860,29 @@ def render_main(u: User) -> None:
                                                                     ui.textarea("本文", value=item.get("body", ""), on_change=lambda e, it=item: (it.__setitem__("body", e.value), update_and_refresh())).props("dense")
 
                                                         svc_items_editor()
+                                                    if current_block == "recruitment":
+                                                        ui.label("求人").classes("text-subtitle1 q-mb-sm")
+                                                        ui.label("採用情報を表示する時だけ入力します。表示しないにすると、完成HPにもヘッダーにも出ません。" ).classes("cvhb-muted q-mb-sm")
+
+                                                        recruitment = _normalize_recruitment_block(blocks.setdefault("recruitment", {}))
+                                                        blocks["recruitment"] = recruitment
+
+                                                        def _set_recruitment_enabled(v: bool):
+                                                            recruitment["enabled"] = bool(v)
+                                                            update_and_refresh()
+
+                                                        ui.switch("求人情報を表示する", value=bool(recruitment.get("enabled", False)), on_change=lambda e: _set_recruitment_enabled(bool(e.value))).props("dense").classes("q-mb-sm")
+                                                        bind_dict_input(recruitment, "ヘッダーのお知らせ文", "header_badge_text", hint="例：現在スタッフ募集中")
+                                                        bind_dict_input(recruitment, "見出し", "title", hint="例：求人情報")
+                                                        bind_dict_input(recruitment, "ひとこと説明", "lead", textarea=True, hint="募集の概要や一言メッセージを書きます")
+                                                        bind_dict_input(recruitment, "募集形態", "employment_types", hint="例：正社員 / パート / アルバイト")
+                                                        bind_dict_input(recruitment, "資格・歓迎条件", "qualification_note", textarea=True, hint="例：有資格者歓迎 / 未経験可 / 経験者優遇")
+                                                        bind_dict_input(recruitment, "求める人物像", "target_person", textarea=True, hint="例：丁寧に対応できる方 / チームで協力できる方")
+                                                        bind_dict_input(recruitment, "仕事内容", "work_details", textarea=True, hint="仕事内容や1日の流れなどを詳しく書けます")
+                                                        bind_dict_input(recruitment, "勤務条件", "conditions", textarea=True, hint="例：勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生")
+                                                        bind_dict_input(recruitment, "応募方法・選考の流れ", "application_flow", textarea=True, hint="例：応募 → 面談 → 採用")
+                                                        bind_dict_input(recruitment, "採用に関する補足", "contact_note", textarea=True, hint="例：質問はお問い合わせフォームから受け付けます")
+
                                                     if current_block == "news":
                                                         ui.label("お知らせ").classes("text-subtitle1 q-mb-sm")
                                                         ui.label("最大3件がスマホ側に表示されます（PCは4件まで表示）。").classes("cvhb-muted q-mb-sm")
@@ -16738,6 +16969,47 @@ def render_main(u: User) -> None:
                                                                     ui.input("質問（Q）", value=it.get("q",""), on_change=lambda e, idx=i: set_field(idx, "q", e.value or "")).props("outlined").classes("w-full q-mb-sm")
                                                                     ui.input("回答（A）", value=it.get("a",""), on_change=lambda e, idx=i: set_field(idx, "a", e.value or "")).props("outlined type=textarea autogrow").classes("w-full")
                                                         faq_editor()
+
+                                                    if current_block == "access_contact":
+                                                        ui.label("アクセス / お問い合わせ").classes("text-subtitle1 q-mb-sm")
+                                                        ui.label("このブロックでは、アクセス情報とお問い合わせ設定をまとめて編集します。" ).classes("cvhb-muted q-mb-sm")
+
+                                                        ui.separator().classes("q-mb-sm")
+                                                        ui.label("アクセス情報").classes("text-body1")
+                                                        ui.label("※ 住所は『2. 基本情報設定』の住所を使います").classes("cvhb-muted q-mb-xs")
+
+                                                        acc = blocks.setdefault("access", {})
+                                                        acc.setdefault("embed_map", True)
+
+                                                        def _on_map_embed(e):
+                                                            update_block("access", "embed_map", bool(e.value))
+
+                                                        ui.switch("Googleマップを表示（任意 / 重くなる場合があります）", value=bool(acc.get("embed_map", True)), on_change=_on_map_embed).props("dense")
+                                                        ui.label("※ OFF にすると軽い『地図風デザイン＋地図を開くリンク』になります。" ).classes("cvhb-muted q-mb-sm")
+                                                        bind_block_input("access", "補足（任意）", "notes", textarea=True)
+
+                                                        ui.separator().classes("q-mt-md q-mb-sm")
+                                                        ui.label("お問い合わせ").classes("text-body1")
+                                                        ui.label(CONNECT_LABEL).classes("text-body2 text-primary q-mb-sm")
+
+                                                        _c = blocks.get("contact", {}) if isinstance(blocks.get("contact"), dict) else {}
+                                                        _mode = str(_c.get("form_mode") or CONTACT_FORM_MODE_FORM).strip() or CONTACT_FORM_MODE_FORM
+
+                                                        def _on_form_mode(e):
+                                                            update_block("contact", "form_mode", e.value or CONTACT_FORM_MODE_FORM)
+                                                            try:
+                                                                block_content_ref["refresh"]()
+                                                            except Exception:
+                                                                pass
+
+                                                        ui.label("フォーム方式（お問い合わせ）").classes("text-body2")
+                                                        ui.radio([CONTACT_FORM_MODE_FORM, CONTACT_FORM_MODE_EXTERNAL, CONTACT_FORM_MODE_MAIL], value=_mode, on_change=_on_form_mode).props("inline dense").classes("q-mb-sm")
+                                                        bind_block_input("contact", "営業時間（任意）", "hours")
+                                                        bind_block_input("contact", "案内メッセージ（任意）", "message", textarea=True)
+                                                        if _normalize_contact_form_mode(_mode) == "external":
+                                                            bind_block_input("contact", "外部フォームURL", "external_form_url")
+                                                        else:
+                                                            ui.label("外部フォームURLは、外部フォームURL方式の時だけ使います。" ).classes("cvhb-muted q-mb-sm")
 
                                                     if current_block == "access":
                                                         ui.label("アクセス").classes("text-subtitle1 q-mb-sm")
@@ -18013,13 +18285,14 @@ def help_page():
 
 
 # =========================
-# PageFlow Pack (v1.5.7)
+# PageFlow Pack (v1.5.9)
 # =========================
 
-PAGEFLOW_PACK_VERSION = "1.0"
+PAGEFLOW_PACK_VERSION = "1.1"
 PACK_SHEET_MAIN = "入力はここだけ"
 PACK_SHEET_CHOICES = "選択肢"
 PACK_SHEET_META = "_内部設定"
+PACK_SHEET_GUIDE = "迷ったときガイド"
 PACK_XLSX_FILENAME = "01_かんたん入力シート.xlsx"
 PACK_INFO_FILENAME = "00_はじめに.txt"
 PACK_IMAGE_DIR = "画像"
@@ -18029,6 +18302,10 @@ PACK_MEMO_FILENAME = "補足メモ.txt"
 PACK_ZIP_MAX_BYTES = 40 * 1024 * 1024
 PACK_ZIP_TOTAL_MAX_BYTES = 120 * 1024 * 1024
 PACK_FILE_MAX_BYTES = 15 * 1024 * 1024
+
+PACK_FAQ_COUNT = 5
+PACK_NEWS_COUNT = 5
+PACK_SHOW_HIDE_OPTIONS = ["表示する", "表示しない"]
 
 PACK_FIELD_DEFS = [
     {"type": "section", "title": "まずここだけ入力すれば公開できます"},
@@ -18041,59 +18318,84 @@ PACK_FIELD_DEFS = [
     {"key": "bg_strength", "label": "背景の存在感", "required": "おすすめ", "example": "中（標準・おすすめ）", "choice_key": "bg_strength"},
     {"key": "bg_motion", "label": "背景の動き", "required": "おすすめ", "example": "中（初期設定・おすすめ）", "choice_key": "bg_motion"},
     {"key": "catch_copy", "label": "キャッチコピー", "required": "必須", "example": "地域に寄り添う、安心のリフォーム会社です"},
-    {"key": "hero_sub_catch", "label": "ひとこと説明", "required": "任意", "example": "相談から施工後まで、丁寧に対応します"},
+    {"key": "hero_sub_catch", "label": "キャッチの補足", "required": "任意", "example": "相談から施工後まで、丁寧に対応します"},
     {"key": "phone", "label": "電話番号", "required": "必須", "example": "03-1234-5678"},
     {"key": "email", "label": "メールアドレス", "required": "必須", "example": "info@example.com"},
     {"key": "address", "label": "住所", "required": "必須", "example": "東京都千代田区サンプル1-2-3"},
-    {"key": "contact_hours", "label": "営業時間", "required": "おすすめ", "example": "平日 9:00〜18:00"},
+    {"key": "contact_hours", "label": "営業時間・受付時間", "required": "おすすめ", "example": "平日 9:00〜18:00"},
     {"key": "contact_form_mode", "label": "お問い合わせ方法", "required": "おすすめ", "example": CONTACT_FORM_MODE_FORM, "choice_key": "contact_form_mode"},
     {"key": "external_form_url", "label": "外部フォームURL", "required": "外部フォームの時だけ", "example": "https://example.com/contact"},
-    {"type": "section", "title": "文章を入れるところ"},
-    {"key": "philosophy_title", "label": "私たちの想い（見出し）", "required": "おすすめ", "example": "私たちの想い"},
-    {"key": "philosophy_body", "label": "私たちの想い（本文）", "required": "必須", "example": "地域のみなさまに安心して相談していただける会社を目指しています。"},
+
+    {"type": "section", "title": "理念・事業内容"},
+    {"key": "philosophy_title", "label": "理念・会社紹介の見出し", "required": "おすすめ", "example": "私たちの想い"},
+    {"key": "philosophy_body", "label": "理念・会社紹介の本文", "required": "必須", "example": "地域のみなさまに安心して相談していただける会社を目指しています。"},
     {"key": "point_1", "label": "強み1", "required": "おすすめ", "example": "地域密着"},
     {"key": "point_2", "label": "強み2", "required": "おすすめ", "example": "丁寧な対応"},
     {"key": "point_3", "label": "強み3", "required": "おすすめ", "example": "安心の体制"},
-    {"key": "services_title", "label": "業務内容の見出し", "required": "おすすめ", "example": "業務内容"},
-    {"key": "services_lead", "label": "業務内容の説明", "required": "任意", "example": "提供サービスの概要をここに書きます"},
-    {"key": "service_1_title", "label": "サービス1 タイトル", "required": "おすすめ", "example": "サービス1"},
-    {"key": "service_1_body", "label": "サービス1 内容", "required": "おすすめ", "example": "内容をここに書きます"},
-    {"key": "service_2_title", "label": "サービス2 タイトル", "required": "おすすめ", "example": "サービス2"},
-    {"key": "service_2_body", "label": "サービス2 内容", "required": "おすすめ", "example": "内容をここに書きます"},
-    {"key": "service_3_title", "label": "サービス3 タイトル", "required": "おすすめ", "example": "サービス3"},
-    {"key": "service_3_body", "label": "サービス3 内容", "required": "おすすめ", "example": "内容をここに書きます"},
-    {"key": "faq_q_1", "label": "よくある質問1", "required": "任意", "example": "見学はできますか？"},
-    {"key": "faq_a_1", "label": "回答1", "required": "任意", "example": "はい。お気軽にご連絡ください。"},
-    {"key": "faq_q_2", "label": "よくある質問2", "required": "任意", "example": "費用はどのくらいですか？"},
-    {"key": "faq_a_2", "label": "回答2", "required": "任意", "example": "内容により異なります。まずはご相談ください。"},
-    {"key": "news_date_1", "label": "お知らせ日付", "required": "任意", "example": "2026-03-24"},
-    {"key": "news_category_1", "label": "お知らせカテゴリ", "required": "任意", "example": "お知らせ"},
-    {"key": "news_title_1", "label": "お知らせタイトル", "required": "任意", "example": "ホームページを公開しました"},
-    {"key": "news_body_1", "label": "お知らせ本文", "required": "任意", "example": "ここにお知らせ本文を書きます。"},
+    {"key": "services_title", "label": "事業内容の見出し", "required": "おすすめ", "example": "事業内容"},
+    {"key": "services_lead", "label": "事業内容の説明", "required": "任意", "example": "提供している内容を、まず短くまとめて書きます。"},
+    {"key": "service_1_title", "label": "事業内容1 タイトル", "required": "おすすめ", "example": "住宅リフォーム"},
+    {"key": "service_1_body", "label": "事業内容1 内容", "required": "おすすめ", "example": "戸建て・マンションの内装や水回りなど、ご要望に合わせて対応します。"},
+    {"key": "service_2_title", "label": "事業内容2 タイトル", "required": "おすすめ", "example": "外構工事"},
+    {"key": "service_2_body", "label": "事業内容2 内容", "required": "おすすめ", "example": "駐車場・フェンス・アプローチなど、外まわりの施工も対応しています。"},
+    {"key": "service_3_title", "label": "事業内容3 タイトル", "required": "おすすめ", "example": "不動産管理"},
+    {"key": "service_3_body", "label": "事業内容3 内容", "required": "おすすめ", "example": "建物管理や入居者対応など、継続的な管理にも対応しています。"},
+
+    {"type": "section", "title": "求人情報（任意）"},
+    {"key": "recruitment_enabled", "label": "求人情報を表示する", "required": "任意", "example": "表示しない", "choice_key": "recruitment_enabled"},
+    {"key": "recruitment_badge_text", "label": "ヘッダーのお知らせ文", "required": "表示する時だけ", "example": RECRUITMENT_BADGE_DEFAULT},
+    {"key": "recruitment_title", "label": "求人見出し", "required": "表示する時だけ", "example": "求人情報"},
+    {"key": "recruitment_lead", "label": "求人のひとこと説明", "required": "表示する時だけ", "example": "現在、一緒に働く仲間を募集しています。ご興味のある方はお気軽にご連絡ください。"},
+    {"key": "recruitment_employment_types", "label": "募集形態", "required": "表示する時だけ", "example": "正社員 / パート / アルバイト"},
+    {"key": "recruitment_qualification_note", "label": "資格・歓迎条件", "required": "任意", "example": "有資格者歓迎 / 未経験可 / 経験者優遇 など"},
+    {"key": "recruitment_target_person", "label": "求める人物像", "required": "任意", "example": "丁寧に対応できる方 / チームで協力できる方"},
+    {"key": "recruitment_work_details", "label": "仕事内容", "required": "表示する時だけ", "example": "担当業務の内容、1日の流れ、関わるお客様や利用者さまなどを書きます。"},
+    {"key": "recruitment_conditions", "label": "勤務条件", "required": "任意", "example": "勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生 など"},
+    {"key": "recruitment_application_flow", "label": "応募方法・選考の流れ", "required": "任意", "example": "応募 → 面談 → 採用 など、応募後の流れを書きます。"},
+    {"key": "recruitment_contact_note", "label": "採用に関する補足", "required": "任意", "example": "応募前のご質問は、お問い合わせフォームからご連絡ください。"},
+
+    {"type": "section", "title": "お知らせ（最大5件）"},
+]
+for idx in range(1, PACK_NEWS_COUNT + 1):
+    PACK_FIELD_DEFS.extend([
+        {"key": f"news_title_{idx}", "label": f"お知らせ{idx} 題名", "required": "任意", "example": "ホームページを公開しました" if idx == 1 else "臨時休業のお知らせ"},
+        {"key": f"news_body_{idx}", "label": f"お知らせ{idx} 内容", "required": "任意", "example": "このたびホームページを公開しました。今後はこちらで最新情報をお知らせします。" if idx == 1 else "○月○日は社内研修のため休業します。翌営業日より順次対応します。"},
+    ])
+
+PACK_FIELD_DEFS.append({"type": "section", "title": "FAQ（最大5件）"})
+for idx in range(1, PACK_FAQ_COUNT + 1):
+    PACK_FIELD_DEFS.extend([
+        {"key": f"faq_q_{idx}", "label": f"FAQ{idx} 質問", "required": "任意", "example": "見学はできますか？" if idx == 1 else "費用はどのくらいですか？"},
+        {"key": f"faq_a_{idx}", "label": f"FAQ{idx} 回答", "required": "任意", "example": "はい。お気軽にご連絡ください。" if idx == 1 else "内容により異なります。まずはご相談ください。"},
+    ])
+
+PACK_FIELD_DEFS.extend([
+    {"type": "section", "title": "アクセス・お問い合わせ"},
     {"key": "map_url", "label": "地図URL", "required": "任意", "example": "https://www.google.com/maps/search/?api=1&query=..."},
     {"key": "access_notes", "label": "アクセス補足", "required": "任意", "example": "〇〇駅から徒歩5分 / 駐車場あり"},
-    {"key": "contact_message", "label": "お問い合わせのひとこと", "required": "任意", "example": "まずはお気軽にご相談ください。"},
+    {"key": "contact_message", "label": "お問い合わせ前のひとこと", "required": "任意", "example": "まずはお気軽にご相談ください。"},
+
     {"type": "section", "title": "画像はここを見れば迷いません（入力不要）"},
     {"type": "image_hint", "label": "会社ロゴ", "required": "任意", "example": "画像/会社ロゴ.png（.jpg / .webp でもOK）"},
-    {"type": "image_hint", "label": "サイトアイコン", "required": "任意", "example": "画像/サイトアイコン.png（32×32 推奨）"},
+    {"type": "image_hint", "label": "サイトアイコン", "required": "任意", "example": "画像/サイトアイコン.png（.jpg / .webp / .ico でもOK）"},
     {"type": "image_hint", "label": "メイン画像1", "required": "おすすめ", "example": "画像/メイン画像1.jpg"},
     {"type": "image_hint", "label": "メイン画像2", "required": "任意", "example": "画像/メイン画像2.jpg"},
     {"type": "image_hint", "label": "メイン画像3", "required": "任意", "example": "画像/メイン画像3.jpg"},
     {"type": "image_hint", "label": "メイン画像4", "required": "任意", "example": "画像/メイン画像4.jpg"},
     {"type": "image_hint", "label": "想い画像", "required": "任意", "example": "画像/想い画像.jpg"},
     {"type": "image_hint", "label": "業務内容画像", "required": "任意", "example": "画像/業務内容画像.jpg"},
-    {"type": "section", "title": "会社概要（こだわりたい人だけ）"},
+
+    {"type": "section", "title": "会社概要（必要なところだけ）"},
     {"key": "company_profile_mode", "label": "会社概要の表示", "required": "任意", "example": "使用しない", "choice_key": "company_profile_mode"},
     {"key": "company_profile_kind", "label": "会社概要の種類", "required": "任意", "example": "会社概要", "choice_key": "company_profile_kind"},
-    {"key": "profile_trade_name", "label": "商号", "required": "任意", "example": "株式会社サンプル"},
-    {"key": "profile_address", "label": "所在地", "required": "任意", "example": "東京都千代田区サンプル1-2-3"},
-    {"key": "profile_executives", "label": "代表者・役員", "required": "任意", "example": "代表取締役 山田 太郎"},
-    {"key": "profile_established", "label": "設立日", "required": "任意", "example": "2020年4月1日"},
-    {"key": "profile_business", "label": "事業内容", "required": "任意", "example": "住宅リフォーム / 外構工事 / 不動産管理"},
-    {"key": "profile_site_url", "label": "サイトURL", "required": "任意", "example": "https://example.com"},
-    {"key": "profile_capital", "label": "資本金", "required": "任意", "example": "500万円"},
-    {"key": "profile_employees", "label": "従業員数", "required": "任意", "example": "12名"},
-]
+])
+for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+    PACK_FIELD_DEFS.append({"key": f"profile_{_key}", "label": _label, "required": "任意", "example": _sample})
+for idx in range(1, COMPANY_PROFILE_EXTRA_ROW_COUNT + 1):
+    PACK_FIELD_DEFS.extend([
+        {"key": f"profile_extra_{idx}_label", "label": f"追加項目{idx}:題名", "required": "任意", "example": COMPANY_PROFILE_EXTRA_LABEL_SAMPLE},
+        {"key": f"profile_extra_{idx}_value", "label": f"追加項目{idx}:内容", "required": "任意", "example": COMPANY_PROFILE_EXTRA_VALUE_SAMPLE},
+    ])
 
 PACK_FIELD_BY_KEY = {f["key"]: f for f in PACK_FIELD_DEFS if f.get("key")}
 PACK_KEY_BY_LABEL = {f["label"]: f["key"] for f in PACK_FIELD_DEFS if f.get("key")}
@@ -18119,7 +18421,129 @@ PACK_CHOICE_TABLE = {
     "contact_form_mode": [CONTACT_FORM_MODE_FORM, CONTACT_FORM_MODE_MAIL, CONTACT_FORM_MODE_EXTERNAL],
     "company_profile_mode": list(COMPANY_PROFILE_MODE_OPTIONS.values()),
     "company_profile_kind": list(COMPANY_PROFILE_KIND_OPTIONS.values()),
+    "recruitment_enabled": PACK_SHOW_HIDE_OPTIONS,
 }
+
+PACK_SECTION_NOTES = {
+    "まずここだけ入力すれば公開できます": "最初はここだけで大丈夫です。黄色のセルを上から順に埋めると、公開に必要な内容がそろいます。",
+    "理念・事業内容": "ここは会社の紹介と、提供している内容を書く場所です。短く読みやすく書くと見やすいページになります。",
+    "求人情報（任意）": "採用ページとして見せたい時だけ入力してください。表示しないを選べば、この内容は完成HPに出ません。",
+    "お知らせ（最大5件）": "新着情報や休業案内などを書きます。題名だけでも使えますが、内容まで入れると伝わりやすいです。",
+    "FAQ（最大5件）": "よくある質問と答えを書きます。お客様が不安に思いそうなことから入れると効果的です。",
+    "アクセス・お問い合わせ": "住所から地図リンクは自動で作られます。補足や問い合わせ前のひとことだけ足せば十分です。",
+    "画像はここを見れば迷いません（入力不要）": "画像は Excel に貼らず、『画像』フォルダへ入れるだけです。推奨サイズやアイコンの作り方は『迷ったときガイド』シートにも書いてあります。",
+    "会社概要（必要なところだけ）": "会社概要の枠はすべて表示していますが、空欄は完成HPに出ません。必要な項目だけ入力してください。追加項目は題名も自分で決められます。",
+}
+
+PACK_FIELD_GUIDE = {
+    "project_name": {"what": "社内で見分けやすい案件名を書きます。空欄なら会社名が使われます。", "max_chars": 60},
+    "company_name": {"what": "完成HPに表示する会社名を書きます。正式名称でも通称でも大丈夫です。", "max_chars": 80},
+    "industry": {"what": "いちばん近い業種を選びます。迷ったら『会社サイト（企業）』で大丈夫です。"},
+    "welfare_domain": {"what": "福祉事業所の時だけ選びます。福祉以外なら空欄で大丈夫です。"},
+    "welfare_mode": {"what": "福祉事業所の時だけ選びます。通所か入所かを選びます。"},
+    "primary_color": {"what": "サイト全体の印象になる色です。迷ったら青がおすすめです。"},
+    "bg_strength": {"what": "背景の存在感です。迷ったら『中（標準・おすすめ）』でOKです。"},
+    "bg_motion": {"what": "背景の動きです。迷ったら『中（初期設定・おすすめ）』でOKです。"},
+    "catch_copy": {"what": "トップで最初に大きく見える言葉です。誰に・何を・どんな強みで、を短く書くと伝わりやすいです。", "max_chars": 38},
+    "hero_sub_catch": {"what": "キャッチコピーの補足です。安心感や対応内容を1文で足してください。", "max_chars": 70},
+    "phone": {"what": "公開してよい電話番号を書きます。", "max_chars": 30},
+    "email": {"what": "公開してよいメールアドレスを書きます。", "max_chars": 120},
+    "address": {"what": "公開してよい住所を書きます。建物名まで入れて大丈夫です。", "max_chars": 120},
+    "contact_hours": {"what": "電話やお問い合わせを受け付ける時間を書きます。", "max_chars": 60},
+    "contact_form_mode": {"what": "お問い合わせ方法を選びます。迷ったら『フォーム方式（おすすめ）』でOKです。"},
+    "external_form_url": {"what": "外部フォームを使う場合だけ URL を入れます。", "max_chars": 200},
+    "philosophy_title": {"what": "会社紹介や理念の見出しです。『私たちの想い』『会社紹介』などで大丈夫です。", "max_chars": 40},
+    "philosophy_body": {"what": "どんな想いで取り組んでいるか、どんな会社かを書きます。長すぎず、読みやすくまとめてください。", "max_chars": 380, "multiline": True},
+    "point_1": {"what": "会社の強みを短く書きます。", "max_chars": 24},
+    "point_2": {"what": "会社の強みを短く書きます。", "max_chars": 24},
+    "point_3": {"what": "会社の強みを短く書きます。", "max_chars": 24},
+    "services_title": {"what": "事業内容の見出しです。『事業内容』『サービス内容』などで大丈夫です。", "max_chars": 40},
+    "services_lead": {"what": "事業内容全体の説明を短く書きます。", "max_chars": 180, "multiline": True},
+    "service_1_title": {"what": "1つ目の事業内容の題名を書きます。", "max_chars": 36},
+    "service_1_body": {"what": "1つ目の事業内容について、内容や対象をわかりやすく書きます。", "max_chars": 220, "multiline": True},
+    "service_2_title": {"what": "2つ目の事業内容の題名を書きます。", "max_chars": 36},
+    "service_2_body": {"what": "2つ目の事業内容について、内容や対象をわかりやすく書きます。", "max_chars": 220, "multiline": True},
+    "service_3_title": {"what": "3つ目の事業内容の題名を書きます。", "max_chars": 36},
+    "service_3_body": {"what": "3つ目の事業内容について、内容や対象をわかりやすく書きます。", "max_chars": 220, "multiline": True},
+    "recruitment_enabled": {"what": "求人情報を見せるなら『表示する』を選びます。見せないなら空欄でも大丈夫です。"},
+    "recruitment_badge_text": {"what": "ヘッダーに小さく出る募集のお知らせ文です。短いほど見やすいです。", "max_chars": 24},
+    "recruitment_title": {"what": "求人ブロックの見出しです。『求人情報』『採用情報』などで大丈夫です。", "max_chars": 32},
+    "recruitment_lead": {"what": "求人全体の説明です。募集の目的や一言メッセージを書きます。", "max_chars": 180, "multiline": True},
+    "recruitment_employment_types": {"what": "募集形態を書きます。社員・パート・アルバイトなどです。", "max_chars": 80},
+    "recruitment_qualification_note": {"what": "必要資格や歓迎条件を書きます。", "max_chars": 180, "multiline": True},
+    "recruitment_target_person": {"what": "どんな方に来てほしいかを書きます。", "max_chars": 180, "multiline": True},
+    "recruitment_work_details": {"what": "仕事内容、1日の流れ、担当する業務などを書きます。", "max_chars": 420, "multiline": True},
+    "recruitment_conditions": {"what": "勤務地、勤務時間、給与、休日、福利厚生などを書きます。", "max_chars": 320, "multiline": True},
+    "recruitment_application_flow": {"what": "応募から採用までの流れを書きます。", "max_chars": 220, "multiline": True},
+    "recruitment_contact_note": {"what": "求人に関する補足や質問方法を書きます。", "max_chars": 180, "multiline": True},
+    "map_url": {"what": "GoogleマップなどのURLがある時だけ入れます。空欄でも住所から自動で地図リンクを作ります。", "max_chars": 220},
+    "access_notes": {"what": "最寄り駅、駐車場、来社方法などを補足します。", "max_chars": 180, "multiline": True},
+    "contact_message": {"what": "お問い合わせ前に見せるひとことです。", "max_chars": 180, "multiline": True},
+    "company_profile_mode": {"what": "会社概要をどの見せ方にするか選びます。迷ったら『常に表示』でも大丈夫です。"},
+    "company_profile_kind": {"what": "見出しを『会社概要』にするか『会社沿革』にするか選びます。"},
+}
+for idx in range(1, PACK_NEWS_COUNT + 1):
+    PACK_FIELD_GUIDE[f"news_title_{idx}"] = {"what": "お知らせの題名です。『休業のお知らせ』『新サービス開始』など、ひと目で内容がわかる題名にします。", "max_chars": 60}
+    PACK_FIELD_GUIDE[f"news_body_{idx}"] = {"what": "お知らせの内容です。いつ・何があるか・利用者に関係することをわかりやすく書きます。", "max_chars": 220, "multiline": True}
+for idx in range(1, PACK_FAQ_COUNT + 1):
+    PACK_FIELD_GUIDE[f"faq_q_{idx}"] = {"what": "お客様や利用者がよく聞きそうな質問を書きます。", "max_chars": 70}
+    PACK_FIELD_GUIDE[f"faq_a_{idx}"] = {"what": "その質問への答えを書きます。短く、はっきり書くと伝わりやすいです。", "max_chars": 240, "multiline": True}
+for _key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+    PACK_FIELD_GUIDE[f"profile_{_key}"] = {"what": f"{_label}を表示したい時だけ入力します。空欄なら完成HPに出ません。", "max_chars": 160, "multiline": _key in {"business", "advisers", "contact"}}
+for idx in range(1, COMPANY_PROFILE_EXTRA_ROW_COUNT + 1):
+    PACK_FIELD_GUIDE[f"profile_extra_{idx}_label"] = {"what": "追加で見せたい項目名を書きます。例：許認可、取引銀行、加入団体など。", "max_chars": 40}
+    PACK_FIELD_GUIDE[f"profile_extra_{idx}_value"] = {"what": "その項目の内容を書きます。題名だけ、内容だけでは表示されません。", "max_chars": 180, "multiline": True}
+
+PACK_IMAGE_GUIDE = {
+    "会社ロゴ": {"where": "ヘッダーやフッター", "recommended": "横長 1000×300px 前後 / PNG 推奨", "note": "背景が透明だときれいです。文字だけより、マーク付きだと使いやすいです。"},
+    "サイトアイコン": {"where": "ブラウザのタブ", "recommended": "正方形 256×256px 以上 / PNG 推奨", "note": "ロゴのマーク部分だけを正方形で使うと見やすいです。背景透明の PNG がおすすめです。"},
+    "メイン画像1": {"where": "トップの大きい画像", "recommended": "横長 1600×900px 以上", "note": "最初の1枚だけでも大丈夫です。1枚だけ入れた時は残りにも自動で使います。"},
+    "メイン画像2": {"where": "トップのスライド画像", "recommended": "横長 1600×900px 以上", "note": "1枚目と違う雰囲気の写真だと見栄えが良くなります。"},
+    "メイン画像3": {"where": "トップのスライド画像", "recommended": "横長 1600×900px 以上", "note": "使わない時は入れなくても大丈夫です。"},
+    "メイン画像4": {"where": "トップのスライド画像", "recommended": "横長 1600×900px 以上", "note": "使わない時は入れなくても大丈夫です。"},
+    "想い画像": {"where": "理念・会社紹介の横", "recommended": "横長 1400×900px 前後", "note": "社内の様子、代表写真、仕事風景などが合います。"},
+    "業務内容画像": {"where": "事業内容の横", "recommended": "横長 1400×900px 前後", "note": "サービスの様子や現場写真などが合います。"},
+}
+
+PACK_HELP_SHEET_SECTIONS = [
+    {
+        "title": "まず知っておいてほしいこと",
+        "lines": [
+            "入力は『入力はここだけ』シートだけ見れば大丈夫です。黄色のセルだけ入力してください。",
+            "文章が長すぎると読みづらくなるので、『現在文字数』と『最大目安』を見ながら入力してください。",
+            "改行できる欄は『できます（Alt+Enter）』と表示されます。Windows の Excel では Alt+Enter で改行できます。",
+        ],
+    },
+    {
+        "title": "会社概要について",
+        "lines": [
+            "会社概要の枠は全部表示していますが、空欄は完成HPに出ません。必要なところだけ入力してください。",
+            "追加項目は『題名』と『内容』の両方を入れた時だけ表示されます。",
+        ],
+    },
+    {
+        "title": "画像サイズの見方",
+        "lines": [
+            "Windows では画像を右クリック → プロパティ → 詳細 で、横×縦のサイズを確認できます。",
+            "迷ったら横長画像は 1600×900px 前後、アイコンは正方形 256×256px 以上を目安にしてください。",
+        ],
+    },
+    {
+        "title": "画像サイズのかんたんな整え方",
+        "lines": [
+            "使い慣れた画像編集ソフトや Office の画像編集で、横幅を 1600px 前後にすると使いやすいです。",
+            "難しい時はそのまま入れても大丈夫です。本体側でも縮小調整します。",
+        ],
+    },
+    {
+        "title": "アイコンの作り方",
+        "lines": [
+            "サイトアイコンは、会社ロゴのマーク部分だけを正方形で切り出すと見やすいです。",
+            "背景透明の PNG がきれいです。背景を消せるツールを使うか、最初から透明背景で保存してください。",
+            "ファイル名は『サイトアイコン.png』にしてください。",
+        ],
+    },
+]
 
 def _pack_require_openpyxl():
     try:
@@ -18203,6 +18627,19 @@ def _pack_contact_form_label(value: str) -> str:
         return CONTACT_FORM_MODE_MAIL
     return CONTACT_FORM_MODE_FORM
 
+def _pack_show_hide_label(value: object) -> str:
+    try:
+        return PACK_SHOW_HIDE_OPTIONS[0] if bool(value) else PACK_SHOW_HIDE_OPTIONS[1]
+    except Exception:
+        return PACK_SHOW_HIDE_OPTIONS[1]
+
+
+def _pack_show_hide_bool(value: object) -> bool:
+    s = _pack_text(value).strip().lower()
+    if not s:
+        return False
+    return s in {"1", "true", "yes", "on", "show", "表示", "表示する", PACK_SHOW_HIDE_OPTIONS[0].lower()}
+
 def _pack_safe_project_name(project_name: str, company_name: str) -> str:
     name = _pack_text(project_name) or _pack_text(company_name)
     if name:
@@ -18221,6 +18658,10 @@ def _pack_seed_from_project(source_project: Optional[dict] = None, company_name:
     seed["company_profile_mode"] = COMPANY_PROFILE_MODE_OPTIONS.get("unused", "使用しない")
     seed["company_profile_kind"] = COMPANY_PROFILE_KIND_OPTIONS.get("overview", "会社概要")
     seed["philosophy_title"] = "私たちの想い"
+    seed["services_title"] = "事業内容"
+    seed["recruitment_enabled"] = PACK_SHOW_HIDE_OPTIONS[1]
+    seed["recruitment_badge_text"] = RECRUITMENT_BADGE_DEFAULT
+    seed["recruitment_title"] = "求人情報"
 
     if not isinstance(source_project, dict):
         return seed
@@ -18233,6 +18674,7 @@ def _pack_seed_from_project(source_project: Optional[dict] = None, company_name:
     hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
     philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
     services = philosophy.get("services") if isinstance(philosophy.get("services"), dict) else {}
+    recruitment = blocks.get("recruitment") if isinstance(blocks.get("recruitment"), dict) else {}
     news = blocks.get("news") if isinstance(blocks.get("news"), dict) else {}
     faq = blocks.get("faq") if isinstance(blocks.get("faq"), dict) else {}
     access = blocks.get("access") if isinstance(blocks.get("access"), dict) else {}
@@ -18263,7 +18705,7 @@ def _pack_seed_from_project(source_project: Optional[dict] = None, company_name:
     seed["point_1"] = _pack_text(pts[0])
     seed["point_2"] = _pack_text(pts[1])
     seed["point_3"] = _pack_text(pts[2])
-    seed["services_title"] = _pack_text(services.get("title"))
+    seed["services_title"] = _pack_text(services.get("title") or "事業内容")
     seed["services_lead"] = _pack_text(services.get("lead"))
     svc_items = [it for it in (services.get("items") if isinstance(services.get("items"), list) else []) if isinstance(it, dict)]
     while len(svc_items) < 3:
@@ -18271,31 +18713,48 @@ def _pack_seed_from_project(source_project: Optional[dict] = None, company_name:
     for idx in range(3):
         seed[f"service_{idx+1}_title"] = _pack_text(svc_items[idx].get("title"))
         seed[f"service_{idx+1}_body"] = _pack_text(svc_items[idx].get("body"))
+
+    recruitment = _normalize_recruitment_block(recruitment)
+    seed["recruitment_enabled"] = _pack_show_hide_label(_recruitment_is_visible(recruitment) or bool(recruitment.get("enabled")))
+    seed["recruitment_badge_text"] = _pack_text(recruitment.get("header_badge_text") or RECRUITMENT_BADGE_DEFAULT)
+    seed["recruitment_title"] = _pack_text(recruitment.get("title") or "求人情報")
+    seed["recruitment_lead"] = _pack_text(recruitment.get("lead"))
+    seed["recruitment_employment_types"] = _pack_text(recruitment.get("employment_types"))
+    seed["recruitment_qualification_note"] = _pack_text(recruitment.get("qualification_note"))
+    seed["recruitment_target_person"] = _pack_text(recruitment.get("target_person"))
+    seed["recruitment_work_details"] = _pack_text(recruitment.get("work_details"))
+    seed["recruitment_conditions"] = _pack_text(recruitment.get("conditions"))
+    seed["recruitment_application_flow"] = _pack_text(recruitment.get("application_flow"))
+    seed["recruitment_contact_note"] = _pack_text(recruitment.get("contact_note"))
+
     faq_items = [it for it in (faq.get("items") if isinstance(faq.get("items"), list) else []) if isinstance(it, dict)]
-    while len(faq_items) < 2:
+    while len(faq_items) < PACK_FAQ_COUNT:
         faq_items.append({"q": "", "a": ""})
-    for idx in range(2):
+    for idx in range(PACK_FAQ_COUNT):
         seed[f"faq_q_{idx+1}"] = _pack_text(faq_items[idx].get("q"))
         seed[f"faq_a_{idx+1}"] = _pack_text(faq_items[idx].get("a"))
+
     news_items = [it for it in (news.get("items") if isinstance(news.get("items"), list) else []) if isinstance(it, dict)]
-    if news_items:
-        seed["news_date_1"] = _pack_text(news_items[0].get("date"))
-        seed["news_category_1"] = _pack_text(news_items[0].get("category"))
-        seed["news_title_1"] = _pack_text(news_items[0].get("title"))
-        seed["news_body_1"] = _pack_text(news_items[0].get("body"))
+    while len(news_items) < PACK_NEWS_COUNT:
+        news_items.append({"title": "", "body": ""})
+    for idx in range(PACK_NEWS_COUNT):
+        seed[f"news_title_{idx+1}"] = _pack_text(news_items[idx].get("title"))
+        seed[f"news_body_{idx+1}"] = _pack_text(news_items[idx].get("body"))
+
     seed["map_url"] = _pack_text(access.get("map_url"))
     seed["access_notes"] = _pack_text(access.get("notes"))
     seed["contact_message"] = _pack_text(contact.get("message"))
     seed["company_profile_mode"] = COMPANY_PROFILE_MODE_OPTIONS.get(str(profile.get("mode") or "unused").strip() or "unused", COMPANY_PROFILE_MODE_OPTIONS.get("unused", "使用しない"))
     seed["company_profile_kind"] = COMPANY_PROFILE_KIND_OPTIONS.get(str(profile.get("kind") or "overview").strip() or "overview", COMPANY_PROFILE_KIND_OPTIONS.get("overview", "会社概要"))
-    seed["profile_trade_name"] = _pack_text(profile.get("trade_name"))
-    seed["profile_address"] = _pack_text(profile.get("address"))
-    seed["profile_executives"] = _pack_text(profile.get("executives"))
-    seed["profile_established"] = _pack_text(profile.get("established"))
-    seed["profile_business"] = _pack_text(profile.get("business"))
-    seed["profile_site_url"] = _pack_text(profile.get("site_url"))
-    seed["profile_capital"] = _pack_text(profile.get("capital"))
-    seed["profile_employees"] = _pack_text(profile.get("employees"))
+    for key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        seed[f"profile_{key}"] = _pack_text(profile.get(key))
+    extra_rows = _normalize_company_profile_extra_rows(profile)
+    while len(extra_rows) < COMPANY_PROFILE_EXTRA_ROW_COUNT:
+        extra_rows.append({"label": "", "value": ""})
+    for idx in range(COMPANY_PROFILE_EXTRA_ROW_COUNT):
+        row = extra_rows[idx] if isinstance(extra_rows[idx], dict) else {}
+        seed[f"profile_extra_{idx+1}_label"] = _pack_text(row.get("label"))
+        seed[f"profile_extra_{idx+1}_value"] = _pack_text(row.get("value"))
     return seed
 
 def _build_pageflow_pack_readme(seed: dict, *, from_project: bool = False) -> str:
@@ -18309,10 +18768,22 @@ def _build_pageflow_pack_readme(seed: dict, *, from_project: bool = False) -> st
 
 【使い方】
 1. 01_かんたん入力シート.xlsx を開く
-2. 黄色セルだけ入力する
-3. 画像は「画像」フォルダへ入れる（Excelに貼り付けない）
-4. フォルダごと ZIP にする
-5. 案件一覧で「かんたん案件パックを読み込む」から ZIP を選ぶ
+2. 『入力はここだけ』シートで黄色のセルだけ入力する
+3. 文字数列と最大目安を見ながら、短くわかりやすく書く
+4. 改行できる欄は Alt+Enter で改行する
+5. 画像は『画像』フォルダへ入れる（Excelに貼り付けない）
+6. 迷った時は『迷ったときガイド』シートを見る
+7. フォルダごと ZIP にする
+8. 案件一覧で『かんたん案件パックを読み込む』から ZIP を選ぶ
+
+【入力できる内容】
+- 基本情報（会社名 / 色 / 連絡先 / 背景設定）
+- 理念・事業内容
+- 求人情報（任意）
+- お知らせ（最大5件）
+- FAQ（最大5件）
+- アクセス・お問い合わせ
+- 会社概要（空欄は完成HPに出ません）
 
 【画像名】
 - 会社ロゴ
@@ -18325,6 +18796,8 @@ def _build_pageflow_pack_readme(seed: dict, *, from_project: bool = False) -> st
 - 画像名は日本語のままでOKです
 - 拡張子は .png / .jpg / .jpeg / .webp（アイコンは .ico も可）
 - わからない欄は空でも大丈夫です
+- 会社概要は全部の枠を表示していますが、空欄は完成HPに出ません
+- 追加項目は『題名』と『内容』の両方を入れた時だけ表示されます
 - 既存案件への上書きではなく、新しい案件として読み込みます
 """
 
@@ -18351,10 +18824,25 @@ Excelに画像を貼り付ける必要はありません。
 - .webp
 - .ico（サイトアイコンのみ）
 
-おすすめ
-- 会社ロゴ: 横長 PNG
-- サイトアイコン: 正方形 PNG / 32x32
-- メイン画像・想い画像・業務内容画像: 横長画像（16:9 目安）
+推奨サイズ
+- 会社ロゴ: 横長 PNG / 1000×300px前後 / 背景透明推奨
+- サイトアイコン: 正方形 PNG / 256×256px以上 / 背景透明推奨
+- メイン画像: 横長画像 / 1600×900px以上
+- 想い画像: 横長画像 / 1400×900px前後
+- 業務内容画像: 横長画像 / 1400×900px前後
+
+画像サイズの調べ方
+- Windows では画像を右クリック → プロパティ → 詳細 で縦横サイズを確認できます
+
+かんたんな画像サイズ調整方法
+- 使い慣れた画像ソフトで幅を 1600px 前後にすると使いやすいです
+- 難しい時はそのまま入れても大丈夫です。本体側でも縮小調整します
+
+アイコンの作り方
+- ロゴのマーク部分だけを正方形で使うと見やすいです
+- 背景は透明の PNG だときれいです
+- 背景透明にするには、背景を削除できる画像編集ツールやオンラインツールを使うと簡単です
+- ファイル名は サイトアイコン.png にしてください
 """
 
 def _pack_write_workbook_bytes(seed: dict) -> bytes:
@@ -18374,10 +18862,13 @@ def _pack_write_workbook_bytes(seed: dict) -> bytes:
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = "B8"
     ws.column_dimensions["A"].hidden = True
-    ws.column_dimensions["B"].width = 29
-    ws.column_dimensions["C"].width = 42
-    ws.column_dimensions["D"].width = 20
-    ws.column_dimensions["E"].width = 50
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 34
+    ws.column_dimensions["D"].width = 16
+    ws.column_dimensions["E"].width = 54
+    ws.column_dimensions["F"].width = 18
+    ws.column_dimensions["G"].width = 12
+    ws.column_dimensions["H"].width = 12
 
     thin = Side(style="thin", color="D0D7E2")
     border = Border(bottom=thin)
@@ -18387,28 +18878,36 @@ def _pack_write_workbook_bytes(seed: dict) -> bytes:
     input_fill = PatternFill("solid", fgColor="FFF2CC")
     hint_fill = PatternFill("solid", fgColor="F6F8FB")
     note_fill = PatternFill("solid", fgColor="ECFDF5")
+    subnote_fill = PatternFill("solid", fgColor="F8FAFC")
 
-    ws.merge_cells("B2:E2")
+    ws.merge_cells("B2:H2")
     ws["B2"] = "PageFlow Pack かんたん入力シート"
     ws["B2"].font = Font(color="FFFFFF", bold=True, size=16)
     ws["B2"].fill = title_fill
     ws["B2"].alignment = Alignment(vertical="center")
-    ws.row_dimensions[2].height = 24
+    ws.row_dimensions[2].height = 26
 
-    ws.merge_cells("B3:E4")
-    ws["B3"] = "黄色のセルだけ入力すればOKです。画像は Excel に貼らず、ZIP の中の「画像」フォルダへ入れます。わからない欄は空でも大丈夫です。"
+    ws.merge_cells("B3:H5")
+    ws["B3"] = "黄色のセルだけ入力すればOKです。まずは必須だけで大丈夫です。\n文字数は『現在文字数』で確認できます。改行できる欄は『改行』列に表示されます。\n会社概要は全部の枠を表示していますが、空欄は完成HPに出ません。追加項目は題名と内容の両方を入れた時だけ表示されます。\n画像は Excel に貼らず、ZIP の中の『画像』フォルダへ入れてください。"
     ws["B3"].alignment = Alignment(wrap_text=True, vertical="top")
     ws["B3"].fill = note_fill
     ws["B3"].font = Font(size=11)
 
-    ws["B6"] = "項目"
-    ws["C6"] = "入力する場所"
-    ws["D6"] = "必須 / 判定"
-    ws["E6"] = "例・補足"
+    headers = {
+        "B6": "項目",
+        "C6": "入力する場所",
+        "D6": "必須 / 判定",
+        "E6": "例文・補足",
+        "F6": "改行",
+        "G6": "現在文字数",
+        "H6": "最大目安",
+    }
+    for ref, value in headers.items():
+        ws[ref] = value
     for cell in ws["6:6"]:
         cell.fill = header_fill
         cell.font = Font(bold=True)
-        cell.alignment = Alignment(vertical="center")
+        cell.alignment = Alignment(vertical="center", horizontal="center")
 
     choice_ws = wb.create_sheet(PACK_SHEET_CHOICES)
     choice_ws.sheet_state = "hidden"
@@ -18431,24 +18930,100 @@ def _pack_write_workbook_bytes(seed: dict) -> bytes:
     meta_ws["A3"] = "created_at"
     meta_ws["B3"] = now_jst_iso()
 
+    guide_ws = wb.create_sheet(PACK_SHEET_GUIDE)
+    guide_ws.sheet_view.showGridLines = False
+    guide_ws.freeze_panes = "B6"
+    guide_ws.column_dimensions["A"].hidden = True
+    guide_ws.column_dimensions["B"].width = 24
+    guide_ws.column_dimensions["C"].width = 26
+    guide_ws.column_dimensions["D"].width = 28
+    guide_ws.column_dimensions["E"].width = 50
+    guide_ws.column_dimensions["F"].width = 20
+    guide_ws.column_dimensions["G"].width = 18
+    guide_ws.column_dimensions["H"].width = 18
+
+    guide_ws.merge_cells("B2:H2")
+    guide_ws["B2"] = "迷ったときガイド"
+    guide_ws["B2"].font = Font(color="FFFFFF", bold=True, size=16)
+    guide_ws["B2"].fill = title_fill
+    guide_ws["B2"].alignment = Alignment(vertical="center")
+    guide_ws.row_dimensions[2].height = 26
+
+    guide_ws.merge_cells("B3:H4")
+    guide_ws["B3"] = "このシートは説明だけです。入力は『入力はここだけ』シートで行います。\n迷った時だけここを見れば大丈夫です。"
+    guide_ws["B3"].alignment = Alignment(wrap_text=True, vertical="top")
+    guide_ws["B3"].fill = note_fill
+    guide_ws["B3"].font = Font(size=11)
+
+    guide_row = 6
+    for section in PACK_HELP_SHEET_SECTIONS:
+        guide_ws.merge_cells(start_row=guide_row, start_column=2, end_row=guide_row, end_column=8)
+        title_cell = guide_ws.cell(guide_row, 2, section.get("title") or "")
+        title_cell.fill = section_fill
+        title_cell.font = Font(color="FFFFFF", bold=True, size=12)
+        title_cell.alignment = Alignment(vertical="center")
+        guide_row += 1
+        for line in section.get("lines") or []:
+            guide_ws.merge_cells(start_row=guide_row, start_column=2, end_row=guide_row, end_column=8)
+            cell = guide_ws.cell(guide_row, 2, str(line))
+            cell.fill = subnote_fill
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            guide_row += 1
+        guide_row += 1
+
+    guide_ws[f"B{guide_row}"] = "画像名"
+    guide_ws[f"C{guide_row}"] = "使う場所"
+    guide_ws[f"D{guide_row}"] = "推奨サイズ"
+    guide_ws[f"E{guide_row}"] = "ひとこと"
+    for col in range(2, 6):
+        cell = guide_ws.cell(guide_row, col)
+        cell.fill = header_fill
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    guide_row += 1
+    for label, info in PACK_IMAGE_GUIDE.items():
+        guide_ws.cell(guide_row, 2, label)
+        guide_ws.cell(guide_row, 3, str(info.get("where") or ""))
+        guide_ws.cell(guide_row, 4, str(info.get("recommended") or ""))
+        guide_ws.cell(guide_row, 5, str(info.get("note") or ""))
+        for col in range(2, 6):
+            cell = guide_ws.cell(guide_row, col)
+            cell.border = border
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        guide_row += 1
+
     row = 8
     row_by_key = {}
     for field in PACK_FIELD_DEFS:
         field_type = field.get("type") or "input"
         if field_type == "section":
-            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=5)
-            cell = ws.cell(row, 2, field.get("title") or "")
+            title = str(field.get("title") or "")
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
+            cell = ws.cell(row, 2, title)
             cell.fill = section_fill
             cell.font = Font(color="FFFFFF", bold=True, size=12)
             cell.alignment = Alignment(vertical="center")
             ws.row_dimensions[row].height = 22
             row += 1
+            note = PACK_SECTION_NOTES.get(title)
+            if note:
+                ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
+                note_cell = ws.cell(row, 2, note)
+                note_cell.fill = subnote_fill
+                note_cell.font = Font(size=10, color="334155")
+                note_cell.alignment = Alignment(wrap_text=True, vertical="top")
+                ws.row_dimensions[row].height = 34
+                row += 1
             continue
 
         key = str(field.get("key") or "").strip()
         label = str(field.get("label") or "").strip()
         example = str(field.get("example") or "").strip()
         required = str(field.get("required") or "").strip()
+        guide = PACK_FIELD_GUIDE.get(key, {})
+        is_multiline = bool(guide.get("multiline"))
+        max_chars = guide.get("max_chars")
+        what = str(guide.get("what") or "").strip()
 
         ws.cell(row, 1, key)
         ws.cell(row, 2, label)
@@ -18457,23 +19032,53 @@ def _pack_write_workbook_bytes(seed: dict) -> bytes:
             input_cell.value = "画像フォルダへ入れるだけ"
             input_cell.fill = hint_fill
             input_cell.font = Font(color="666666")
+            img_info = PACK_IMAGE_GUIDE.get(label, {})
+            helper_lines = []
+            if img_info.get("where"):
+                helper_lines.append(f"使う場所: {img_info.get('where')}")
+            if img_info.get("recommended"):
+                helper_lines.append(f"推奨サイズ: {img_info.get('recommended')}")
+            helper_lines.append(f"例: {example}")
+            if img_info.get("note"):
+                helper_lines.append(str(img_info.get("note")))
+            ws.cell(row, 5, "\n".join(helper_lines))
+            ws.cell(row, 6, "入力不要")
+            ws.cell(row, 7, "")
+            ws.cell(row, 8, "")
         else:
             input_cell.value = _pack_text(seed.get(key))
             input_cell.fill = input_fill
+            helper_lines = []
+            if what:
+                helper_lines.append(what)
+            if example:
+                helper_lines.append(f"例: {example}")
+            if is_multiline:
+                helper_lines.append("改行できます。Alt+Enter で改行してください。")
+            ws.cell(row, 5, "\n".join([x for x in helper_lines if x]))
+            ws.cell(row, 6, "できます（Alt+Enter）" if is_multiline else "1行でOK")
+            ws.cell(row, 7, f"=LEN(C{row})")
+            if max_chars:
+                ws.cell(row, 8, int(max_chars))
         ws.cell(row, 4, required)
-        ws.cell(row, 5, example)
 
-        for col in range(2, 6):
+        for col in range(2, 9):
             cell = ws.cell(row, col)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             cell.border = border
+
+        input_cell.alignment = Alignment(vertical="top", wrap_text=is_multiline)
+        if is_multiline:
+            ws.row_dimensions[row].height = 44
+        else:
+            ws.row_dimensions[row].height = 24
 
         if key:
             row_by_key[key] = row
         row += 1
 
-    ws.merge_cells(start_row=row + 1, start_column=2, end_row=row + 2, end_column=5)
-    ws.cell(row + 1, 2).value = "入力が終わったら、このフォルダごと ZIP にして案件一覧の『かんたん案件パックを読み込む』から取り込んでください。"
+    ws.merge_cells(start_row=row + 1, start_column=2, end_row=row + 3, end_column=8)
+    ws.cell(row + 1, 2).value = "入力が終わったら、このフォルダごと ZIP にして案件一覧の『かんたん案件パックを読み込む』から取り込んでください。\n迷った時は『迷ったときガイド』シートを見ると、画像サイズ・アイコン・改行・会社概要の書き方まで確認できます。"
     ws.cell(row + 1, 2).alignment = Alignment(wrap_text=True, vertical="top")
     ws.cell(row + 1, 2).fill = note_fill
 
@@ -18486,6 +19091,8 @@ def _pack_write_workbook_bytes(seed: dict) -> bytes:
         dv.error = "一覧にある値を選んでください"
         ws.add_data_validation(dv)
         dv.add(ws.cell(row_no, 3))
+
+    ws.auto_filter.ref = f"B6:H{row-1}"
 
     mem = BytesIO()
     wb.save(mem)
@@ -18606,6 +19213,38 @@ def _pack_coerce_seed(values: dict) -> dict:
     seed["contact_form_mode"] = _pack_contact_form_label(seed.get("contact_form_mode"))
     seed["company_profile_mode"] = _pack_profile_mode_key(seed.get("company_profile_mode"))
     seed["company_profile_kind"] = _pack_profile_kind_key(seed.get("company_profile_kind"))
+    seed["recruitment_enabled"] = _pack_show_hide_label(_pack_show_hide_bool(seed.get("recruitment_enabled")))
+
+    profile_has_content = False
+    for key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        if _pack_text(seed.get(f"profile_{key}")):
+            profile_has_content = True
+            break
+    if not profile_has_content:
+        for idx in range(1, COMPANY_PROFILE_EXTRA_ROW_COUNT + 1):
+            if _pack_text(seed.get(f"profile_extra_{idx}_label")) and _pack_text(seed.get(f"profile_extra_{idx}_value")):
+                profile_has_content = True
+                break
+    if profile_has_content and seed.get("company_profile_mode") == "unused":
+        seed["company_profile_mode"] = "always"
+
+    recruitment_has_content = any(
+        _pack_text(seed.get(k))
+        for k in [
+            "recruitment_badge_text",
+            "recruitment_title",
+            "recruitment_lead",
+            "recruitment_employment_types",
+            "recruitment_qualification_note",
+            "recruitment_target_person",
+            "recruitment_work_details",
+            "recruitment_conditions",
+            "recruitment_application_flow",
+            "recruitment_contact_note",
+        ]
+    )
+    if recruitment_has_content and not _pack_show_hide_bool(seed.get("recruitment_enabled")):
+        seed["recruitment_enabled"] = PACK_SHOW_HIDE_OPTIONS[0]
     return seed
 
 def _pack_convert_image_to_data_url(slot: str, filename: str, raw: bytes) -> tuple[str, str]:
@@ -18715,6 +19354,8 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
     hero = blocks.get("hero") if isinstance(blocks.get("hero"), dict) else {}
     philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
     services = philosophy.get("services") if isinstance(philosophy.get("services"), dict) else {}
+    recruitment = _normalize_recruitment_block(blocks.get("recruitment") if isinstance(blocks.get("recruitment"), dict) else {})
+    blocks["recruitment"] = recruitment
     news = blocks.get("news") if isinstance(blocks.get("news"), dict) else {}
     faq = blocks.get("faq") if isinstance(blocks.get("faq"), dict) else {}
     access = blocks.get("access") if isinstance(blocks.get("access"), dict) else {}
@@ -18733,7 +19374,7 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
     philosophy["body"] = _pack_text(seed.get("philosophy_body"))
     philosophy["points"] = [_pack_text(seed.get("point_1")), _pack_text(seed.get("point_2")), _pack_text(seed.get("point_3"))]
 
-    services["title"] = _pack_text(seed.get("services_title") or "業務内容")
+    services["title"] = _pack_text(seed.get("services_title") or "事業内容")
     services["lead"] = _pack_text(seed.get("services_lead"))
     svc_items = []
     for idx in range(1, 4):
@@ -18743,8 +19384,22 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
             svc_items.append({"title": title, "body": body})
     services["items"] = svc_items
 
+    recruitment["enabled"] = _pack_show_hide_bool(seed.get("recruitment_enabled"))
+    recruitment["header_badge_text"] = _pack_text(seed.get("recruitment_badge_text")) or RECRUITMENT_BADGE_DEFAULT
+    recruitment["title"] = _pack_text(seed.get("recruitment_title")) or "求人情報"
+    recruitment["lead"] = _pack_text(seed.get("recruitment_lead"))
+    recruitment["employment_types"] = _pack_text(seed.get("recruitment_employment_types"))
+    recruitment["qualification_note"] = _pack_text(seed.get("recruitment_qualification_note"))
+    recruitment["target_person"] = _pack_text(seed.get("recruitment_target_person"))
+    recruitment["work_details"] = _pack_text(seed.get("recruitment_work_details"))
+    recruitment["conditions"] = _pack_text(seed.get("recruitment_conditions"))
+    recruitment["application_flow"] = _pack_text(seed.get("recruitment_application_flow"))
+    recruitment["contact_note"] = _pack_text(seed.get("recruitment_contact_note"))
+    if _recruitment_has_content(recruitment) and not recruitment.get("enabled"):
+        recruitment["enabled"] = True
+
     faq_items = []
-    for idx in range(1, 3):
+    for idx in range(1, PACK_FAQ_COUNT + 1):
         q = _pack_text(seed.get(f"faq_q_{idx}"))
         a = _pack_text(seed.get(f"faq_a_{idx}"))
         if q or a:
@@ -18752,13 +19407,16 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
     faq["items"] = faq_items
 
     news_items = []
-    if _pack_text(seed.get("news_title_1")) or _pack_text(seed.get("news_body_1")):
-        news_items.append({
-            "date": _pack_text(seed.get("news_date_1")) or datetime.now(JST).strftime("%Y-%m-%d"),
-            "category": _pack_text(seed.get("news_category_1")) or "お知らせ",
-            "title": _pack_text(seed.get("news_title_1")),
-            "body": _pack_text(seed.get("news_body_1")),
-        })
+    for idx in range(1, PACK_NEWS_COUNT + 1):
+        title = _pack_text(seed.get(f"news_title_{idx}"))
+        body = _pack_text(seed.get(f"news_body_{idx}"))
+        if title or body:
+            news_items.append({
+                "date": datetime.now(JST).strftime("%Y-%m-%d"),
+                "category": "お知らせ",
+                "title": title,
+                "body": body,
+            })
     news["items"] = news_items
 
     access["map_url"] = _pack_text(seed.get("map_url"))
@@ -18770,14 +19428,17 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
 
     profile["mode"] = _pack_text(seed.get("company_profile_mode")) or "unused"
     profile["kind"] = _pack_text(seed.get("company_profile_kind")) or "overview"
-    profile["trade_name"] = _pack_text(seed.get("profile_trade_name"))
-    profile["address"] = _pack_text(seed.get("profile_address"))
-    profile["executives"] = _pack_text(seed.get("profile_executives"))
-    profile["established"] = _pack_text(seed.get("profile_established"))
-    profile["business"] = _pack_text(seed.get("profile_business"))
-    profile["site_url"] = _pack_text(seed.get("profile_site_url"))
-    profile["capital"] = _pack_text(seed.get("profile_capital"))
-    profile["employees"] = _pack_text(seed.get("profile_employees"))
+    for key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS:
+        profile[key] = _pack_text(seed.get(f"profile_{key}"))
+    extra_rows = []
+    for idx in range(1, COMPANY_PROFILE_EXTRA_ROW_COUNT + 1):
+        label = _pack_text(seed.get(f"profile_extra_{idx}_label"))
+        value = _pack_text(seed.get(f"profile_extra_{idx}_value"))
+        extra_rows.append({"label": label, "value": value})
+    profile["extra_rows"] = extra_rows
+    profile_has_content = any(_pack_text(profile.get(key)) for key, _label, _sample in COMPANY_PROFILE_FIELD_DEFS) or any(_pack_text(r.get("label")) and _pack_text(r.get("value")) for r in extra_rows)
+    if profile_has_content and profile.get("mode") == "unused":
+        profile["mode"] = "always"
 
     imported_labels = []
     image_count = 0
@@ -18857,7 +19518,6 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
         "ignored_images": ignored_images,
     }
     return p, summary
-
 
 @ui.page("/projects", response_timeout=75.0, reconnect_timeout=60.0)
 def projects_page():
