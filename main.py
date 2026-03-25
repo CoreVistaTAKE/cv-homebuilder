@@ -14605,8 +14605,8 @@ def render_login(root_refresh) -> None:
         with ui.card().classes("q-pa-xl rounded-borders cvhb-auth-card").props("bordered"):
             ui.html(
                 _auth_brand_panel_html(
-                    "左で入力、右で確認しながら、案件ごとに整理して進められるビルダーです。
-公開までの流れが見やすく、迷いにくい構成にしています。",
+                    """左で入力、右で確認しながら、案件ごとに整理して進められるビルダーです。
+公開までの流れが見やすく、迷いにくい構成にしています。""",
                     [
                         "左で入力、右で確認",
                         "案件ごとに整理しやすい",
@@ -14661,8 +14661,8 @@ def render_first_admin_setup(root_refresh) -> None:
         with ui.card().classes("q-pa-xl rounded-borders cvhb-auth-card").style("width: 640px; max-width: 92vw;").props("bordered"):
             ui.html(
                 _auth_brand_panel_html(
-                    "最初の管理者を1人だけ作れば、この画面は以後表示されません。
-設定後は通常のログイン画面からそのまま使い始められます。",
+                    """最初の管理者を1人だけ作れば、この画面は以後表示されません。
+設定後は通常のログイン画面からそのまま使い始められます。""",
                     [
                         "初回だけ表示",
                         "あとでユーザー追加可能",
@@ -18789,7 +18789,7 @@ def render_loading_visual(*, compact: bool = False) -> None:
     )
 
 
-@ui.page("/help"))
+@ui.page("/help")
 def help_page():
     """HELP_MODE専用: ローカルでヘルプ（手順書）を作るためのページ。"""
     inject_global_styles()
@@ -20882,8 +20882,8 @@ async def index():
                 with ui.column().classes("w-full items-center justify-center text-center q-pa-xl").style("min-height: 72vh;"):
                     with ui.card().classes("q-pa-xl rounded-borders cvhb-loading-card cvhb-surface-card").style("width: 460px; max-width: 92vw;").props("bordered"):
                         with ui.column().classes("w-full items-center justify-center text-center"):
-                            ui.html(_startup_brand_panel_html("必要なデータを整えてから開いています。
-重く見えないよう、見た目はそのままに軽さを優先しています。"))
+                            ui.html(_startup_brand_panel_html("""必要なデータを整えてから開いています。
+重く見えないよう、見た目はそのままに軽さを優先しています。"""))
                             render_loading_visual()
                             ui.label(title).classes("w-full text-subtitle1 q-mt-sm text-center")
                             ui.label(detail).classes("w-full cvhb-muted q-mt-xs text-center")
