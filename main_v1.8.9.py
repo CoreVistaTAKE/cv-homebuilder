@@ -1242,25 +1242,9 @@ def inject_global_styles() -> None:
     if(oldStyle) oldStyle.remove();
     var oldIcon = document.getElementById('cvhb-default-favicon');
     if(oldIcon) oldIcon.remove();
-    var oldNoTranslate = document.getElementById('cvhb-notranslate-meta');
-    if(oldNoTranslate) oldNoTranslate.remove();
-    var oldLangMeta = document.getElementById('cvhb-content-language-meta');
-    if(oldLangMeta) oldLangMeta.remove();
-    var htmlEl = document.documentElement;
-    if(htmlEl){
-      htmlEl.lang = 'ja';
-      htmlEl.setAttribute('translate', 'no');
-      htmlEl.classList.add('notranslate');
-    }
-    if(document.body){
-      document.body.setAttribute('translate', 'no');
-      document.body.classList.add('notranslate');
-    }
   }catch(e){}
 })();
 </script>
-<meta id="cvhb-notranslate-meta" name="google" content="notranslate">
-<meta id="cvhb-content-language-meta" http-equiv="Content-Language" content="ja">
 <link id="cvhb-default-favicon" rel="icon" type="image/svg+xml" href="__CVHB_BUILDER_FAVICON__">
 <style id="cvhb-global-styles">
   /* ====== Page base ====== */
@@ -1286,23 +1270,6 @@ def inject_global_styles() -> None:
 
   body {
     background: linear-gradient(180deg, var(--cvhb-app-bg-1), var(--cvhb-app-bg-2));
-    top: 0 !important;
-  }
-
-  html.notranslate,
-  body.notranslate,
-  .notranslate {
-    translate: no;
-  }
-
-  .goog-te-banner-frame.skiptranslate,
-  iframe.goog-te-banner-frame,
-  body > .skiptranslate,
-  .skiptranslate.goog-te-gadget {
-    display: none !important;
-    visibility: hidden !important;
-    height: 0 !important;
-    opacity: 0 !important;
   }
 
   .cvhb-appbar {
@@ -5698,7 +5665,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.8.9"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.7.0"
 
 
 PRODUCT_NAME = "PageFlow AI"
@@ -9212,19 +9179,17 @@ def build_thanks_html(*, company_name: str, to_email: str, step1: dict, favicon_
     thanks_footer_html = build_footer_markup(company_name=company_name, footer_links_html=thanks_footer_links_html)
 
     return f"""<!doctype html>
-<html lang="ja" translate="no" class="notranslate">
+<html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="google" content="notranslate">
-  <meta http-equiv="Content-Language" content="ja">
   <title>{esc_company}｜送信結果</title>
   <link rel="stylesheet" href="{html.escape(version_static_asset_href('assets/site.css'), quote=True)}">
   {favicon_tags}
 
 </head>
-<body class="pv-page-body notranslate" translate="no" style="{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;background-image:var(--pv-bg-img);background-color:var(--pv-base-1);background-size:var(--pv-base-size);background-position:var(--pv-base-pos-from,center top);background-repeat:no-repeat;">
-  <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile notranslate{' pv-dark' if is_dark else ''}{design_root_classes}" translate="no" {design_root_attrs} style="{theme_style}">
+<body class="pv-page-body" style="{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;background-image:var(--pv-bg-img);background-color:var(--pv-base-1);background-size:var(--pv-base-size);background-position:var(--pv-base-pos-from,center top);background-repeat:no-repeat;">
+  <div id="pv-root" class="pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}{design_root_classes}" {design_root_attrs} style="{theme_style}">
     <header class="pv-topbar pv-topbar-260218">
       <div class="row pv-topbar-inner items-center justify-between">
         <a class="row items-center no-wrap pv-brand" href="index.html#pv-top" aria-label="トップへ">
@@ -13421,18 +13386,16 @@ body.pv-modal-open{overflow:hidden !important;}
         brand_href = sec_href("pv-top")
 
         return f"""<!doctype html>
-<html lang=\"ja\" translate=\"no\" class=\"notranslate\">
+<html lang=\"ja\">
 <head>
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-  <meta name=\"google\" content=\"notranslate\">
-  <meta http-equiv=\"Content-Language\" content=\"ja\">
   <title>{esc_title}</title>
   <link rel=\"stylesheet\" href=\"{_esc(css_href)}\">
   {icon_tag}
 </head>
-<body class=\"pv-page-body notranslate\" translate=\"no\" style=\"{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;\">
-  <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile notranslate{' pv-dark' if is_dark else ''}{design_root_classes}\" translate=\"no\" {design_root_attrs} style=\"{theme_style}\">
+<body class=\"pv-page-body\" style=\"{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;\">
+  <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}{design_root_classes}\" {design_root_attrs} style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"{brand_href}\" aria-label=\"トップへ\">
@@ -13796,18 +13759,16 @@ body.pv-modal-open{overflow:hidden !important;}
     favicon_tag = _favicon_head_tags(favicon_href_html)
 
     index_html = f"""<!doctype html>
-<html lang=\"ja\" translate=\"no\" class=\"notranslate\">
+<html lang=\"ja\">
 <head>
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-  <meta name=\"google\" content=\"notranslate\">
-  <meta http-equiv=\"Content-Language\" content=\"ja\">
   <title>{_esc(company_name)}</title>
   <link rel=\"stylesheet\" href=\"{_esc(site_css_href)}\">
   {favicon_tag}
 </head>
-<body class=\"pv-page-body notranslate\" translate=\"no\" style=\"{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;\">
-  <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile notranslate{' pv-dark' if is_dark else ''}{design_root_classes}\" translate=\"no\" {design_root_attrs} style=\"{theme_style}\">
+<body class=\"pv-page-body\" style=\"{theme_style};width:100%;max-width:100%;min-width:0;margin:0;overflow-x:hidden;overflow-y:auto;\">
+  <div id=\"pv-root\" class=\"pv-shell pv-layout-260218 pv-mode-mobile{' pv-dark' if is_dark else ''}{design_root_classes}\" {design_root_attrs} style=\"{theme_style}\">
     <header class=\"pv-topbar pv-topbar-260218\">
       <div class=\"row pv-topbar-inner items-center justify-between\">
         <a class=\"row items-center no-wrap pv-brand\" href=\"#pv-top\" aria-label=\"トップへ\">
