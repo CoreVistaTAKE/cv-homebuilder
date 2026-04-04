@@ -5610,7 +5610,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.8.0"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.7.0"
 
 
 PRODUCT_NAME = "PageFlow AI"
