@@ -6402,7 +6402,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "1.9.11")
+VERSION = read_text_file("VERSION", "1.9.12")
 
 
 def detect_file_version(path: str) -> str:
@@ -6419,7 +6419,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.11"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.12"
 APP_RELEASE_VERSION = CURRENT_APP_VERSION
 DESIGN_PROFILE_SCHEMA_VERSION = "1.9.schema.1"
 
@@ -6644,7 +6644,15 @@ get_user_by_username = _get_user_by_username__base_5819
 
 
 def count_users() -> int:
-    row = db_fetchone("SELECT COUNT(*) AS cnt FROM users", None)
+    try:
+        row = db_fetchone("SELECT COUNT(*) AS cnt FROM users", None)
+    except Exception as e:
+        try:
+            print(f"[users] count_users failed: {sanitize_error_text(e)}", flush=True)
+        except Exception:
+            pass
+        # DB瞬断時に初回管理者セットアップへ誤遷移しないよう、安全側で既存ユーザーあり扱いにする。
+        return 1
     return int(row["cnt"]) if row else 0
 
 
@@ -6891,6 +6899,54 @@ try {{
         pass
 
 
+def _current_project_storage_snapshot() -> tuple[str, str]:
+    try:
+        project_id = str(app.storage.user.get("current_project_id") or "").strip()
+    except Exception:
+        project_id = ""
+    try:
+        project_name = str(app.storage.user.get("current_project_name") or "").strip()
+    except Exception:
+        project_name = ""
+    return project_id, project_name
+
+
+def navigate_to_builder_home(user: Optional[User] = None, *, source: str = "secondary_page_back") -> None:
+    project_id, project_name = _current_project_storage_snapshot()
+    viewer = user
+    if viewer is None:
+        try:
+            viewer = current_user()
+        except Exception:
+            viewer = None
+    cache_ready = False
+    if project_id and viewer:
+        try:
+            cache_ready = project_cache_hit(viewer, project_id)
+        except Exception:
+            cache_ready = False
+    if project_id and not cache_ready:
+        try:
+            set_pending_open_project(project_id, project_name, source=source)
+        except Exception:
+            pass
+    navigate_to("/")
+
+
+def render_secondary_page_error_state(page_name: str, user: Optional[User], lead: str, *, detail: str = "") -> None:
+    with ui.element("div").classes("cvhb-container"):
+        with ui.card().classes("q-pa-md rounded-borders cvhb-surface-card").props("bordered"):
+            ui.label(f"{page_name}の読み込みで問題が起きました").classes("text-subtitle1")
+            ui.label(str(lead or "ページの表示に失敗しました。")).classes("cvhb-muted q-mt-sm")
+            if detail:
+                ui.label(f"詳細: {sanitize_error_text(detail)}").classes("text-caption text-grey q-mt-sm")
+            ui.label("画面全体を500にせず、この画面だけを安全に戻せる状態へ切り替えています。").classes("cvhb-muted text-caption q-mt-sm")
+            with ui.row().classes("q-gutter-sm q-mt-md"):
+                ui.button(f"{BUILDER_NAME}へ戻る", on_click=lambda: navigate_to_builder_home(user, source=f"{page_name}_error_back")).props("color=primary flat no-caps")
+                ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat no-caps")
+                ui.button("トップへ戻る", on_click=lambda: navigate_to("/")).props("flat no-caps")
+
+
 PENDING_OPEN_PROJECT_ID_KEY = "pending_open_project_id"
 PENDING_OPEN_PROJECT_NAME_KEY = "pending_open_project_name"
 PENDING_OPEN_STARTED_AT_KEY = "pending_open_started_at"
@@ -7004,8 +7060,8 @@ def _company_list_cache_get(include_stopped: bool) -> Optional[list[dict]]:
     try:
         age = time.monotonic() - float(item.get("ts") or 0.0)
     except Exception:
-        age = COMPANY_LIST_CACHE_TTL_SEC + 1.0
-    if age > float(COMPANY_LIST_CACHE_TTL_SEC):
+        age = _COMPANY_LIST_CACHE_TTL_SEC + 1.0
+    if age > float(_COMPANY_LIST_CACHE_TTL_SEC):
         _COMPANY_LIST_CACHE.pop(key, None)
         return None
     rows = item.get("rows")
@@ -7136,6 +7192,14 @@ def _project_list_cache_put(items: list[dict]) -> None:
 def _project_list_cache_invalidate() -> None:
     _PROJECT_LIST_CACHE["ts"] = 0.0
     _PROJECT_LIST_CACHE["items"] = []
+
+
+def _project_list_cache_get_stale() -> list[dict]:
+    items = _PROJECT_LIST_CACHE.get("items")
+    if not isinstance(items, list):
+        return []
+    cloned = _clone_json_data(items)
+    return cloned if isinstance(cloned, list) else []
 
 
 def _project_cache_hit__base_6170(user: Optional[User], project_id: str = "") -> bool:
@@ -7709,7 +7773,7 @@ def build_static_site_version_manifest(design_profile: Optional[dict] = None, *,
         "hero_full_bleed": True,
         "hero_slide_limit": 2,
         "hero_render_rule": "width_match_keep_aspect_1280x720",
-        "release_gate": "product_v1.9.11",
+        "release_gate": "product_v1.9.12",
         "js_split": ["site.hero.js", "site.contact.js", "site.reveal.js", "site.map.js"],
     }
     if isinstance(flags, dict):
@@ -23687,109 +23751,111 @@ def projects_page():
         return False
 
     def go_back_to_builder() -> None:
-        pid = ""
-        try:
-            pid = str(app.storage.user.get("current_project_id", "") or "").strip()
-        except Exception:
-            pid = ""
-        if pid and switch_to_builder_inline():
+        if switch_to_builder_inline():
             return
-        navigate_to("/")
+        navigate_to_builder_home(u, source="projects_back")
 
     @ui.refreshable
     def page_refresh():
         page_root.clear()
         with page_root:
-            if str(page_state.get("mode") or "list") == "builder":
-                ui.page_title(f"{BUILDER_NAME} | {PRODUCT_NAME}")
-                render_main(u)
-                replace_browser_url("/")
-                return
+            try:
+                if str(page_state.get("mode") or "list") == "builder":
+                    ui.page_title(f"{BUILDER_NAME} | {PRODUCT_NAME}")
+                    render_main(u)
+                    replace_browser_url("/")
+                    return
 
-            ui.page_title(f"案件一覧 | {PRODUCT_NAME}")
-            render_header(u)
+                ui.page_title(f"案件一覧 | {PRODUCT_NAME}")
+                render_header(u)
 
-            projects_help_mode = bool(HELP_MODE or (not _tenant_admin_db_ready()))
-            can_create_project_now = can_create_projects(u)
-            can_manage_scope_now = bool((not projects_help_mode) and can_manage_users(u))
-            is_platform_now = bool((not projects_help_mode) and is_platform_admin(u))
-            project_settings_role = bool((not projects_help_mode) and (is_platform_now or is_company_admin(u)))
+                projects_help_mode = bool(HELP_MODE or (not _tenant_admin_db_ready()))
+                can_create_project_now = can_create_projects(u)
+                can_manage_scope_now = bool((not projects_help_mode) and can_manage_users(u))
+                is_platform_now = bool((not projects_help_mode) and is_platform_admin(u))
+                project_settings_role = bool((not projects_help_mode) and (is_platform_now or is_company_admin(u)))
+                project_company_options = {}
+                if is_platform_now:
+                    try:
+                        project_company_options = _tenant_scope_company_options(u)
+                    except Exception:
+                        project_company_options = {}
 
-            with ui.element("div").classes("cvhb-container"):
-                with ui.dialog() as new_project_dialog, ui.card().classes("q-pa-md rounded-borders cvhb-surface-card").props("bordered"):
-                    ui.label("新規案件を作成").classes("text-subtitle1 q-mb-sm")
-                    ui.label("案件は必ず B会社 に紐づけて作成します。A管理者は会社を選び、B管理者 / サブ管理者は自社で作成します。")                        .classes("cvhb-muted q-mb-sm")
-                    np_name = ui.input("案件名（必須）").props("outlined").classes("w-full")
-                    np_client = ui.input("顧客名（C / 任意）").props("outlined").classes("w-full q-mt-sm")
-                    np_delivery = ui.select({
-                        DELIVERY_MODE_ZIP: delivery_mode_label_v175(DELIVERY_MODE_ZIP),
-                        DELIVERY_MODE_MANAGED_UPDATE: delivery_mode_label_v175(DELIVERY_MODE_MANAGED_UPDATE),
-                    }, value=DELIVERY_MODE_ZIP).props("outlined").classes("w-full q-mt-sm")
-                    np_maintenance = ui.checkbox("保守契約あり（サーバー / ドメイン管理込み）", value=False).classes("q-mt-sm")
-                    np_company_select = None
-                    if projects_help_mode:
-                        ui.label("HELP_MODEでは会社割当なしのオフライン案件として作成します。")                            .classes("cvhb-muted q-mt-sm")
-                    elif is_platform_now:
-                        np_company_select = ui.select(_tenant_scope_company_options(u), value=None).props("outlined").classes("w-full q-mt-sm")
-                        ui.label("A管理者は、どの B会社 の案件かを選んでください。")                            .classes("cvhb-muted text-caption q-mt-xs")
-                    else:
-                        ui.label(f"所属会社: {str(u.company_name or '未設定')}").classes("cvhb-muted q-mt-sm")
-
-                    def _sync_new_project_delivery(value) -> None:
-                        dm = str(value or DELIVERY_MODE_ZIP)
-                        if dm == DELIVERY_MODE_MANAGED_UPDATE:
-                            np_maintenance.value = True
-                    np_delivery.on_value_change(lambda e: _sync_new_project_delivery(e.value))
-
-                    async def _create_new_project() -> None:
-                        if not can_create_project_now:
-                            ui.notify("案件を作成できるのは管理者・サブ管理者のみです", type="negative")
-                            return
-                        name = str(np_name.value or "").strip()
-                        if not name:
-                            ui.notify("案件名を入力してください", type="warning")
-                            return
-                        owner_company_id = None
+                with ui.element("div").classes("cvhb-container"):
+                    with ui.dialog() as new_project_dialog, ui.card().classes("q-pa-md rounded-borders cvhb-surface-card").props("bordered"):
+                        ui.label("新規案件を作成").classes("text-subtitle1 q-mb-sm")
+                        ui.label("案件は必ず B会社 に紐づけて作成します。A管理者は会社を選び、B管理者 / サブ管理者は自社で作成します。")                        .classes("cvhb-muted q-mb-sm")
+                        np_name = ui.input("案件名（必須）").props("outlined").classes("w-full")
+                        np_client = ui.input("顧客名（C / 任意）").props("outlined").classes("w-full q-mt-sm")
+                        np_delivery = ui.select({
+                            DELIVERY_MODE_ZIP: delivery_mode_label_v175(DELIVERY_MODE_ZIP),
+                            DELIVERY_MODE_MANAGED_UPDATE: delivery_mode_label_v175(DELIVERY_MODE_MANAGED_UPDATE),
+                        }, value=DELIVERY_MODE_ZIP).props("outlined").classes("w-full q-mt-sm")
+                        np_maintenance = ui.checkbox("保守契約あり（サーバー / ドメイン管理込み）", value=False).classes("q-mt-sm")
+                        np_company_select = None
                         if projects_help_mode:
-                            owner_company_id = None
+                            ui.label("HELP_MODEでは会社割当なしのオフライン案件として作成します。")                            .classes("cvhb-muted q-mt-sm")
                         elif is_platform_now:
-                            owner_company_id = _normalize_int_optional(np_company_select.value if np_company_select else None)
-                            if not owner_company_id:
-                                ui.notify("所属会社を選択してください", type="warning")
-                                return
+                            np_company_select = ui.select(project_company_options, value=None).props("outlined").classes("w-full q-mt-sm")
+                            ui.label("A管理者は、どの B会社 の案件かを選んでください。")                            .classes("cvhb-muted text-caption q-mt-xs")
                         else:
-                            owner_company_id = _normalize_int_optional(getattr(u, "company_id", None))
-                            if not owner_company_id:
-                                ui.notify("所属会社が設定されていません", type="negative")
-                                return
-                        try:
-                            project_obj = create_project(
-                                name,
-                                u,
-                                owner_company_id=owner_company_id,
-                                client_name=str(np_client.value or ""),
-                                delivery_mode=str(np_delivery.value or DELIVERY_MODE_ZIP),
-                                maintenance_included=bool(np_maintenance.value),
-                            )
-                            await asyncio.to_thread(save_project_to_sftp, project_obj, u)
-                            set_current_project(project_obj, u)
-                            set_pending_open_project(
-                                str(project_obj.get("project_id") or ""),
-                                str(project_obj.get("project_name") or name),
-                                source="new_project",
-                            )
-                            ui.notify("案件を作成しました。軽いルートで入力画面へ移動します。", type="positive")
-                            try:
-                                new_project_dialog.close()
-                            except Exception:
-                                pass
-                            navigate_to("/")
-                        except Exception as e:
-                            ui.notify(f"作成に失敗しました: {sanitize_error_text(e)}", type="negative")
+                            ui.label(f"所属会社: {str(u.company_name or '未設定')}").classes("cvhb-muted q-mt-sm")
 
-                    with ui.row().classes("q-gutter-sm q-mt-md"):
-                        ui.button("キャンセル", on_click=new_project_dialog.close).props("flat")
-                        ui.button("作成", on_click=_create_new_project).props("color=primary unelevated")
+                        def _sync_new_project_delivery(value) -> None:
+                            dm = str(value or DELIVERY_MODE_ZIP)
+                            if dm == DELIVERY_MODE_MANAGED_UPDATE:
+                                np_maintenance.value = True
+                        np_delivery.on_value_change(lambda e: _sync_new_project_delivery(e.value))
+
+                        async def _create_new_project() -> None:
+                            if not can_create_project_now:
+                                ui.notify("案件を作成できるのは管理者・サブ管理者のみです", type="negative")
+                                return
+                            name = str(np_name.value or "").strip()
+                            if not name:
+                                ui.notify("案件名を入力してください", type="warning")
+                                return
+                            owner_company_id = None
+                            if projects_help_mode:
+                                owner_company_id = None
+                            elif is_platform_now:
+                                owner_company_id = _normalize_int_optional(np_company_select.value if np_company_select else None)
+                                if not owner_company_id:
+                                    ui.notify("所属会社を選択してください", type="warning")
+                                    return
+                            else:
+                                owner_company_id = _normalize_int_optional(getattr(u, "company_id", None))
+                                if not owner_company_id:
+                                    ui.notify("所属会社が設定されていません", type="negative")
+                                    return
+                            try:
+                                project_obj = create_project(
+                                    name,
+                                    u,
+                                    owner_company_id=owner_company_id,
+                                    client_name=str(np_client.value or ""),
+                                    delivery_mode=str(np_delivery.value or DELIVERY_MODE_ZIP),
+                                    maintenance_included=bool(np_maintenance.value),
+                                )
+                                await asyncio.to_thread(save_project_to_sftp, project_obj, u)
+                                set_current_project(project_obj, u)
+                                set_pending_open_project(
+                                    str(project_obj.get("project_id") or ""),
+                                    str(project_obj.get("project_name") or name),
+                                    source="new_project",
+                                )
+                                ui.notify("案件を作成しました。軽いルートで入力画面へ移動します。", type="positive")
+                                try:
+                                    new_project_dialog.close()
+                                except Exception:
+                                    pass
+                                navigate_to("/")
+                            except Exception as e:
+                                ui.notify(f"作成に失敗しました: {sanitize_error_text(e)}", type="negative")
+
+                        with ui.row().classes("q-gutter-sm q-mt-md"):
+                            ui.button("キャンセル", on_click=new_project_dialog.close).props("flat")
+                            ui.button("作成", on_click=_create_new_project).props("color=primary unelevated")
 
                 open_state = {"busy": False}
                 with ui.dialog().props("persistent") as open_project_dialog, ui.card().classes("q-pa-lg rounded-borders cvhb-loading-card cvhb-surface-card").props("bordered"):
@@ -23899,7 +23965,7 @@ def projects_page():
                     if projects_help_mode:
                         ui.label("HELP_MODEでは会社割当なしのオフライン案件として取り込みます。")                            .classes("cvhb-muted q-mb-sm")
                     elif is_platform_now:
-                        pack_import_company = ui.select(_tenant_scope_company_options(u), value=None).props("outlined").classes("w-full q-mb-sm")
+                        pack_import_company = ui.select(project_company_options, value=None).props("outlined").classes("w-full q-mb-sm")
                         ui.label("A管理者は、取り込み先の B会社 を選んでください。")                            .classes("cvhb-muted text-caption q-mb-sm")
                     else:
                         ui.label(f"取り込み先会社: {str(u.company_name or '未設定')}").classes("cvhb-muted q-mb-sm")
@@ -23985,7 +24051,7 @@ def projects_page():
                     ui.label("所属会社 / 顧客 / 納品方式 / 担当者は管理者だけが変更できます。")                        .classes("cvhb-muted q-mb-sm")
                     settings_company_select = None
                     if is_platform_now:
-                        settings_company_select = ui.select(_tenant_scope_company_options(u), value=None).props("outlined").classes("w-full")
+                        settings_company_select = ui.select(project_company_options, value=None).props("outlined").classes("w-full")
                     settings_company_label = ui.label("").classes("cvhb-muted q-mt-xs")
                     settings_client_input = ui.input("顧客名（C / 任意）").props("outlined").classes("w-full q-mt-sm")
                     settings_delivery_select = ui.select({
@@ -24009,9 +24075,8 @@ def projects_page():
                         settings_assigned_select.value = selected_values
                         if is_platform_now:
                             settings_company_select.value = str(owner_company_id) if owner_company_id else None
-                        settings_company_label.text = (
-                            f"所属会社: {str(get_company_by_id(int(owner_company_id)).get('company_name') or '')}" if owner_company_id and get_company_by_id(int(owner_company_id)) else "所属会社を選択してください"
-                        )
+                        owner_company = get_company_by_id(int(owner_company_id)) if owner_company_id else None
+                        settings_company_label.text = f"所属会社: {str((owner_company or {}).get('company_name') or '')}" if owner_company else "所属会社を選択してください"
 
                     def _open_settings(project_meta: dict) -> None:
                         try:
@@ -24286,7 +24351,11 @@ def projects_page():
                                 if is_admin(u):
                                     ui.button("削除", on_click=lambda item=item: _open_delete(item)).props("color=negative outline")
 
-                list_refresh()
+                    list_refresh()
+            except Exception as e:
+                page_root.clear()
+                with page_root:
+                    render_secondary_page_error_state("案件一覧", u, "案件一覧の読み込み中に問題が起きました。", detail=sanitize_error_text(e))
 
     page_refresh()
 
@@ -24965,14 +25034,20 @@ def get_company_by_id(company_id: int) -> Optional[dict]:
     cid = _normalize_int_optional(company_id)
     if not cid:
         return None
-    return db_fetchone(_company_lookup_sql_base() + " WHERE c.id = %s", (cid,))
+    try:
+        return db_fetchone(_company_lookup_sql_base() + " WHERE c.id = %s", (cid,))
+    except Exception:
+        return None
 
 
 def get_company_by_code(company_code: str) -> Optional[dict]:
     code = _normalize_company_code(company_code)
     if not code:
         return None
-    return db_fetchone(_company_lookup_sql_base() + " WHERE c.company_code = %s", (code,))
+    try:
+        return db_fetchone(_company_lookup_sql_base() + " WHERE c.company_code = %s", (code,))
+    except Exception:
+        return None
 
 
 def list_companies(*, include_stopped: bool = True) -> list[dict]:
@@ -25030,17 +25105,23 @@ def get_user_row_by_id(user_id: int) -> Optional[dict]:
         uid = int(user_id)
     except Exception:
         return None
-    return db_fetchone(_user_lookup_sql_base() + " WHERE u.id = %s", (uid,))
+    try:
+        return db_fetchone(_user_lookup_sql_base() + " WHERE u.id = %s", (uid,))
+    except Exception:
+        return None
 
 
 def get_user_by_username(username: str) -> Optional[dict]:
     un = str(username or "").strip()
     if not un:
         return None
-    row = db_fetchone(
-        _user_lookup_sql_base() + " WHERE u.username = %s AND u.is_active = TRUE",
-        (un,),
-    )
+    try:
+        row = db_fetchone(
+            _user_lookup_sql_base() + " WHERE u.username = %s AND u.is_active = TRUE",
+            (un,),
+        )
+    except Exception:
+        return None
     if not row:
         return None
     company_status = str(row.get("company_status") or COMPANY_STATUS_ACTIVE).strip().lower()
@@ -25800,67 +25881,80 @@ def list_projects_from_sftp(user: Optional[User] = None) -> list[dict]:
         items = _list_projects_from_sftp_v173()
         return [it for it in items if _project_list_item_visible_to_user(it, viewer)]
 
-    cached_items = _project_list_cache_get()
+    try:
+        cached_items = _project_list_cache_get()
+    except Exception:
+        cached_items = None
     full_items: list[dict] = []
     if isinstance(cached_items, list):
         full_items = [_project_list_item_from_meta(it, str(it.get("project_id") or "")) for it in cached_items]
     else:
-        with sftp_client() as sftp:
-            dirs = sftp_list_dirs(sftp, SFTP_PROJECTS_DIR)
-            for d in dirs:
-                meta_text = ""
-                meta = {}
-                try:
-                    meta_text = sftp_read_text(sftp, project_meta_path(d))
-                except Exception:
-                    meta_text = ""
-                if meta_text:
-                    try:
-                        meta = json.loads(meta_text)
-                    except Exception:
-                        meta = {}
-                if not isinstance(meta, dict) or not meta:
-                    # 1.8.2: 一覧では full project load を禁止し、head 読みだけで最低限の meta を作る。
-                    HEAD_BYTES = 24 * 1024
-
-                    def _json_head_get_str(head: str, key: str) -> str:
-                        try:
-                            m = re.search(r'"%s"\s*:\s*"((?:\\.|[^"])*)"' % re.escape(key), head)
-                            if not m:
-                                return ""
-                            return json.loads('"' + m.group(1) + '"')
-                        except Exception:
-                            return ""
-
-                    head = ""
-                    try:
-                        with sftp.open(project_json_path(d), "rb") as f:
-                            head = f.read(HEAD_BYTES).decode("utf-8", errors="ignore")
-                    except Exception:
-                        head = ""
-
-                    meta = {
-                        "project_id": _json_head_get_str(head, "project_id") or d,
-                        "project_name": _json_head_get_str(head, "project_name") or "(legacy project)",
-                        "updated_at": _json_head_get_str(head, "updated_at"),
-                        "created_at": _json_head_get_str(head, "created_at"),
-                        "updated_by": _json_head_get_str(head, "updated_by"),
-                        "owner_company_id": None,
-                        "owner_company_name": "",
-                        "owner_company_code": "",
-                        "assigned_user_ids": [],
-                        "assigned_usernames": [],
-                        "assigned_user_display_names": [],
-                        "client_name": "",
-                        "delivery_mode": DELIVERY_MODE_ZIP,
-                        "maintenance_included": False,
-                    }
-                full_items.append(_project_list_item_from_meta(meta, d))
         try:
-            full_items.sort(key=lambda x: str(x.get("updated_at") or ""), reverse=True)
-        except Exception:
-            pass
-        _project_list_cache_put(full_items)
+            with sftp_client() as sftp:
+                dirs = sftp_list_dirs(sftp, SFTP_PROJECTS_DIR)
+                for d in dirs:
+                    meta_text = ""
+                    meta = {}
+                    try:
+                        meta_text = sftp_read_text(sftp, project_meta_path(d))
+                    except Exception:
+                        meta_text = ""
+                    if meta_text:
+                        try:
+                            meta = json.loads(meta_text)
+                        except Exception:
+                            meta = {}
+                    if not isinstance(meta, dict) or not meta:
+                        # 1.8.2: 一覧では full project load を禁止し、head 読みだけで最低限の meta を作る。
+                        HEAD_BYTES = 24 * 1024
+
+                        def _json_head_get_str(head: str, key: str) -> str:
+                            try:
+                                m = re.search(r'"%s"\s*:\s*"((?:\\.|[^"])*)"' % re.escape(key), head)
+                                if not m:
+                                    return ""
+                                return json.loads('"' + m.group(1) + '"')
+                            except Exception:
+                                return ""
+
+                        head = ""
+                        try:
+                            with sftp.open(project_json_path(d), "rb") as f:
+                                head = f.read(HEAD_BYTES).decode("utf-8", errors="ignore")
+                        except Exception:
+                            head = ""
+
+                        meta = {
+                            "project_id": _json_head_get_str(head, "project_id") or d,
+                            "project_name": _json_head_get_str(head, "project_name") or "(legacy project)",
+                            "updated_at": _json_head_get_str(head, "updated_at"),
+                            "created_at": _json_head_get_str(head, "created_at"),
+                            "updated_by": _json_head_get_str(head, "updated_by"),
+                            "owner_company_id": None,
+                            "owner_company_name": "",
+                            "owner_company_code": "",
+                            "assigned_user_ids": [],
+                            "assigned_usernames": [],
+                            "assigned_user_display_names": [],
+                            "client_name": "",
+                            "delivery_mode": DELIVERY_MODE_ZIP,
+                            "maintenance_included": False,
+                        }
+                    full_items.append(_project_list_item_from_meta(meta, d))
+            try:
+                full_items.sort(key=lambda x: str(x.get("updated_at") or ""), reverse=True)
+            except Exception:
+                pass
+            _project_list_cache_put(full_items)
+        except Exception as e:
+            try:
+                print(f"[projects] list_projects_from_sftp failed: {sanitize_error_text(e)}", flush=True)
+            except Exception:
+                pass
+            full_items = [
+                _project_list_item_from_meta(it, str(it.get("project_id") or ""))
+                for it in _project_list_cache_get_stale()
+            ]
 
     if not viewer:
         return []
@@ -26106,9 +26200,18 @@ def save_project_management_settings(
 
 
 def company_summary_rows(actor: User) -> list[dict]:
-    companies = list_companies(include_stopped=True) if is_platform_admin(actor) else ([get_company_by_id(actor.company_id)] if actor.company_id else [])
-    users_all = db_fetchall(_user_lookup_sql_base() + " ORDER BY u.id ASC", None) if is_platform_admin(actor) else list_company_users(actor.company_id or 0, include_inactive=True)
-    projects_all = list_projects_from_sftp(actor)
+    try:
+        companies = list_companies(include_stopped=True) if is_platform_admin(actor) else ([get_company_by_id(actor.company_id)] if actor.company_id else [])
+    except Exception:
+        companies = []
+    try:
+        users_all = db_fetchall(_user_lookup_sql_base() + " ORDER BY u.id ASC", None) if is_platform_admin(actor) else list_company_users(actor.company_id or 0, include_inactive=True)
+    except Exception:
+        users_all = []
+    try:
+        projects_all = list_projects_from_sftp(actor)
+    except Exception:
+        projects_all = []
     out: list[dict] = []
     for company in companies:
         if not isinstance(company, dict):
@@ -26145,7 +26248,10 @@ def _tenant_scope_company_options(actor: User) -> dict:
     if isinstance(cached, dict):
         return cached
     if is_platform_admin(actor):
-        rows = list_companies(include_stopped=True)
+        try:
+            rows = list_companies(include_stopped=True)
+        except Exception:
+            rows = []
         admin_map: dict[int, str] = {}
         try:
             admin_rows = db_fetchall(_user_lookup_sql_base() + " WHERE u.role = 'admin' ORDER BY u.company_id ASC, u.id ASC", None)
@@ -26170,8 +26276,11 @@ def _tenant_scope_company_options(actor: User) -> dict:
 
 def _tenant_scope_project_options(actor: User, company_id: Optional[int] = None) -> dict:
     company_id = _normalize_int_optional(company_id)
-    if is_platform_admin(actor):
+    try:
         items = list_projects_from_sftp(actor)
+    except Exception:
+        items = []
+    if is_platform_admin(actor):
         if company_id:
             filtered = []
             for it in items:
@@ -26179,8 +26288,6 @@ def _tenant_scope_project_options(actor: User, company_id: Optional[int] = None)
                 if owner_company_id == company_id or (not owner_company_id):
                     filtered.append(it)
             items = filtered
-    else:
-        items = list_projects_from_sftp(actor)
     options = {}
     for it in items:
         pid = str(it.get("project_id") or "")
@@ -26243,7 +26350,7 @@ def render_header(u: Optional[User]) -> None:
                     ui.button("ログアウト", on_click=logout).props("color=negative flat no-caps").classes("cvhb-header-btn")
 
 
-@ui.page(ACCOUNT_PAGE_PATH, response_timeout=75.0, reconnect_timeout=60.0)
+@ui.page(ACCOUNT_PAGE_PATH, response_timeout=120.0, reconnect_timeout=120.0)
 def account_page_v175():
     inject_global_styles()
     cleanup_user_storage()
@@ -26262,7 +26369,9 @@ def account_page_v175():
             with ui.card().classes("q-pa-md rounded-borders cvhb-surface-card").props("bordered"):
                 ui.label("HELP_MODEではアカウント変更を無効化しています").classes("text-subtitle1")
                 ui.label("オフライン確認専用のため、表示名変更やパスワード変更は行いません。案件一覧へ戻って確認を続けてください。")                    .classes("cvhb-muted q-mt-sm")
-                ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat").classes("q-mt-md")
+                with ui.row().classes("q-gutter-sm q-mt-md"):
+                    ui.button(f"{BUILDER_NAME}へ戻る", on_click=lambda: navigate_to_builder_home(u, source="account_help_back")).props("color=primary flat no-caps")
+                    ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat no-caps")
         return
 
     with ui.element("div").classes("cvhb-container"):
@@ -26309,7 +26418,8 @@ def account_page_v175():
             with ui.row().classes("q-gutter-sm q-mt-md"):
                 ui.button("保存", on_click=_save_account).props("color=primary unelevated")
                 if not password_change_required:
-                    ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat")
+                    ui.button(f"{BUILDER_NAME}へ戻る", on_click=lambda: navigate_to_builder_home(u, source="account_back")).props("flat no-caps")
+                    ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat no-caps")
 
         with ui.card().classes("q-pa-md rounded-borders cvhb-surface-card q-mt-md").props("bordered"):
             ui.label("現在の所属").classes("text-subtitle1")
@@ -26317,9 +26427,13 @@ def account_page_v175():
             ui.label(f"表示名: {_user_to_display_name(u)}").classes("cvhb-muted")
             ui.label(f"権限: {user_role_scope_label(u)}").classes("cvhb-muted")
             ui.label(f"所属会社: {str(u.company_name or 'A管理者（全体管理）')}").classes("cvhb-muted")
+            if not password_change_required:
+                with ui.row().classes("q-gutter-sm q-mt-md"):
+                    ui.button(f"{BUILDER_NAME}へ戻る", on_click=lambda: navigate_to_builder_home(u, source="account_membership_back")).props("flat no-caps")
+                    ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat no-caps")
 
 
-@ui.page(TENANT_ADMIN_PAGE_PATH, response_timeout=75.0, reconnect_timeout=60.0)
+@ui.page(TENANT_ADMIN_PAGE_PATH, response_timeout=120.0, reconnect_timeout=120.0)
 def tenant_admin_page_v175():
     inject_global_styles()
     cleanup_user_storage()
@@ -26338,7 +26452,9 @@ def tenant_admin_page_v175():
             with ui.card().classes("q-pa-md rounded-borders cvhb-surface-card").props("bordered"):
                 ui.label("HELP_MODEでは組織管理を無効化しています").classes("text-subtitle1")
                 ui.label("このページは DB 連携前提のため、オフライン確認では表示のみを優先して無効化しています。案件一覧へ戻って builder / completed HP の確認を続けてください。")                    .classes("cvhb-muted q-mt-sm")
-                ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat").classes("q-mt-md")
+                with ui.row().classes("q-gutter-sm q-mt-md"):
+                    ui.button(f"{BUILDER_NAME}へ戻る", on_click=lambda: navigate_to_builder_home(u, source="tenant_help_back")).props("color=primary flat no-caps")
+                    ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat no-caps")
         return
 
     if not can_manage_users(u):
@@ -26346,12 +26462,17 @@ def tenant_admin_page_v175():
             with ui.card().classes("q-pa-md rounded-borders cvhb-surface-card").props("bordered"):
                 ui.label("権限がありません").classes("text-subtitle1")
                 ui.label("このページは admin_master / B管理者 / サブ管理者 だけが使えます。担当者は利用できません。").classes("cvhb-muted q-mt-sm")
-                ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat").classes("q-mt-md")
+                with ui.row().classes("q-gutter-sm q-mt-md"):
+                    ui.button(f"{BUILDER_NAME}へ戻る", on_click=lambda: navigate_to_builder_home(u, source="tenant_forbidden_back")).props("color=primary flat no-caps")
+                    ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat no-caps")
         return
 
     scope_state = {"company_id": _normalize_int_optional(getattr(u, "company_id", None))}
     if is_platform_admin(u):
-        companies_now = list_companies(include_stopped=True)
+        try:
+            companies_now = list_companies(include_stopped=True)
+        except Exception:
+            companies_now = []
         if companies_now and not scope_state["company_id"]:
             scope_state["company_id"] = _normalize_int_optional(companies_now[0].get("id"))
     assignment_state = {
@@ -26384,6 +26505,9 @@ def tenant_admin_page_v175():
     with ui.element("div").classes("cvhb-container"):
         ui.label("組織・担当者管理").classes("text-h5 q-mb-sm")
         ui.label("admin_master（A / OEM最上位）→ B会社管理者 → サブ管理者 → 担当者、の順に発行と管理が分かる画面へ整理しました。通常運用では B会社 の機能と案件だけが見えます。" ).classes("cvhb-muted q-mb-md")
+        with ui.row().classes("q-gutter-sm q-mb-md"):
+            ui.button(f"{BUILDER_NAME}へ戻る", on_click=lambda: navigate_to_builder_home(u, source="tenant_admin_back")).props("color=primary flat no-caps")
+            ui.button("案件へ戻る", on_click=lambda: navigate_to("/projects")).props("flat no-caps")
         with ui.card().classes("q-pa-md rounded-borders cvhb-surface-card q-mb-md").props("bordered"):
             ui.label("権限フロー").classes("text-subtitle1")
             ui.label("A(admin_master) は B会社 と最初の B管理者だけを発行します。B管理者は サブ管理者 と 担当者 を発行できます。サブ管理者は 担当者のみ 発行できます。" ).classes("cvhb-muted q-mt-xs")
