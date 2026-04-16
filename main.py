@@ -6402,7 +6402,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "1.9.12")
+VERSION = read_text_file("VERSION", "1.9.13")
 
 
 def detect_file_version(path: str) -> str:
@@ -6419,7 +6419,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.12"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.13"
 APP_RELEASE_VERSION = CURRENT_APP_VERSION
 DESIGN_PROFILE_SCHEMA_VERSION = "1.9.schema.1"
 
@@ -7773,7 +7773,7 @@ def build_static_site_version_manifest(design_profile: Optional[dict] = None, *,
         "hero_full_bleed": True,
         "hero_slide_limit": 2,
         "hero_render_rule": "width_match_keep_aspect_1280x720",
-        "release_gate": "product_v1.9.12",
+        "release_gate": "product_v1.9.13",
         "js_split": ["site.hero.js", "site.contact.js", "site.reveal.js", "site.map.js"],
     }
     if isinstance(flags, dict):
@@ -24351,7 +24351,7 @@ def projects_page():
                                 if is_admin(u):
                                     ui.button("削除", on_click=lambda item=item: _open_delete(item)).props("color=negative outline")
 
-                    list_refresh()
+                list_refresh()
             except Exception as e:
                 page_root.clear()
                 with page_root:
