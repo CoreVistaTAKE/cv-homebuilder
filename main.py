@@ -113,6 +113,14 @@ if os.getenv("DYNO"):
 
 from nicegui import app, ui
 
+@app.middleware("http")
+async def _cvhb_security_headers_middleware(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 
 # =========================
 # [BLK-01] Global (Japan time)
@@ -6402,7 +6410,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "1.9.13")
+VERSION = read_text_file("VERSION", "1.9.14")
 
 
 def detect_file_version(path: str) -> str:
@@ -6419,7 +6427,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.13"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.14"
 APP_RELEASE_VERSION = CURRENT_APP_VERSION
 DESIGN_PROFILE_SCHEMA_VERSION = "1.9.schema.1"
 
@@ -7041,7 +7049,8 @@ def log_project_open_timing(
 # =========================
 
 PROJECT_CACHE: dict[int, dict] = {}
-PROJECT_LOAD_CACHE: dict[str, dict] = {}
+PROJECT_LOAD_CACHE: "OrderedDict[str, dict]" = OrderedDict()
+_PROJECT_LOAD_CACHE_MAX = max(20, int(_env_float("CVHB_PROJECT_LOAD_CACHE_MAX", 100.0)))
 _PROJECT_LIST_CACHE: dict[str, object] = {"ts": 0.0, "items": []}
 _COMPANY_LIST_CACHE_TTL_SEC = max(10.0, _env_float("CVHB_COMPANY_LIST_CACHE_TTL_SEC", 45.0))
 _COMPANY_LIST_CACHE: dict[str, dict] = {}
@@ -7130,6 +7139,43 @@ def _clone_json_data(value):
         return value
 
 
+_LOGIN_FAIL_TRACKER: dict[str, tuple[int, float]] = {}
+_LOGIN_FAIL_LIMIT = max(3, int(_env_float("CVHB_LOGIN_FAIL_LIMIT", 5.0)))
+_LOGIN_FAIL_WINDOW_SEC = max(60.0, _env_float("CVHB_LOGIN_FAIL_WINDOW_SEC", 300.0))
+
+
+def _login_rate_key(username: str) -> str:
+    key = str(username or "").strip().lower()
+    return key or "unknown"
+
+
+def _login_throttle_remaining_seconds(key: str) -> int:
+    now = time.monotonic()
+    item = _LOGIN_FAIL_TRACKER.get(key)
+    if not item:
+        return 0
+    count, last_failed_at = item
+    elapsed = now - float(last_failed_at or 0.0)
+    if elapsed > _LOGIN_FAIL_WINDOW_SEC:
+        _LOGIN_FAIL_TRACKER.pop(key, None)
+        return 0
+    if int(count or 0) < _LOGIN_FAIL_LIMIT:
+        return 0
+    return max(1, int(_LOGIN_FAIL_WINDOW_SEC - elapsed))
+
+
+def _record_login_failure(key: str) -> None:
+    now = time.monotonic()
+    count, last_failed_at = _LOGIN_FAIL_TRACKER.get(key, (0, 0.0))
+    if now - float(last_failed_at or 0.0) > _LOGIN_FAIL_WINDOW_SEC:
+        count = 0
+    _LOGIN_FAIL_TRACKER[key] = (int(count or 0) + 1, now)
+
+
+def _clear_login_failures(key: str) -> None:
+    _LOGIN_FAIL_TRACKER.pop(key, None)
+
+
 def _project_load_cache_get(project_id: str) -> Optional[dict]:
     pid = str(project_id or "").strip()
     if not pid:
@@ -7137,6 +7183,10 @@ def _project_load_cache_get(project_id: str) -> Optional[dict]:
     item = PROJECT_LOAD_CACHE.get(pid)
     if not isinstance(item, dict):
         return None
+    try:
+        PROJECT_LOAD_CACHE.move_to_end(pid)
+    except Exception:
+        pass
     try:
         age = time.monotonic() - float(item.get("ts") or 0.0)
     except Exception:
@@ -7160,6 +7210,12 @@ def _project_load_cache_put(project_id: str, project: dict) -> None:
         "ts": time.monotonic(),
         "project": _clone_json_data(project),
     }
+    try:
+        PROJECT_LOAD_CACHE.move_to_end(pid)
+        while len(PROJECT_LOAD_CACHE) > int(_PROJECT_LOAD_CACHE_MAX):
+            PROJECT_LOAD_CACHE.popitem(last=False)
+    except Exception:
+        pass
 
 
 def _project_load_cache_invalidate(project_id: str = "") -> None:
@@ -7773,7 +7829,7 @@ def build_static_site_version_manifest(design_profile: Optional[dict] = None, *,
         "hero_full_bleed": True,
         "hero_slide_limit": 2,
         "hero_render_rule": "width_match_keep_aspect_1280x720",
-        "release_gate": "product_v1.9.13",
+        "release_gate": "product_v1.9.14",
         "js_split": ["site.hero.js", "site.contact.js", "site.reveal.js", "site.map.js"],
     }
     if isinstance(flags, dict):
@@ -17553,13 +17609,22 @@ def render_login(root_refresh) -> None:
                     ui.notify("ユーザー名とパスワードを入力してください", type="warning")
                     return
 
+                login_key = _login_rate_key(un)
+                remaining = _login_throttle_remaining_seconds(login_key)
+                if remaining > 0:
+                    safe_log_action(None, "login_throttled", details=json.dumps({"username": un, "wait_sec": remaining}, ensure_ascii=False))
+                    ui.notify("ログイン試行が多すぎます。少し時間をおいて再試行してください。", type="negative")
+                    return
+
                 row = get_user_by_username(un)
                 reason = login_block_reason(row)
                 if not row or reason or not verify_password(pw, row["password_hash"]):
+                    _record_login_failure(login_key)
                     safe_log_action(None, "login_failed", details=json.dumps({"username": un}, ensure_ascii=False))
                     ui.notify(reason or "ユーザー名またはパスワードが違います", type="negative")
                     return
 
+                _clear_login_failures(login_key)
                 set_logged_in(row)
                 cleanup_user_storage()
                 u = current_user()
@@ -19724,9 +19789,11 @@ def render_main(u: User) -> None:
             def _save_work(project_obj: dict, user_obj: User) -> None:
                 save_project_to_sftp(_clone_json_data(project_obj), user_obj)
 
-            await asyncio.to_thread(_save_work, p, u)
+            await asyncio.wait_for(asyncio.to_thread(_save_work, p, u), timeout=15.0)
             set_current_project(p, u)
             ui.notify("保存しました（project.json）", type="positive")
+        except asyncio.TimeoutError:
+            ui.notify("保存がタイムアウトしました。通信状況を確認して再試行してください。", type="warning")
         except Exception as e:
             ui.notify(f"保存に失敗しました: {sanitize_error_text(e)}", type="negative")
         finally:
@@ -24629,7 +24696,10 @@ try {{
             detail = "phase 1/3: builder shell を先に出し、必要な案件データだけを後ろで読み込みます。"
             preload_reason = "pending_open"
             render_startup_loading(title, detail)
-            await ui.context.client.connected()
+            try:
+                await asyncio.wait_for(ui.context.client.connected(), timeout=5.0)
+            except Exception:
+                pass
             await asyncio.sleep(0.02)
             preload_project_id, preload_project_name, preload_started_at, preload_source = pop_pending_open_project()
             if preload_project_id:
@@ -24639,7 +24709,10 @@ try {{
             detail = "phase 1/3: 表示に必要な案件データだけを確認しています。"
             preload_reason = "restore_current"
             render_startup_loading(title, detail)
-            await ui.context.client.connected()
+            try:
+                await asyncio.wait_for(ui.context.client.connected(), timeout=5.0)
+            except Exception:
+                pass
             await asyncio.sleep(0.02)
             preload_project_id = restore_project_id
             preload_project_name = restore_project_name
@@ -25816,6 +25889,22 @@ def _ensure_project_editable(user: Optional[User], project_obj: dict, *, action_
         company_row = get_company_by_id(int(user.company_id))
         if company_row:
             return _bind_project_to_company(p, company_row)
+    try:
+        safe_log_action(
+            user,
+            "access_denied",
+            json.dumps(
+                {
+                    "action": action_label,
+                    "project_id": p.get("project_id"),
+                    "owner_company_id": _project_owner_company_id(p),
+                    "user_company_id": _normalize_int_optional(getattr(user, "company_id", None)),
+                },
+                ensure_ascii=False,
+            ),
+        )
+    except Exception:
+        pass
     raise PermissionError(_project_access_error_message(action_label))
 
 
@@ -26915,6 +27004,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
         title=f"{BUILDER_NAME} | {PRODUCT_NAME} v{CURRENT_APP_VERSION}",
         storage_secret=STORAGE_SECRET,
+        session_middleware_kwargs={"max_age": int(_env_float("CVHB_SESSION_MAX_AGE_SEC", 3600.0))},
         reload=False,
         port=int(os.getenv("PORT", "8080")),
         show=False,
