@@ -390,13 +390,26 @@ RECRUITMENT_PAGE_SECTION_DEFS = [
 RECRUITMENT_SECTION_MIN_SCORE = 95
 
 RECRUITMENT_DETAIL_DEFS = [
-    ("employment_types", "募集形態", "正社員 / パート / アルバイト"),
+    ("employment_types", "募集形態・働き方", "正社員 / パート / アルバイト / 週2日から など"),
+    ("work_location", "勤務地", "大阪市住吉区南住吉1-4-2 / 事業所名 など"),
+    ("work_hours", "勤務時間", "9:00〜18:00 / 週2日から相談可 など"),
+    ("salary_note", "給与・手当", "時給1,200円〜 / 月給220,000円〜 / 賞与あり など"),
+    ("holidays", "休日・休暇", "シフト制 / 土日休み / 年末年始休暇 など"),
+    ("benefits", "福利厚生・待遇", "交通費支給 / 社会保険完備 / 研修あり など"),
+    ("work_summary", "仕事内容の要約", "応募者が最初に理解する短い仕事内容"),
+    ("work_details", "仕事内容の詳細", "担当業務の内容、支援内容、記録、利用者対応など"),
+    ("daily_flow", "1日の流れ", "出勤 → 支援準備 → 利用者対応 → 記録 など"),
+    ("conditions", "勤務条件・待遇の補足", "上記以外の条件、勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生の補足"),
     ("qualification_note", "資格・歓迎条件", "有資格者歓迎 / 未経験可 / 経験者優遇 など"),
     ("target_person", "求める人物像", "丁寧に対応できる方 / チームで協力できる方 など"),
-    ("work_details", "仕事内容", "担当業務の内容、1日の流れ、関わるお客様や利用者さまなど"),
-    ("conditions", "勤務条件", "勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生 など"),
     ("application_flow", "応募方法・選考の流れ", "応募 → 面談 → 採用 など、応募後の流れ"),
-    ("contact_note", "採用に関するお問い合わせ", "求人に関する質問は、お問い合わせフォームからご連絡ください。"),
+    ("contact_note", "採用に関するお問い合わせ", "応募前の質問・見学相談・連絡方法など"),
+]
+RECRUITMENT_FAQ_COUNT = 3
+RECRUITMENT_FAQ_DEFAULTS = [
+    ("応募から採用までの流れを教えてください。", "応募後の流れは、お問い合わせ時に分かりやすくご案内します。"),
+    ("見学や事前相談はできますか？", "はい。職場の雰囲気を知っていただけるよう、事前相談や見学もご相談ください。"),
+    ("未経験でも応募できますか？", "募集内容により異なります。必要な資格や歓迎条件をご確認のうえ、お気軽にお問い合わせください。"),
 ]
 
 JP_PREFECTURES = [
@@ -465,6 +478,24 @@ def _normalize_recruitment_block(block: Optional[dict]) -> dict:
     rec.setdefault("valid_through", "")
     for _key, _label, _sample in RECRUITMENT_DETAIL_DEFS:
         rec.setdefault(_key, "")
+    faq_items = rec.get("faq_items")
+    normalized_faqs: list[dict[str, str]] = []
+    if isinstance(faq_items, list):
+        for item in faq_items:
+            if isinstance(item, dict):
+                normalized_faqs.append({
+                    "q": str(item.get("q") or "").strip(),
+                    "a": str(item.get("a") or "").strip(),
+                })
+    for idx in range(RECRUITMENT_FAQ_COUNT):
+        q = str(rec.get(f"faq_{idx + 1}_q") or "").strip()
+        a = str(rec.get(f"faq_{idx + 1}_a") or "").strip()
+        if q or a:
+            normalized_faqs.append({"q": q, "a": a})
+    normalized_faqs = normalized_faqs[:RECRUITMENT_FAQ_COUNT]
+    while len(normalized_faqs) < RECRUITMENT_FAQ_COUNT:
+        normalized_faqs.append({"q": "", "a": ""})
+    rec["faq_items"] = normalized_faqs
     return rec
 
 
@@ -485,6 +516,19 @@ def _recruitment_has_content(block: Optional[dict]) -> bool:
     if str(rec.get("image_url") or "").strip():
         return True
     return bool(_recruitment_rows(rec))
+
+
+def _recruitment_faq_pairs(block: Optional[dict]) -> list[tuple[str, str]]:
+    rec = _normalize_recruitment_block(block)
+    pairs: list[tuple[str, str]] = []
+    for item in rec.get("faq_items") or []:
+        if not isinstance(item, dict):
+            continue
+        q = str(item.get("q") or "").strip()
+        a = str(item.get("a") or "").strip()
+        if q and a:
+            pairs.append((q, a))
+    return pairs[:RECRUITMENT_FAQ_COUNT]
 
 
 def _recruitment_is_visible(block: Optional[dict]) -> bool:
@@ -6413,7 +6457,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "1.9.16")
+VERSION = read_text_file("VERSION", "1.9.17")
 
 
 def detect_file_version(path: str) -> str:
@@ -6430,7 +6474,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.16"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.17"
 APP_RELEASE_VERSION = CURRENT_APP_VERSION
 DESIGN_PROFILE_SCHEMA_VERSION = "1.9.schema.1"
 
@@ -7832,7 +7876,7 @@ def build_static_site_version_manifest(design_profile: Optional[dict] = None, *,
         "hero_full_bleed": True,
         "hero_slide_limit": 2,
         "hero_render_rule": "width_match_keep_aspect_1280x720",
-        "release_gate": "product_v1.9.16",
+        "release_gate": "product_v1.9.17",
         "js_split": ["site.hero.js", "site.contact.js", "site.reveal.js", "site.map.js"],
     }
     if isinstance(flags, dict):
@@ -15678,18 +15722,47 @@ body{ top:0 !important; }
         recruit_hero_src = hero_urls_html[0]
     recruit_hero_src = _page_asset_href(version_static_asset_href(recruit_hero_src), root_prefix="../") if recruit_hero_src else ""
 
+    def _labeled_recruitment_text(items: list[tuple[str, str]]) -> str:
+        blocks_: list[str] = []
+        for label, value in items:
+            v = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            if not v:
+                continue
+            blocks_.append(f"{label}\n{v}")
+        return "\n\n".join(blocks_)
+
     employment_text = str(recruitment.get("employment_types") or "").strip()
+    work_location_text = str(recruitment.get("work_location") or "").strip()
+    work_hours_text = str(recruitment.get("work_hours") or "").strip()
+    salary_text = str(recruitment.get("salary_note") or "").strip()
+    holidays_text = str(recruitment.get("holidays") or "").strip()
+    benefits_text = str(recruitment.get("benefits") or "").strip()
     qualification_text = str(recruitment.get("qualification_note") or "").strip()
     target_person_text = str(recruitment.get("target_person") or "").strip()
-    work_details_text = str(recruitment.get("work_details") or "").strip()
-    conditions_text = str(recruitment.get("conditions") or "").strip()
+    work_summary_text = str(recruitment.get("work_summary") or "").strip()
+    work_detail_body_text = str(recruitment.get("work_details") or "").strip()
+    daily_flow_text = str(recruitment.get("daily_flow") or "").strip()
+    conditions_extra_text = str(recruitment.get("conditions") or "").strip()
     application_flow_text = str(recruitment.get("application_flow") or "").strip()
     contact_note_text = str(recruitment.get("contact_note") or "").strip()
+    work_details_text = _labeled_recruitment_text([
+        ("仕事内容の要約", work_summary_text),
+        ("具体的な仕事内容", work_detail_body_text),
+        ("1日の流れ", daily_flow_text),
+    ]) or work_detail_body_text
+    conditions_text = _labeled_recruitment_text([
+        ("勤務地", work_location_text),
+        ("勤務時間", work_hours_text),
+        ("給与・手当", salary_text),
+        ("休日・休暇", holidays_text),
+        ("福利厚生・待遇", benefits_text),
+        ("補足", conditions_extra_text),
+    ]) or conditions_extra_text
 
     highlight_cards = [
         ("募集形態", _summary_line(employment_text, "募集形態を掲載予定です。")),
-        ("勤務条件", _summary_line(conditions_text, "勤務条件を掲載予定です。")),
-        ("歓迎条件", _summary_line(qualification_text, "歓迎条件を掲載予定です。")),
+        ("勤務地・時間", _summary_line(work_location_text or work_hours_text or conditions_text, "勤務地・時間を掲載予定です。")),
+        ("給与・待遇", _summary_line(salary_text or benefits_text or conditions_text, "給与・待遇を掲載予定です。")),
         ("相談方法", _summary_line(contact_note_text or recruit_apply_label, recruit_apply_label)),
     ]
     highlight_cards_html = "".join(
@@ -15704,7 +15777,7 @@ body{ top:0 !important; }
     )
 
     hero_highlight_pills = "".join(
-        [f'<span class="pv-job-pill">{_esc(item)}</span>' for item in _pill_values(employment_text) + _pill_values(qualification_text, limit=2)]
+        [f'<span class="pv-job-pill">{_esc(item)}</span>' for item in _pill_values(employment_text) + _pill_values(work_location_text, limit=1) + _pill_values(qualification_text, limit=2)]
     )
     hero_image_html = f'<div class="pv-job-hero-media"><img src="{_esc(recruit_hero_src)}" alt="" loading="eager" fetchpriority="high" decoding="async" width="1280" height="720"></div>' if recruit_hero_src else '<div class="pv-job-hero-media"></div>'
     hero_overview_html = f"""
@@ -15731,7 +15804,7 @@ body{ top:0 !important; }
 
     highlights_summary_html = _paras(
         "まず知りたいポイントを、上から順にすぐ確認できるように整理しました。\n"
-        "募集形態・勤務条件・歓迎条件・相談方法を先に見て、詳細は折りたたみから確認できます。"
+        "募集形態・勤務条件・給与待遇・相談方法を先に見て、詳細は折りたたみから確認できます。"
     )
     highlights_section_html = f"""
 <section class="pv-section pv-section-260218" id="job-highlights">
@@ -15748,7 +15821,7 @@ body{ top:0 !important; }
         "job-work",
         "仕事内容",
         "WORK",
-        _paras(_summary_line(work_details_text or recruitment_lead, "担当する仕事の概要を掲載予定です。", limit=90)),
+        _paras(_summary_line(work_summary_text or work_detail_body_text or recruitment_lead, "担当する仕事の概要を掲載予定です。", limit=90)),
         details_html=_paras(work_details_text or "仕事内容の詳細は、入力後ここに表示されます。"),
         open_details=True,
     )
@@ -15801,19 +15874,18 @@ body{ top:0 !important; }
         extra_html=flow_extra_html,
     )
 
-    recruit_faq_items: list[tuple[str, str]] = []
+    recruit_faq_items: list[tuple[str, str]] = _recruitment_faq_pairs(recruitment)
     for it in faq_items[:3]:
+        if len(recruit_faq_items) >= RECRUITMENT_FAQ_COUNT:
+            break
         if isinstance(it, dict):
             q = str(it.get("q") or "").strip()
             a = str(it.get("a") or "").strip()
             if q and a:
                 recruit_faq_items.append((q, a))
     if not recruit_faq_items:
-        recruit_faq_items = [
-            ("応募から採用までの流れを教えてください。", application_flow_text or "応募後の流れは、お問い合わせ時に分かりやすくご案内します。"),
-            ("見学や事前相談はできますか？", contact_note_text or "はい。まずはお気軽にお問い合わせください。"),
-            ("勤務条件の詳細はどこで確認できますか？", conditions_text or "面談前にも確認できるよう、必要な範囲を丁寧にご案内します。"),
-        ]
+        recruit_faq_items = RECRUITMENT_FAQ_DEFAULTS.copy()
+    recruit_faq_items = recruit_faq_items[:RECRUITMENT_FAQ_COUNT]
     faq_items_html = "".join(
         [
             f'<div class="pv-job-faq-item"><details><summary>{_esc(q)}</summary><div class="pv-job-faq-answer">{_paras(a)}</div></details></div>'
@@ -18913,7 +18985,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
 
 
 SOFT_CLARITY_CSS = r"""
-/* ===== Soft Clarity mobile-first rebuild (v1.9.16) ===== */
+/* ===== Soft Clarity mobile-first rebuild (v1.9.17) ===== */
 .pv-layout-260218{
   --pf-bg:#f8fafc;
   --pf-surface:#ffffff;
@@ -20136,11 +20208,13 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
     apply_href = apply_url or (f"mailto:{email}" if email else "#")
     apply_label = "今すぐ応募する" if apply_url else ("メールで応募する" if email else "応募導線を入力")
     indeed_button_html = f'<a class="job-action job-action-light" href="{_esc(indeed_url)}" target="_blank" rel="noopener">Indeedで見る</a>' if indeed_url else ""
+    work_ready = any(str(recruitment.get(k) or "").strip() for k in ("work_summary", "work_details", "daily_flow"))
+    conditions_ready = any(str(recruitment.get(k) or "").strip() for k in ("employment_types", "work_location", "work_hours", "salary_note", "holidays", "benefits", "conditions"))
 
     required_for_google = [
         ("会社名", bool(company_name and company_name != "会社名")),
-        ("仕事内容", bool(str(recruitment.get("work_details") or "").strip())),
-        ("勤務条件", bool(str(recruitment.get("conditions") or "").strip())),
+        ("仕事内容", work_ready),
+        ("勤務条件", conditions_ready),
         ("応募導線", bool(str(recruitment.get("apply_url") or "").strip() or str(step2.get("email") or "").strip())),
     ]
     required_for_indeed = [
@@ -20769,8 +20843,18 @@ def render_main(u: User) -> None:
                                         ui.label(f"Google JobPosting JSON: {RECRUITMENT_JOBPOSTING_JSON_PATH}").classes("cvhb-muted")
                                         ui.label(f"Indeed feed XML: {RECRUITMENT_INDEED_FEED_PATH}").classes("cvhb-muted")
 
+                                    def _ensure_recruitment_faq_items() -> list[dict]:
+                                        items = recruitment.get("faq_items")
+                                        if not isinstance(items, list):
+                                            items = []
+                                            recruitment["faq_items"] = items
+                                        while len(items) < RECRUITMENT_FAQ_COUNT:
+                                            items.append({"q": "", "a": ""})
+                                        return items[:RECRUITMENT_FAQ_COUNT]
+
                                     with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
-                                        ui.label("求人ページの本文").classes("text-subtitle1")
+                                        ui.label("1. ファーストビュー / 応募導線").classes("text-subtitle1")
+                                        ui.label("完成求人ページの最上部、応募ボタン、Google/Indeedの基本項目に反映されます。").classes("cvhb-muted q-mb-sm")
                                         bind_dict_input(recruitment, "見出し", "title", hint="例：求人情報")
                                         bind_dict_input(recruitment, "ひとこと説明", "lead", textarea=True, hint="募集の概要や一言メッセージを書きます")
                                         bind_dict_input(recruitment, "応募先URL（任意）", "apply_url", hint="例：https://example.com/recruit/apply")
@@ -20821,14 +20905,53 @@ def render_main(u: User) -> None:
                                         recruitment_image_editor()
 
                                     with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
-                                        ui.label("Google / Indeed に必要な募集情報").classes("text-subtitle1")
-                                        bind_dict_input(recruitment, "募集形態", "employment_types", hint="例：正社員 / パート / アルバイト")
+                                        ui.label("2. まず知りたいポイント").classes("text-subtitle1")
+                                        ui.label("応募者がスマホで最初に確認する条件です。求人ページ上部のカードとIndeed feedの品質に効きます。").classes("cvhb-muted q-mb-sm")
+                                        bind_dict_input(recruitment, "募集形態・働き方", "employment_types", hint="例：パート / 週2日から / 夜勤なし")
+                                        bind_dict_input(recruitment, "勤務地", "work_location", hint="例：大阪市住吉区南住吉1-4-2")
+                                        bind_dict_input(recruitment, "勤務時間", "work_hours", hint="例：9:00〜18:00 / 週2日から相談可")
+                                        bind_dict_input(recruitment, "給与・手当", "salary_note", hint="例：時給1,200円〜 / 交通費支給")
+                                        bind_dict_input(recruitment, "休日・休暇", "holidays", hint="例：シフト制 / 年末年始休暇")
+                                        bind_dict_input(recruitment, "福利厚生・待遇", "benefits", textarea=True, hint="例：社会保険完備 / 研修あり / 資格取得支援")
+
+                                    with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
+                                        ui.label("3. 仕事内容").classes("text-subtitle1")
+                                        ui.label("仕事内容セクションとGoogle/Indeedの説明文に反映されます。").classes("cvhb-muted q-mb-sm")
+                                        bind_dict_input(recruitment, "仕事内容の要約", "work_summary", textarea=True, hint="例：利用者さまの日常生活を支えるお仕事です。")
+                                        bind_dict_input(recruitment, "仕事内容の詳細", "work_details", textarea=True, hint="担当業務、支援内容、記録、利用者対応など")
+                                        bind_dict_input(recruitment, "1日の流れ", "daily_flow", textarea=True, hint="例：出勤 → 支援準備 → 利用者対応 → 記録 → 退勤")
+
+                                    with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
+                                        ui.label("4. 条件・歓迎条件・人物像").classes("text-subtitle1")
+                                        ui.label("資格や向いている人を分けて入力し、応募前の不安を減らします。").classes("cvhb-muted q-mb-sm")
+                                        bind_dict_input(recruitment, "勤務条件・待遇の補足", "conditions", textarea=True, hint="上記以外の条件や注意事項")
                                         bind_dict_input(recruitment, "資格・歓迎条件", "qualification_note", textarea=True, hint="例：有資格者歓迎 / 未経験可 / 経験者優遇")
                                         bind_dict_input(recruitment, "求める人物像", "target_person", textarea=True, hint="例：丁寧に対応できる方 / チームで協力できる方")
-                                        bind_dict_input(recruitment, "仕事内容", "work_details", textarea=True, hint="仕事内容や1日の流れなどを詳しく書けます")
-                                        bind_dict_input(recruitment, "勤務条件", "conditions", textarea=True, hint="例：勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生")
+
+                                    with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
+                                        ui.label("5. 応募方法・採用FAQ").classes("text-subtitle1")
+                                        ui.label("応募後の流れと、求人専用FAQをここで管理します。HP本体のFAQとは分けて出力されます。").classes("cvhb-muted q-mb-sm")
                                         bind_dict_input(recruitment, "応募方法・選考の流れ", "application_flow", textarea=True, hint="例：応募 → 面談 → 採用")
                                         bind_dict_input(recruitment, "採用に関する補足", "contact_note", textarea=True, hint="例：質問はお問い合わせフォームから受け付けます")
+
+                                        @ui.refreshable
+                                        def recruitment_faq_editor():
+                                            faq_items = _ensure_recruitment_faq_items()
+                                            for idx, item in enumerate(faq_items):
+                                                with ui.card().classes("q-pa-sm q-mt-sm rounded-borders").props("flat bordered"):
+                                                    ui.label(f"採用FAQ {idx + 1}").classes("text-body2 text-weight-bold")
+                                                    bind_dict_input(item, "質問", "q", hint=RECRUITMENT_FAQ_DEFAULTS[idx][0] if idx < len(RECRUITMENT_FAQ_DEFAULTS) else "質問")
+                                                    bind_dict_input(item, "回答", "a", textarea=True, hint=RECRUITMENT_FAQ_DEFAULTS[idx][1] if idx < len(RECRUITMENT_FAQ_DEFAULTS) else "回答")
+                                                    def _clear_faq(i=idx):
+                                                        items = _ensure_recruitment_faq_items()
+                                                        if i < len(items):
+                                                            items[i]["q"] = ""
+                                                            items[i]["a"] = ""
+                                                        update_and_refresh(force_preview=True)
+                                                        recruitment_faq_editor.refresh()
+                                                    ui.button("このFAQを空にする", on_click=_clear_faq).props("outline dense no-caps")
+
+                                        recruitment_faq_editor()
 
                                     philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
                                     profile = philosophy.get("company_profile") if isinstance(philosophy.get("company_profile"), dict) else {}
@@ -21684,75 +21807,9 @@ def render_main(u: User) -> None:
 
                                                         svc_items_editor()
                                                     if current_block == "recruitment":
-                                                        ui.label("求人").classes("text-subtitle1 q-mb-sm")
-                                                        ui.label("採用情報を表示する時だけ入力します。表示しないにすると、完成HPにもヘッダーにも出ません。" ).classes("cvhb-muted q-mb-sm")
-
-                                                        recruitment = _normalize_recruitment_block(blocks.setdefault("recruitment", {}))
-                                                        blocks["recruitment"] = recruitment
-                                                        recruitment.setdefault("image_url", "")
-                                                        recruitment.setdefault("image_upload_name", "")
-
-                                                        def _set_recruitment_enabled(v: bool):
-                                                            recruitment["enabled"] = bool(v)
-                                                            update_and_refresh()
-
-                                                        ui.switch("求人情報を表示する", value=bool(recruitment.get("enabled", False)), on_change=lambda e: _set_recruitment_enabled(bool(e.value))).props("dense").classes("q-mb-sm")
-                                                        bind_dict_input(recruitment, "見出し", "title", hint="例：求人情報")
-                                                        bind_dict_input(recruitment, "ひとこと説明", "lead", textarea=True, hint="募集の概要や一言メッセージを書きます")
-                                                        bind_dict_input(recruitment, "応募先URL（任意）", "apply_url", hint="例：https://example.com/recruit/apply")
-                                                        bind_dict_input(recruitment, "Indeed掲載URL（任意）", "indeed_url", hint="例：https://jp.indeed.com/viewjob?jk=...")
-                                                        bind_dict_input(recruitment, "募集終了日（任意）", "valid_through", hint="例：2026-12-31")
-
-                                                        ui.label("画像（任意 / 1枚）").classes("text-body1 q-mt-sm")
-                                                        ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
-
-                                                        async def _on_upload_recruitment_image(e):
-                                                            try:
-                                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
-                                                                if not data_url:
-                                                                    return
-                                                                recruitment["image_url"] = data_url
-                                                                recruitment["image_upload_name"] = _short_name(fname)
-                                                                update_and_refresh()
-                                                                recruitment_image_editor.refresh()
-                                                            except Exception as ex:
-                                                                print(f"[UPLOAD:recruitment_image] unexpected error: {ex}", flush=True)
-
-                                                        def _clear_recruitment_image():
-                                                            try:
-                                                                recruitment["image_url"] = ""
-                                                                recruitment["image_upload_name"] = ""
-                                                            except Exception:
-                                                                pass
-                                                            update_and_refresh()
-                                                            recruitment_image_editor.refresh()
-
-                                                        @ui.refreshable
-                                                        def recruitment_image_editor():
-                                                            cur = str(recruitment.get("image_url") or "").strip()
-                                                            name = str(recruitment.get("image_upload_name") or "").strip()
-                                                            with ui.row().classes("items-center q-gutter-sm"):
-                                                                if cur:
-                                                                    try:
-                                                                        ui.image(pv_img_src(cur, max_w=240, max_h=136, fit_mode="cover")).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
-                                                                    except Exception:
-                                                                        pass
-                                                                else:
-                                                                    ui.html('<div style="width:120px;height:68px;border-radius:10px;border:1px dashed rgba(99,102,241,.35);display:flex;align-items:center;justify-content:center;color:#64748b;font-size:12px;background:rgba(255,255,255,.72);">未設定</div>')
-                                                                ui.upload(on_upload=_on_upload_recruitment_image, auto_upload=True).props("accept=image/*")
-                                                                ui.button("クリア", on_click=_clear_recruitment_image).props("outline dense")
-                                                                ui.button("反映して保存", icon="save", on_click=force_preview_refresh_and_save).props("color=primary unelevated dense no-caps")
-                                                            ui.label(f"現在: {'未設定' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
-
-                                                        recruitment_image_editor()
-
-                                                        bind_dict_input(recruitment, "募集形態", "employment_types", hint="例：正社員 / パート / アルバイト")
-                                                        bind_dict_input(recruitment, "資格・歓迎条件", "qualification_note", textarea=True, hint="例：有資格者歓迎 / 未経験可 / 経験者優遇")
-                                                        bind_dict_input(recruitment, "求める人物像", "target_person", textarea=True, hint="例：丁寧に対応できる方 / チームで協力できる方")
-                                                        bind_dict_input(recruitment, "仕事内容", "work_details", textarea=True, hint="仕事内容や1日の流れなどを詳しく書けます")
-                                                        bind_dict_input(recruitment, "勤務条件", "conditions", textarea=True, hint="例：勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生")
-                                                        bind_dict_input(recruitment, "応募方法・選考の流れ", "application_flow", textarea=True, hint="例：応募 → 面談 → 採用")
-                                                        bind_dict_input(recruitment, "採用に関する補足", "contact_note", textarea=True, hint="例：質問はお問い合わせフォームから受け付けます")
+                                                        with ui.card().classes("q-pa-sm rounded-borders bg-blue-1").props("flat bordered"):
+                                                            ui.label("求人ページの編集は、左の作成ステップ「4. 求人ページ」に統合しました。").classes("text-subtitle1")
+                                                            ui.label("完成求人ページとGoogle/Indeed連携に必要な項目が増えたため、重複入力を避けてStep4だけで管理します。").classes("cvhb-muted")
 
                                                     if current_block == "news":
                                                         ui.label("お知らせ").classes("text-subtitle1 q-mb-sm")
@@ -23465,13 +23522,28 @@ PACK_FIELD_DEFS = [
     {"key": "recruitment_apply_url", "label": "応募先URL", "required": "任意", "example": "https://example.com/recruit/apply"},
     {"key": "recruitment_indeed_url", "label": "Indeed掲載URL", "required": "任意", "example": "https://jp.indeed.com/viewjob?jk=..."},
     {"key": "recruitment_valid_through", "label": "募集終了日", "required": "任意", "example": "2026-12-31"},
-    {"key": "recruitment_employment_types", "label": "募集形態", "required": "表示する時だけ", "example": "正社員 / パート / アルバイト"},
+    {"key": "recruitment_employment_types", "label": "募集形態・働き方", "required": "表示する時だけ", "example": "パート / 週2日から / 夜勤なし"},
+    {"key": "recruitment_work_location", "label": "勤務地", "required": "任意", "example": "大阪市住吉区南住吉1-4-2"},
+    {"key": "recruitment_work_hours", "label": "勤務時間", "required": "任意", "example": "9:00〜18:00 / 週2日から相談可"},
+    {"key": "recruitment_salary_note", "label": "給与・手当", "required": "任意", "example": "時給1,200円〜 / 交通費支給"},
+    {"key": "recruitment_holidays", "label": "休日・休暇", "required": "任意", "example": "シフト制 / 年末年始休暇"},
+    {"key": "recruitment_benefits", "label": "福利厚生・待遇", "required": "任意", "example": "社会保険完備 / 研修あり / 資格取得支援"},
+    {"key": "recruitment_work_summary", "label": "仕事内容の要約", "required": "任意", "example": "利用者さまの日常生活を支えるお仕事です。"},
+    {"key": "recruitment_work_details", "label": "仕事内容の詳細", "required": "表示する時だけ", "example": "担当業務の内容、支援内容、記録、利用者対応などを書きます。"},
+    {"key": "recruitment_daily_flow", "label": "1日の流れ", "required": "任意", "example": "出勤 → 支援準備 → 利用者対応 → 記録 → 退勤"},
+    {"key": "recruitment_conditions", "label": "勤務条件・待遇の補足", "required": "任意", "example": "上記以外の条件や注意事項を書きます。"},
     {"key": "recruitment_qualification_note", "label": "資格・歓迎条件", "required": "任意", "example": "有資格者歓迎 / 未経験可 / 経験者優遇 など"},
     {"key": "recruitment_target_person", "label": "求める人物像", "required": "任意", "example": "丁寧に対応できる方 / チームで協力できる方"},
-    {"key": "recruitment_work_details", "label": "仕事内容", "required": "表示する時だけ", "example": "担当業務の内容、1日の流れ、関わるお客様や利用者さまなどを書きます。"},
-    {"key": "recruitment_conditions", "label": "勤務条件", "required": "任意", "example": "勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生 など"},
     {"key": "recruitment_application_flow", "label": "応募方法・選考の流れ", "required": "任意", "example": "応募 → 面談 → 採用 など、応募後の流れを書きます。"},
     {"key": "recruitment_contact_note", "label": "採用に関する補足", "required": "任意", "example": "応募前のご質問は、お問い合わせフォームからご連絡ください。"},
+
+    {"type": "section", "title": "採用FAQ（最大3件）"},
+    {"key": "recruitment_faq_1_q", "label": "採用FAQ1 質問", "required": "任意", "example": "応募から採用までの流れを教えてください。"},
+    {"key": "recruitment_faq_1_a", "label": "採用FAQ1 回答", "required": "任意", "example": "応募後の流れは、お問い合わせ時に分かりやすくご案内します。"},
+    {"key": "recruitment_faq_2_q", "label": "採用FAQ2 質問", "required": "任意", "example": "見学や事前相談はできますか？"},
+    {"key": "recruitment_faq_2_a", "label": "採用FAQ2 回答", "required": "任意", "example": "はい。職場の雰囲気を知っていただけるよう、事前相談や見学もご相談ください。"},
+    {"key": "recruitment_faq_3_q", "label": "採用FAQ3 質問", "required": "任意", "example": "未経験でも応募できますか？"},
+    {"key": "recruitment_faq_3_a", "label": "採用FAQ3 回答", "required": "任意", "example": "募集内容により異なります。必要な資格や歓迎条件をご確認ください。"},
 
     {"type": "section", "title": "お知らせ（最大5件）"},
 ]
@@ -23594,12 +23666,25 @@ PACK_FIELD_GUIDE = {
     "recruitment_title": {"what": "求人ブロックの見出しです。『求人情報』『採用情報』などで大丈夫です。", "max_chars": 32},
     "recruitment_lead": {"what": "求人全体の説明です。募集の目的や一言メッセージを書きます。", "max_chars": 180, "multiline": True},
     "recruitment_employment_types": {"what": "募集形態を書きます。社員・パート・アルバイトなどです。", "max_chars": 80},
+    "recruitment_work_location": {"what": "勤務地を書きます。住所、事業所名、駅からの距離などです。", "max_chars": 120},
+    "recruitment_work_hours": {"what": "勤務時間を書きます。シフト、週の勤務日数、相談可否も入れると親切です。", "max_chars": 120},
+    "recruitment_salary_note": {"what": "給与、手当、交通費、賞与などを書きます。Indeedにも使いやすいよう金額を明記してください。", "max_chars": 140},
+    "recruitment_holidays": {"what": "休日、休暇、シフトの考え方を書きます。", "max_chars": 140},
+    "recruitment_benefits": {"what": "福利厚生や待遇を書きます。社会保険、研修、資格取得支援などです。", "max_chars": 220, "multiline": True},
     "recruitment_qualification_note": {"what": "必要資格や歓迎条件を書きます。", "max_chars": 180, "multiline": True},
     "recruitment_target_person": {"what": "どんな方に来てほしいかを書きます。", "max_chars": 180, "multiline": True},
-    "recruitment_work_details": {"what": "仕事内容、1日の流れ、担当する業務などを書きます。", "max_chars": 420, "multiline": True},
-    "recruitment_conditions": {"what": "勤務地、勤務時間、給与、休日、福利厚生などを書きます。", "max_chars": 320, "multiline": True},
+    "recruitment_work_summary": {"what": "仕事内容を1文で要約します。スマホの最初の説明と求人説明文に使います。", "max_chars": 160, "multiline": True},
+    "recruitment_work_details": {"what": "具体的な仕事内容、担当する業務、関わる相手などを書きます。", "max_chars": 420, "multiline": True},
+    "recruitment_daily_flow": {"what": "1日の流れを書きます。応募者が働くイメージを持ちやすくなります。", "max_chars": 260, "multiline": True},
+    "recruitment_conditions": {"what": "上記以外の勤務条件や待遇の補足を書きます。", "max_chars": 320, "multiline": True},
     "recruitment_application_flow": {"what": "応募から採用までの流れを書きます。", "max_chars": 220, "multiline": True},
     "recruitment_contact_note": {"what": "求人に関する補足や質問方法を書きます。", "max_chars": 180, "multiline": True},
+    "recruitment_faq_1_q": {"what": "採用FAQの質問を書きます。応募者が先に知りたいことを入れてください。", "max_chars": 80},
+    "recruitment_faq_1_a": {"what": "採用FAQの回答を書きます。短く具体的に書くと読みやすいです。", "max_chars": 220, "multiline": True},
+    "recruitment_faq_2_q": {"what": "採用FAQの質問を書きます。", "max_chars": 80},
+    "recruitment_faq_2_a": {"what": "採用FAQの回答を書きます。", "max_chars": 220, "multiline": True},
+    "recruitment_faq_3_q": {"what": "採用FAQの質問を書きます。", "max_chars": 80},
+    "recruitment_faq_3_a": {"what": "採用FAQの回答を書きます。", "max_chars": 220, "multiline": True},
     "map_url": {"what": "GoogleマップなどのURLがある時だけ入れます。空欄でも住所から自動で地図リンクを作ります。", "max_chars": 220},
     "access_notes": {"what": "最寄り駅、駐車場、来社方法などを補足します。", "max_chars": 180, "multiline": True},
     "contact_message": {"what": "お問い合わせ前に見せるひとことです。", "max_chars": 180, "multiline": True},
@@ -23852,12 +23937,25 @@ def _pack_seed_from_project(source_project: Optional[dict] = None, company_name:
     seed["recruitment_indeed_url"] = _pack_text(recruitment.get("indeed_url"))
     seed["recruitment_valid_through"] = _pack_text(recruitment.get("valid_through"))
     seed["recruitment_employment_types"] = _pack_text(recruitment.get("employment_types"))
+    seed["recruitment_work_location"] = _pack_text(recruitment.get("work_location"))
+    seed["recruitment_work_hours"] = _pack_text(recruitment.get("work_hours"))
+    seed["recruitment_salary_note"] = _pack_text(recruitment.get("salary_note"))
+    seed["recruitment_holidays"] = _pack_text(recruitment.get("holidays"))
+    seed["recruitment_benefits"] = _pack_text(recruitment.get("benefits"))
+    seed["recruitment_work_summary"] = _pack_text(recruitment.get("work_summary"))
     seed["recruitment_qualification_note"] = _pack_text(recruitment.get("qualification_note"))
     seed["recruitment_target_person"] = _pack_text(recruitment.get("target_person"))
     seed["recruitment_work_details"] = _pack_text(recruitment.get("work_details"))
+    seed["recruitment_daily_flow"] = _pack_text(recruitment.get("daily_flow"))
     seed["recruitment_conditions"] = _pack_text(recruitment.get("conditions"))
     seed["recruitment_application_flow"] = _pack_text(recruitment.get("application_flow"))
     seed["recruitment_contact_note"] = _pack_text(recruitment.get("contact_note"))
+    recruitment_faqs = _recruitment_faq_pairs(recruitment)
+    while len(recruitment_faqs) < RECRUITMENT_FAQ_COUNT:
+        recruitment_faqs.append(("", ""))
+    for idx in range(RECRUITMENT_FAQ_COUNT):
+        seed[f"recruitment_faq_{idx + 1}_q"] = _pack_text(recruitment_faqs[idx][0])
+        seed[f"recruitment_faq_{idx + 1}_a"] = _pack_text(recruitment_faqs[idx][1])
 
     faq_items = [it for it in (faq.get("items") if isinstance(faq.get("items"), list) else []) if isinstance(it, dict)]
     while len(faq_items) < PACK_FAQ_COUNT:
@@ -24373,12 +24471,25 @@ def _pack_coerce_seed(values: dict) -> dict:
             "recruitment_title",
             "recruitment_lead",
             "recruitment_employment_types",
+            "recruitment_work_location",
+            "recruitment_work_hours",
+            "recruitment_salary_note",
+            "recruitment_holidays",
+            "recruitment_benefits",
+            "recruitment_work_summary",
             "recruitment_qualification_note",
             "recruitment_target_person",
             "recruitment_work_details",
+            "recruitment_daily_flow",
             "recruitment_conditions",
             "recruitment_application_flow",
             "recruitment_contact_note",
+            "recruitment_faq_1_q",
+            "recruitment_faq_1_a",
+            "recruitment_faq_2_q",
+            "recruitment_faq_2_a",
+            "recruitment_faq_3_q",
+            "recruitment_faq_3_a",
         ]
     )
     if recruitment_has_content and not _pack_show_hide_bool(seed.get("recruitment_enabled")):
@@ -24532,12 +24643,25 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
     recruitment["indeed_url"] = _pack_text(seed.get("recruitment_indeed_url"))
     recruitment["valid_through"] = _pack_text(seed.get("recruitment_valid_through"))
     recruitment["employment_types"] = _pack_text(seed.get("recruitment_employment_types"))
+    recruitment["work_location"] = _pack_text(seed.get("recruitment_work_location"))
+    recruitment["work_hours"] = _pack_text(seed.get("recruitment_work_hours"))
+    recruitment["salary_note"] = _pack_text(seed.get("recruitment_salary_note"))
+    recruitment["holidays"] = _pack_text(seed.get("recruitment_holidays"))
+    recruitment["benefits"] = _pack_text(seed.get("recruitment_benefits"))
+    recruitment["work_summary"] = _pack_text(seed.get("recruitment_work_summary"))
     recruitment["qualification_note"] = _pack_text(seed.get("recruitment_qualification_note"))
     recruitment["target_person"] = _pack_text(seed.get("recruitment_target_person"))
     recruitment["work_details"] = _pack_text(seed.get("recruitment_work_details"))
+    recruitment["daily_flow"] = _pack_text(seed.get("recruitment_daily_flow"))
     recruitment["conditions"] = _pack_text(seed.get("recruitment_conditions"))
     recruitment["application_flow"] = _pack_text(seed.get("recruitment_application_flow"))
     recruitment["contact_note"] = _pack_text(seed.get("recruitment_contact_note"))
+    recruitment["faq_items"] = []
+    for idx in range(1, RECRUITMENT_FAQ_COUNT + 1):
+        q = _pack_text(seed.get(f"recruitment_faq_{idx}_q"))
+        a = _pack_text(seed.get(f"recruitment_faq_{idx}_a"))
+        recruitment["faq_items"].append({"q": q, "a": a})
+    _normalize_recruitment_block(recruitment)
     if _recruitment_has_content(recruitment) and not recruitment.get("enabled"):
         recruitment["enabled"] = True
 
