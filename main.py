@@ -6410,7 +6410,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "1.9.14")
+VERSION = read_text_file("VERSION", "1.9.15")
 
 
 def detect_file_version(path: str) -> str:
@@ -6427,7 +6427,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.14"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.15"
 APP_RELEASE_VERSION = CURRENT_APP_VERSION
 DESIGN_PROFILE_SCHEMA_VERSION = "1.9.schema.1"
 
@@ -7829,7 +7829,7 @@ def build_static_site_version_manifest(design_profile: Optional[dict] = None, *,
         "hero_full_bleed": True,
         "hero_slide_limit": 2,
         "hero_render_rule": "width_match_keep_aspect_1280x720",
-        "release_gate": "product_v1.9.14",
+        "release_gate": "product_v1.9.15",
         "js_split": ["site.hero.js", "site.contact.js", "site.reveal.js", "site.map.js"],
     }
     if isinstance(flags, dict):
@@ -18932,7 +18932,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
         "about": "pv-about",
         "company_profile": "pv-about",
         "services": "pv-about",
-        "recruitment": "pv-recruitment",
         "faq": "pv-faq",
         "access": "pv-access-contact",
         "contact": "pv-access-contact",
@@ -19156,7 +19155,10 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                         ui.label(company_name).classes("pv-brand-name")
 
                 if recruitment_visible:
-                    ui.button(recruitment_badge, on_click=lambda: scroll_to("recruitment")).props("dense no-caps unelevated color=warning").classes("q-ml-sm")
+                    def _open_recruitment_notice():
+                        if in_builder:
+                            ui.notify("求人ページは左の「4. 求人ページ」で確認できます", type="info")
+                    ui.button(recruitment_badge, on_click=_open_recruitment_notice).props("dense no-caps unelevated color=warning").classes("q-ml-sm")
 
                 if mode == "pc":
                     # desktop nav (PC only)
@@ -19164,8 +19166,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                         _desktop_nav_items = [
                             (about_title, "about"),
                         ]
-                        if recruitment_visible:
-                            _desktop_nav_items.append((recruitment_title, "recruitment"))
                         _desktop_nav_items += [
                             ("お知らせ", "news"),
                             ("よくある質問", "faq"),
@@ -19182,8 +19182,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                                 ("トップ", "top"),
                                 (about_title, "about"),
                             ]
-                            if recruitment_visible:
-                                _mobile_nav_items.append((recruitment_title, "recruitment"))
                             _mobile_nav_items += [
                                 ("お知らせ", "news"),
                                 ("よくある質問", "faq"),
@@ -19269,17 +19267,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             ui.html(services_panel_preview_html)
                         elif in_builder:
                             ui.html(build_services_panel_markup(title=svc_title, empty_html='<div class="pv-news-empty">業務内容を入力すると、ここに表示されます。</div>'))
-
-                # RECRUITMENT（任意表示）
-                if recruitment_visible:
-                    with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-recruitment"'):
-                        with ui.element("div").classes("pv-section-head"):
-                            ui.label(recruitment_title).classes("pv-section-title")
-                            ui.label("RECRUIT").classes("pv-section-en")
-                        if recruitment_panel_preview_html:
-                            ui.html(recruitment_panel_preview_html)
-                        elif in_builder:
-                            ui.html(build_recruitment_panel_markup(empty_html='<div class="pv-news-empty">求人内容を入力すると、ここに表示されます。</div>'))
 
                 # NEWS
                 with ui.element("section").classes("pv-section pv-section-260218").props('id="pv-news"'):
@@ -19482,8 +19469,6 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                             ("トップ", "top"),
                             (about_title, "about"),
                         ]
-                        if recruitment_visible:
-                            _footer_nav_items.append((recruitment_title, "recruitment"))
                         _footer_nav_items += [
                             ("お知らせ一覧", "news"),
                             ("よくある質問", "faq"),
@@ -19498,6 +19483,165 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                 ui.run_javascript(
                     f"setTimeout(function(){{try{{window.cvhbInitScrollReveal && window.cvhbInitScrollReveal('{root_id}');window.cvhbInitLazyMaps && window.cvhbInitLazyMaps('{root_id}');}}catch(e){{}}}},0);"
                 )
+
+
+def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, in_builder: bool = False) -> None:
+    """求人専用ページの右プレビュー。
+
+    完成HP本体とは別ページとして、Google JobPosting / Indeed feed の前提を確認しやすくする。
+    """
+    if isinstance(p, dict) and isinstance(p.get("data"), dict):
+        d = p.get("data") or {}
+        project_obj = p
+    elif isinstance(p, dict):
+        d = p
+        project_obj = {"data": d}
+    else:
+        d = {}
+        project_obj = {"data": d}
+
+    step1 = d.get("step1", {}) if isinstance(d.get("step1"), dict) else {}
+    step2 = d.get("step2", {}) if isinstance(d.get("step2"), dict) else {}
+    blocks = d.get("blocks", {}) if isinstance(d.get("blocks"), dict) else {}
+    philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
+    profile = philosophy.get("company_profile") if isinstance(philosophy.get("company_profile"), dict) else {}
+    recruitment = _normalize_recruitment_block(blocks.get("recruitment") if isinstance(blocks.get("recruitment"), dict) else {})
+
+    mode = str(mode or "mobile").strip()
+    if mode not in {"mobile", "pc"}:
+        mode = "mobile"
+    root_id = str(root_id or f"pv-recruitment-root-{mode}").strip() or f"pv-recruitment-root-{mode}"
+
+    def _esc(v) -> str:
+        return html.escape(str(v or ""), quote=True)
+
+    def _nl(v) -> str:
+        return _esc(v).replace("\n", "<br>")
+
+    company_name = str(step2.get("company_name") or "").strip() or "会社名"
+    title = str(recruitment.get("title") or "").strip() or "求人情報"
+    lead = str(recruitment.get("lead") or "").strip()
+    enabled = bool(recruitment.get("enabled"))
+    rows = _recruitment_rows(recruitment)
+    image_url = str(recruitment.get("image_url") or "").strip()
+    public_base = _project_public_site_url(project_obj, step2, profile)
+    recruitment_public_url = _public_page_url(public_base, RECRUITMENT_PAGE_PATH) if public_base else RECRUITMENT_PAGE_PATH
+    jobposting_url = _public_url(public_base, RECRUITMENT_JOBPOSTING_JSON_PATH) if public_base else RECRUITMENT_JOBPOSTING_JSON_PATH
+    indeed_feed_url = _public_url(public_base, RECRUITMENT_INDEED_FEED_PATH) if public_base else RECRUITMENT_INDEED_FEED_PATH
+
+    required_for_google = [
+        ("会社名", bool(company_name and company_name != "会社名")),
+        ("仕事内容", bool(str(recruitment.get("work_details") or "").strip())),
+        ("勤務条件", bool(str(recruitment.get("conditions") or "").strip())),
+        ("応募導線", bool(str(recruitment.get("apply_url") or "").strip() or str(step2.get("email") or "").strip())),
+    ]
+    required_for_indeed = [
+        ("公開URL", bool(public_base)),
+        ("会社名", bool(company_name and company_name != "会社名")),
+        ("メール", bool(str(step2.get("email") or "").strip())),
+        ("住所", bool(str(step2.get("address") or "").strip())),
+    ]
+
+    def _status_badges(items: list[tuple[str, bool]]) -> str:
+        return "".join(
+            f'<span class="job-status {"ok" if ok else "warn"}">{"OK" if ok else "要確認"} {_esc(label)}</span>'
+            for label, ok in items
+        )
+
+    rows_html = "".join(
+        f'<div class="job-row"><dt>{_esc(label)}</dt><dd>{_nl(value)}</dd></div>'
+        for label, value in rows
+    ) or '<div class="job-empty">求人項目を入力すると、ここに仕事内容・条件・応募方法が整理されます。</div>'
+
+    if image_url:
+        dims = (880, 520) if mode == "pc" else (720, 520)
+        img_html = f'<img class="job-hero-img" src="{_esc(pv_img_src(image_url, max_w=dims[0], max_h=dims[1], fit_mode="contain"))}" alt="">'
+    else:
+        img_html = '<div class="job-hero-placeholder">職場・スタッフ・働く様子の画像</div>'
+
+    disabled_note = "" if enabled else '<div class="job-disabled">現在は「求人情報を表示する」がOFFです。公開時は求人ページを出さない設定になります。</div>'
+    layout_class = "is-mobile" if mode == "mobile" else "is-pc"
+
+    ui.html(
+        f"""
+<div id="{_esc(root_id)}" class="job-preview {layout_class} notranslate" translate="no">
+  <style>
+    .job-preview{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif;background:#f8fafc;color:#0f172a;min-height:720px;border-radius:18px;overflow:hidden;}}
+    .job-preview *{{box-sizing:border-box;}}
+    .job-top{{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;border-bottom:1px solid rgba(15,23,42,.08);background:rgba(255,255,255,.92);}}
+    .job-brand{{font-weight:800;font-size:18px;line-height:1.3;}}
+    .job-page-path{{font-size:12px;color:#64748b;margin-top:2px;word-break:break-all;}}
+    .job-badge{{background:#0f172a;color:#fff;border-radius:999px;padding:10px 14px;font-size:13px;font-weight:700;white-space:nowrap;}}
+    .job-hero{{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(300px,.95fr);gap:26px;align-items:center;padding:28px 28px 18px;}}
+    .job-hero-visual{{min-width:0;}}
+    .job-hero-img,.job-hero-placeholder{{width:100%;aspect-ratio:16/9;object-fit:contain;background:linear-gradient(135deg,#e2e8f0,#f8fafc);border:1px solid rgba(15,23,42,.08);}}
+    .job-hero-placeholder{{display:grid;place-items:center;color:#64748b;font-weight:700;}}
+    .job-kicker{{font-size:12px;letter-spacing:.12em;color:#2563eb;font-weight:800;margin-bottom:10px;}}
+    .job-title{{font-size:clamp(30px,4.5vw,52px);line-height:1.08;font-weight:900;margin:0 0 14px;}}
+    .job-lead{{font-size:16px;line-height:1.85;color:#334155;margin:0;}}
+    .job-disabled{{margin-top:14px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:10px;padding:10px 12px;font-size:13px;}}
+    .job-grid{{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.56fr);gap:20px;padding:0 28px 28px;}}
+    .job-panel{{background:rgba(255,255,255,.94);border:1px solid rgba(15,23,42,.08);border-radius:14px;padding:20px;}}
+    .job-panel h3{{font-size:18px;margin:0 0 14px;font-weight:850;}}
+    .job-row{{display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;padding:13px 0;border-top:1px solid rgba(15,23,42,.08);}}
+    .job-row:first-child{{border-top:0;}}
+    .job-row dt{{color:#475569;font-weight:800;font-size:13px;}}
+    .job-row dd{{margin:0;color:#0f172a;line-height:1.75;font-size:14px;}}
+    .job-empty{{padding:22px;border:1px dashed rgba(37,99,235,.28);border-radius:12px;color:#64748b;background:#f8fbff;}}
+    .job-status-wrap{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}}
+    .job-status{{font-size:12px;font-weight:750;border-radius:999px;padding:7px 9px;border:1px solid rgba(15,23,42,.12);}}
+    .job-status.ok{{background:#ecfdf5;color:#047857;border-color:#a7f3d0;}}
+    .job-status.warn{{background:#fff7ed;color:#c2410c;border-color:#fed7aa;}}
+    .job-link-list{{display:grid;gap:8px;font-size:13px;line-height:1.5;color:#334155;}}
+    .job-link-list div{{word-break:break-all;}}
+    .job-footer{{padding:18px 28px;background:#0f172a;color:#e2e8f0;font-size:12px;}}
+    .job-preview.is-mobile{{border-radius:22px;}}
+    .job-preview.is-mobile .job-top{{padding:16px;align-items:flex-start;}}
+    .job-preview.is-mobile .job-badge{{font-size:12px;padding:8px 10px;}}
+    .job-preview.is-mobile .job-hero{{display:block;padding:16px;}}
+    .job-preview.is-mobile .job-title{{font-size:30px;line-height:1.12;}}
+    .job-preview.is-mobile .job-lead{{font-size:14px;line-height:1.75;}}
+    .job-preview.is-mobile .job-grid{{display:block;padding:0 16px 18px;}}
+    .job-preview.is-mobile .job-panel{{padding:16px;margin-top:14px;}}
+    .job-preview.is-mobile .job-row{{display:block;}}
+    .job-preview.is-mobile .job-row dt{{margin-bottom:4px;}}
+  </style>
+  <header class="job-top">
+    <div>
+      <div class="job-brand">{_esc(company_name)}</div>
+      <div class="job-page-path">{_esc(RECRUITMENT_PAGE_PATH)} / Google JobPosting / Indeed feed</div>
+    </div>
+    <div class="job-badge">{_esc(RECRUITMENT_BADGE_DEFAULT)}</div>
+  </header>
+  <section class="job-hero">
+    <div class="job-hero-visual">{img_html}</div>
+    <div>
+      <div class="job-kicker">RECRUIT PAGE</div>
+      <h1 class="job-title">{_esc(title)}</h1>
+      <p class="job-lead">{_nl(lead or "求人のひとこと説明を入力すると、ここに応募者向けの導入文が表示されます。")}</p>
+      {disabled_note}
+    </div>
+  </section>
+  <main class="job-grid">
+    <section class="job-panel">
+      <h3>募集内容</h3>
+      <dl>{rows_html}</dl>
+    </section>
+    <aside class="job-panel">
+      <h3>Google / Indeed 連携チェック</h3>
+      <div class="job-status-wrap">{_status_badges(required_for_google)}</div>
+      <div class="job-status-wrap">{_status_badges(required_for_indeed)}</div>
+      <div class="job-link-list">
+        <div>求人ページ: {_esc(recruitment_public_url)}</div>
+        <div>JobPosting JSON: {_esc(jobposting_url)}</div>
+        <div>Indeed feed: {_esc(indeed_feed_url)}</div>
+      </div>
+    </aside>
+  </main>
+  <footer class="job-footer">{_esc(PRODUCT_NAME)} {_esc(APP_RELEASE_VERSION)} / dedicated recruitment page preview</footer>
+</div>
+"""
+    )
 
 def render_main(u: User) -> None:
     cleanup_user_storage()
@@ -19521,7 +19665,6 @@ def render_main(u: User) -> None:
     BLOCK_PREVIEW_SECTION_IDS = {
         "hero": "pv-top",
         "philosophy": "pv-about",
-        "recruitment": "pv-recruitment",
         "news": "pv-news",
         "faq": "pv-faq",
         "access_contact": "pv-access-contact",
@@ -19669,7 +19812,7 @@ def render_main(u: User) -> None:
 
     def refresh_approval_panel(force: bool = False) -> None:
         nonlocal _approval_refresh_handle
-        if not force and _current_step_value() != "s4":
+        if not force and _current_step_value() != "s5":
             return
 
         def _do_refresh() -> None:
@@ -19706,7 +19849,7 @@ def render_main(u: User) -> None:
 
     def refresh_publish_panel(force: bool = False) -> None:
         nonlocal _publish_refresh_handle
-        if not force and _current_step_value() != "s5":
+        if not force and _current_step_value() != "s6":
             return
 
         def _do_refresh() -> None:
@@ -19836,16 +19979,17 @@ def render_main(u: User) -> None:
                             ui.label("ステップを選ぶと、下の入力画面が切り替わります。").classes("cvhb-muted q-mb-sm")
 
                             # UIの「今のステップ」を覚える（接続が切れても戻らないように）
-                            allowed_steps = ["s1", "s2", "s3", "s4"] + ([] if HELP_MODE else ["s5"])
+                            allowed_steps = ["s1", "s2", "s3", "s4", "s5"] + ([] if HELP_MODE else ["s6"])
                             step_initial = _ui_get(UI_STEP_KEY, "s1", allowed_steps)
 
                             with ui.tabs(value=step_initial).props("vertical dense").classes("w-full cvhb-step-tabs") as step_tabs:
                                 ui.tab("s1", label=f"1. {ASSIST_LABEL}")
                                 ui.tab("s2", label="2. 基本情報設定")
                                 ui.tab("s3", label="3. ページ内容詳細設定（ブロックごと）")
-                                ui.tab("s4", label="4. 承認・最終チェック")
+                                ui.tab("s4", label="4. 求人ページ")
+                                ui.tab("s5", label="5. 承認・最終チェック")
                                 if not HELP_MODE:
-                                    ui.tab("s5", label=f"5. {PUBLISH_LABEL}")
+                                    ui.tab("s6", label=f"6. {PUBLISH_LABEL}")
 
                             step_content_ref = {"refresh": (lambda: None)}
 
@@ -19859,8 +20003,10 @@ def render_main(u: User) -> None:
                                 except Exception:
                                     pass
                                 if v == "s4":
-                                    refresh_approval_panel(force=True)
+                                    refresh_preview(force=True)
                                 elif v == "s5":
+                                    refresh_approval_panel(force=True)
+                                elif v == "s6":
                                     refresh_publish_panel(force=True)
 
                             try:
@@ -19975,6 +20121,102 @@ def render_main(u: User) -> None:
                                     inp = ui.input(label, value=val, on_change=_on_change).props(props).classes("w-full q-mb-sm")
                                     if hint:
                                         inp.props(f"hint={hint}")
+
+                                def render_recruitment_page_editor() -> None:
+                                    """求人ページ専用の編集画面。HP本体ブロックとは分けて扱う。"""
+                                    ui.label("4. 求人ページ").classes("text-h6 q-mb-sm")
+                                    ui.label("求人ページは完成HPとは別ページとして生成されます。Google求人検索向けの JobPosting JSON と Indeed feed の前提項目もここで確認します。").classes("cvhb-muted q-mb-md")
+
+                                    recruitment = _normalize_recruitment_block(blocks.setdefault("recruitment", {}))
+                                    blocks["recruitment"] = recruitment
+                                    recruitment.setdefault("image_url", "")
+                                    recruitment.setdefault("image_upload_name", "")
+
+                                    def _set_recruitment_enabled(v: bool) -> None:
+                                        recruitment["enabled"] = bool(v)
+                                        update_and_refresh(force_preview=True)
+
+                                    with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
+                                        ui.label("公開設定").classes("text-subtitle1")
+                                        ui.switch("求人情報を表示する", value=bool(recruitment.get("enabled", False)), on_change=lambda e: _set_recruitment_enabled(bool(e.value))).props("dense").classes("q-mb-sm")
+                                        ui.label(f"公開時のページ: {RECRUITMENT_PAGE_PATH}").classes("cvhb-muted")
+                                        ui.label(f"Google JobPosting JSON: {RECRUITMENT_JOBPOSTING_JSON_PATH}").classes("cvhb-muted")
+                                        ui.label(f"Indeed feed XML: {RECRUITMENT_INDEED_FEED_PATH}").classes("cvhb-muted")
+
+                                    with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
+                                        ui.label("求人ページの本文").classes("text-subtitle1")
+                                        bind_dict_input(recruitment, "見出し", "title", hint="例：求人情報")
+                                        bind_dict_input(recruitment, "ひとこと説明", "lead", textarea=True, hint="募集の概要や一言メッセージを書きます")
+                                        bind_dict_input(recruitment, "応募先URL（任意）", "apply_url", hint="例：https://example.com/recruit/apply")
+                                        bind_dict_input(recruitment, "Indeed掲載URL（任意）", "indeed_url", hint="例：https://jp.indeed.com/viewjob?jk=...")
+                                        bind_dict_input(recruitment, "募集終了日（任意）", "valid_through", hint="例：2026-12-31")
+
+                                        ui.label("画像（任意 / 1枚）").classes("text-body1 q-mt-sm")
+                                        ui.label(IMAGE_RECOMMENDED_TEXT).classes("cvhb-muted")
+
+                                        async def _on_upload_recruitment_image(e):
+                                            try:
+                                                data_url, fname = await _upload_event_to_data_url(e, max_w=IMAGE_MAX_W, max_h=IMAGE_MAX_H)
+                                                if not data_url:
+                                                    return
+                                                recruitment["image_url"] = data_url
+                                                recruitment["image_upload_name"] = _short_name(fname)
+                                                update_and_refresh(force_preview=True)
+                                                recruitment_image_editor.refresh()
+                                            except Exception as ex:
+                                                print(f"[UPLOAD:recruitment_image] unexpected error: {ex}", flush=True)
+
+                                        def _clear_recruitment_image() -> None:
+                                            try:
+                                                recruitment["image_url"] = ""
+                                                recruitment["image_upload_name"] = ""
+                                            except Exception:
+                                                pass
+                                            update_and_refresh(force_preview=True)
+                                            recruitment_image_editor.refresh()
+
+                                        @ui.refreshable
+                                        def recruitment_image_editor():
+                                            cur = str(recruitment.get("image_url") or "").strip()
+                                            name = str(recruitment.get("image_upload_name") or "").strip()
+                                            with ui.row().classes("items-center q-gutter-sm"):
+                                                if cur:
+                                                    try:
+                                                        ui.image(pv_img_src(cur, max_w=240, max_h=136, fit_mode="cover")).style("width:120px;height:68px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,0.08);")
+                                                    except Exception:
+                                                        pass
+                                                else:
+                                                    ui.html('<div style="width:120px;height:68px;border-radius:10px;border:1px dashed rgba(99,102,241,.35);display:flex;align-items:center;justify-content:center;color:#64748b;font-size:12px;background:rgba(255,255,255,.72);">未設定</div>')
+                                                ui.upload(on_upload=_on_upload_recruitment_image, auto_upload=True).props("accept=image/*")
+                                                ui.button("クリア", on_click=_clear_recruitment_image).props("outline dense")
+                                                ui.button("反映して保存", icon="save", on_click=force_preview_refresh_and_save).props("color=primary unelevated dense no-caps")
+                                            ui.label(f"現在: {'未設定' if not cur else ('オリジナル(' + (name or 'アップロード') + ')')}").classes("cvhb-muted")
+
+                                        recruitment_image_editor()
+
+                                    with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
+                                        ui.label("Google / Indeed に必要な募集情報").classes("text-subtitle1")
+                                        bind_dict_input(recruitment, "募集形態", "employment_types", hint="例：正社員 / パート / アルバイト")
+                                        bind_dict_input(recruitment, "資格・歓迎条件", "qualification_note", textarea=True, hint="例：有資格者歓迎 / 未経験可 / 経験者優遇")
+                                        bind_dict_input(recruitment, "求める人物像", "target_person", textarea=True, hint="例：丁寧に対応できる方 / チームで協力できる方")
+                                        bind_dict_input(recruitment, "仕事内容", "work_details", textarea=True, hint="仕事内容や1日の流れなどを詳しく書けます")
+                                        bind_dict_input(recruitment, "勤務条件", "conditions", textarea=True, hint="例：勤務地 / 勤務時間 / 給与 / 休日 / 福利厚生")
+                                        bind_dict_input(recruitment, "応募方法・選考の流れ", "application_flow", textarea=True, hint="例：応募 → 面談 → 採用")
+                                        bind_dict_input(recruitment, "採用に関する補足", "contact_note", textarea=True, hint="例：質問はお問い合わせフォームから受け付けます")
+
+                                    philosophy = blocks.get("philosophy") if isinstance(blocks.get("philosophy"), dict) else {}
+                                    profile = philosophy.get("company_profile") if isinstance(philosophy.get("company_profile"), dict) else {}
+                                    site_base = _public_site_base_url(_project_public_site_url(p, step2, profile))
+                                    with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
+                                        ui.label("連携チェック").classes("text-subtitle1")
+                                        ui.label("Google求人検索: 会社名 / 仕事内容 / 勤務条件 / 応募導線が揃うと構造化データとして出力されます。").classes("cvhb-muted")
+                                        ui.label("Indeed: 公開URL / 会社名 / メール / 住所が揃うと feed XML の品質が上がります。").classes("cvhb-muted")
+                                        if site_base:
+                                            ui.label(f"求人ページURL: {_public_page_url(site_base, RECRUITMENT_PAGE_PATH)}").classes("cvhb-muted text-caption q-mt-sm")
+                                            ui.label(f"JobPosting JSON: {_public_url(site_base, RECRUITMENT_JOBPOSTING_JSON_PATH)}").classes("cvhb-muted text-caption")
+                                            ui.label(f"Indeed feed: {_public_url(site_base, RECRUITMENT_INDEED_FEED_PATH)}").classes("cvhb-muted text-caption")
+                                        else:
+                                            ui.label("本番公開URLが未設定です。Step6の公開設定、または会社概要のURLを設定すると外部連携URLを確定できます。").classes("text-warning text-caption q-mt-sm")
 
 
                                 @ui.refreshable
@@ -20400,17 +20642,16 @@ def render_main(u: User) -> None:
                                         @ui.refreshable
                                         def block_editor_panel():
                                             with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
-                                                ui.label("ブロック編集（6ブロック）").classes("text-subtitle1")
-                                                ui.label("ヒーロー / 理念・概要 / 求人 / お知らせ / FAQ / アクセス・お問い合わせ").classes("cvhb-muted q-mb-sm")
+                                                ui.label("ブロック編集（5ブロック）").classes("text-subtitle1")
+                                                ui.label("ヒーロー / 理念・概要 / お知らせ / FAQ / アクセス・お問い合わせ").classes("cvhb-muted q-mb-sm")
 
                                                 # UIの「今のブロック」を覚える（接続が切れても戻らないように）
-                                                allowed_blocks = ["hero", "philosophy", "recruitment", "news", "faq", "access_contact"]
+                                                allowed_blocks = ["hero", "philosophy", "news", "faq", "access_contact"]
                                                 block_initial = _ui_get(UI_BLOCK_KEY, "hero", allowed_blocks)
 
                                                 with ui.tabs(value=block_initial).props("dense").classes("w-full cvhb-block-tabs") as block_tabs:
                                                     ui.tab("hero", label="ヒーロー")
                                                     ui.tab("philosophy", label="理念/概要")
-                                                    ui.tab("recruitment", label="求人")
                                                     ui.tab("news", label="お知らせ")
                                                     ui.tab("faq", label="FAQ")
                                                     ui.tab("access_contact", label="アクセス/お問い合わせ")
@@ -21086,10 +21327,13 @@ def render_main(u: User) -> None:
 
 
                                     # -----------------
-                                    # Step 4 / 5
+                                    # Step 4 / 5 / 6
                                     # -----------------
                                     if current_step == "s4":
-                                        ui.label("4. 承認・最終チェック").classes("text-h6 q-mb-sm")
+                                        render_recruitment_page_editor()
+
+                                    if current_step == "s5":
+                                        ui.label("5. 承認・最終チェック").classes("text-h6 q-mb-sm")
                                         ui.label("公開前に「必須チェック」と「承認」を行います。").classes("cvhb-muted q-mb-md")
 
                                         approval_ui_state = {"request_note": "", "review_note": ""}
@@ -21250,8 +21494,8 @@ def render_main(u: User) -> None:
                                         approval_panel()
                                         approval_ref["refresh"] = approval_panel.refresh
 
-                                    if current_step == "s5":
-                                        ui.label(f"5. {PUBLISH_LABEL}").classes("text-h6 q-mb-sm")
+                                    if current_step == "s6":
+                                        ui.label(f"6. {PUBLISH_LABEL}").classes("text-h6 q-mb-sm")
                                         ui.label("承認OKになったら、ZIPの書き出しや公開（アップロード）ができます。PageFlow Publish の画面です。").classes("cvhb-muted q-mb-md")
 
                                         export_state = {"url": "", "filename": ""}
@@ -22307,7 +22551,10 @@ def render_main(u: User) -> None:
                                             return
 
                                         # 右プレビュー本体（root_id を固定して Fit-to-width を安定化）
-                                        render_preview(p, mode=mode, root_id="pv-root", in_builder=True)
+                                        if _current_step_value() == "s4":
+                                            render_recruitment_page_preview(p, mode=mode, root_id="pv-root", in_builder=True)
+                                        else:
+                                            render_preview(p, mode=mode, root_id="pv-root", in_builder=True)
 
                                         # fit-to-width (design: 860px / 1080px)
                                         try:
@@ -22340,6 +22587,8 @@ def render_main(u: User) -> None:
                         def apply_preview_theme_delta() -> bool:
                             if not preview_lazy_state.get("mounted") or not p:
                                 return False
+                            if _current_step_value() == "s4":
+                                return False
                             try:
                                 payload = build_builder_preview_delta_payload(p, str(preview_mode.get("value") or "mobile"))
                                 payload_js = json.dumps(payload, ensure_ascii=False)
@@ -22353,6 +22602,8 @@ def render_main(u: User) -> None:
 
                         def apply_preview_mode_delta(mode_value: str) -> bool:
                             if not preview_lazy_state.get("mounted") or not p:
+                                return False
+                            if _current_step_value() == "s4":
                                 return False
                             try:
                                 payload = build_builder_preview_delta_payload(p, mode_value)
