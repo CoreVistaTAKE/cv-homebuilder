@@ -5278,10 +5278,13 @@ body {
   try{{
     var oldDepth = document.getElementById('cvhb-depth-bg-styles');
     if(oldDepth) oldDepth.remove();
+    var oldSoft = document.getElementById('cvhb-soft-clarity-styles');
+    if(oldSoft) oldSoft.remove();
   }}catch(e){{}}
 }})();
 </script>
 <style id="cvhb-depth-bg-styles">{DEPTH_BG_CSS}</style>
+<style id="cvhb-soft-clarity-styles">{SOFT_CLARITY_CSS}</style>
 """
     )
 
@@ -6410,7 +6413,7 @@ def read_text_file(path: str, default: str = "") -> str:
         return default
 
 
-VERSION = read_text_file("VERSION", "1.9.15")
+VERSION = read_text_file("VERSION", "1.9.16")
 
 
 def detect_file_version(path: str) -> str:
@@ -6427,7 +6430,7 @@ def detect_file_version(path: str) -> str:
     return ""
 
 
-CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.15"
+CURRENT_APP_VERSION = detect_file_version(globals().get("__file__", "")) or VERSION or "1.9.16"
 APP_RELEASE_VERSION = CURRENT_APP_VERSION
 DESIGN_PROFILE_SCHEMA_VERSION = "1.9.schema.1"
 
@@ -7829,7 +7832,7 @@ def build_static_site_version_manifest(design_profile: Optional[dict] = None, *,
         "hero_full_bleed": True,
         "hero_slide_limit": 2,
         "hero_render_rule": "width_match_keep_aspect_1280x720",
-        "release_gate": "product_v1.9.15",
+        "release_gate": "product_v1.9.16",
         "js_split": ["site.hero.js", "site.contact.js", "site.reveal.js", "site.map.js"],
     }
     if isinstance(flags, dict):
@@ -13888,7 +13891,7 @@ body.pv-modal-open{overflow:hidden !important;}
 .pv-thanks-mail-title{font-weight:900; margin-bottom:10px; opacity:.8;}
 """
 
-    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + DEPTH_BG_CSS
+    site_css = EXPORT_BASE_CSS + "\n" + PV_THEME_CSS + "\n" + DEPTH_BG_CSS + "\n" + SOFT_CLARITY_CSS
     # ↑ PV_THEME_CSS だけだとexport用の補助CSS（フォーム/メニュー等）が効かないので、前後に入れる
     #   ただし重複許容（sizeより一致優先）
 
@@ -15034,6 +15037,21 @@ body{ top:0 !important; }
             return f"{root_prefix}{RECRUITMENT_PAGE_PATH}"
         return f"#{target}" if on_index else f"{root_prefix}index.html#{target}"
 
+    def _tel_href(raw: str) -> str:
+        normalized = re.sub(r"[^\d+]", "", str(raw or ""))
+        return f"tel:{normalized}" if normalized else ""
+
+    def _build_sticky_cta_html(*, contact_href: str, primary_href: str = "", primary_label: str = "", secondary_label: str = "お問い合わせ", extra_classes: str = "") -> str:
+        primary_href = str(primary_href or "").strip() or _tel_href(phone) or (f"mailto:{email}" if email else contact_href)
+        primary_label = str(primary_label or "").strip() or ("電話する" if primary_href.startswith("tel:") else ("メールする" if primary_href.startswith("mailto:") else "相談する"))
+        classes = f"pv-sticky-cta {extra_classes}".strip()
+        return (
+            f'<nav class="{_esc(classes)}" aria-label="固定CTA">'
+            f'<a class="pv-sticky-cta-btn pv-sticky-cta-primary" href="{_esc(primary_href)}">{_esc(primary_label)}</a>'
+            f'<a class="pv-sticky-cta-btn pv-sticky-cta-secondary" href="{_esc(contact_href)}">{_esc(secondary_label)}</a>'
+            f'</nav>'
+        )
+
     # 共通ナビ（index / subpage 両対応）
     nav_items = [
         ("pv-about", about_nav_label),
@@ -15165,7 +15183,7 @@ body{ top:0 !important; }
 """
 
     # news/index.html と個別記事
-    def _wrap_page(*, title: str, css_href: str, js_href: str, favicon_href_: str, body_inner: str, root_prefix: str = "", header_cta_html: str = "", footer_cta_html: str = "", extra_head_html: str = "") -> str:
+    def _wrap_page(*, title: str, css_href: str, js_href: str, favicon_href_: str, body_inner: str, root_prefix: str = "", header_cta_html: str = "", footer_cta_html: str = "", extra_head_html: str = "", sticky_cta_html: str = "") -> str:
         esc_title = _esc(title)
         css_href = version_static_asset_href(css_href)
         js_href = version_static_asset_href(js_href)
@@ -15205,6 +15223,7 @@ body{ top:0 !important; }
 
         brand_href = page_href("pv-top")
         header_cta_block = header_cta_html if header_cta_html else default_cta_html
+        sticky_cta_block = sticky_cta_html or _build_sticky_cta_html(contact_href=page_href("pv-access-contact"))
 
         return f"""<!doctype html>
 <!-- {PRODUCT_NAME} export {APP_RELEASE_VERSION} -->
@@ -15254,6 +15273,7 @@ body{ top:0 !important; }
         {page_footer_html}
       </footer>
     </div>
+    {sticky_cta_block}
   </div>
 
   <script src=\"{_esc(js_href)}\"></script>
@@ -15876,6 +15896,13 @@ body{ top:0 !important; }
         + recruit_indeed_button_html
         + f'<a class="pv-link-btn pv-btn-outline" href="../index.html#pv-top">トップへ戻る</a>'
     )
+    recruitment_sticky_cta_html = _build_sticky_cta_html(
+        contact_href="../index.html#pv-access-contact",
+        primary_href=recruit_apply_href,
+        primary_label=recruit_apply_label,
+        secondary_label=recruit_contact_label,
+        extra_classes="pv-sticky-cta-recruit",
+    )
 
     recruitment_page_body = (
         hero_overview_html
@@ -16089,7 +16116,12 @@ body{ top:0 !important; }
             ],
         }
         files[RECRUITMENT_DISTRIBUTION_JSON_PATH] = json.dumps(distribution_payload, ensure_ascii=False, indent=2).encode("utf-8")
-        recruitment_schema_html = '<script type="application/ld+json">' + json.dumps(job_posting, ensure_ascii=False) + '</script>'
+        recruitment_schema_html = (
+            '<link rel="alternate" type="application/xml" title="Indeed Feed" href="../feeds/indeed.xml">\n'
+            + '<script type="application/ld+json">'
+            + json.dumps(job_posting, ensure_ascii=False)
+            + '</script>'
+        )
 
     if recruitment_visible:
         files[RECRUITMENT_PAGE_PATH] = _wrap_page(
@@ -16102,6 +16134,7 @@ body{ top:0 !important; }
             header_cta_html=recruitment_header_cta_html,
             footer_cta_html=recruitment_footer_cta_html,
             extra_head_html=recruitment_schema_html,
+            sticky_cta_html=recruitment_sticky_cta_html,
         ).encode("utf-8")
 
     # phpフォームの場合は contact.php / config / thanks を同梱
@@ -16112,6 +16145,7 @@ body{ top:0 !important; }
     # index.html
     # --------------------
     favicon_tag = _favicon_head_tags(favicon_href_html)
+    index_sticky_cta_html = _build_sticky_cta_html(contact_href="#pv-access-contact")
 
     index_html = f"""<!doctype html>
 <!-- {PRODUCT_NAME} export {APP_RELEASE_VERSION} -->
@@ -16170,6 +16204,7 @@ body{ top:0 !important; }
         {index_footer_html}
       </footer>
     </div>
+    {index_sticky_cta_html}
   </div>
 
   <script src=\"{_esc(site_js_href)}\"></script>
@@ -18877,6 +18912,555 @@ body.pv-page-body > #pv-root.pv-shell .pv-footer{
 """
 
 
+SOFT_CLARITY_CSS = r"""
+/* ===== Soft Clarity mobile-first rebuild (v1.9.16) ===== */
+.pv-layout-260218{
+  --pf-bg:#f8fafc;
+  --pf-surface:#ffffff;
+  --pf-ink:#0f172a;
+  --pf-muted:#64748b;
+  --pf-line:rgba(15,23,42,.09);
+  --pf-primary:var(--pv-primary, #1e5eff);
+  --pf-shadow:0 22px 70px rgba(15,23,42,.10);
+  --pf-shadow-soft:0 12px 36px rgba(15,23,42,.075);
+  --pf-radius-xl:32px;
+  --pf-radius-lg:24px;
+  --pf-ease:cubic-bezier(.22,.61,.36,1);
+  font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",Meiryo,sans-serif;
+  color:var(--pf-ink);
+  letter-spacing:.01em;
+}
+.pv-layout-260218 .pv-scroll{
+  background:
+    radial-gradient(900px 560px at 18% 6%, rgba(var(--pv-accent-rgb,30,94,255),.12), transparent 62%),
+    radial-gradient(780px 520px at 86% 16%, rgba(14,165,233,.10), transparent 64%),
+    linear-gradient(180deg, rgba(255,255,255,.80), rgba(248,250,252,.94) 42%, rgba(241,245,249,.96));
+}
+.pv-layout-260218.pv-dark .pv-scroll{
+  background:
+    radial-gradient(900px 620px at 12% 8%, rgba(var(--pv-accent-rgb,30,94,255),.24), transparent 62%),
+    radial-gradient(720px 540px at 86% 12%, rgba(125,211,252,.13), transparent 64%),
+    linear-gradient(180deg, rgba(7,10,17,.86), rgba(15,23,42,.96));
+  color:#f8fafc;
+}
+body.pv-page-body{
+  padding-bottom:max(88px, calc(82px + env(safe-area-inset-bottom))) !important;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-topbar-260218{
+  position:fixed !important;
+  top:max(10px, env(safe-area-inset-top)) !important;
+  left:max(12px, env(safe-area-inset-left)) !important;
+  right:max(12px, env(safe-area-inset-right)) !important;
+  width:auto !important;
+  z-index:80 !important;
+  border-radius:999px !important;
+  background:rgba(255,255,255,.74) !important;
+  border:1px solid rgba(255,255,255,.72) !important;
+  box-shadow:0 18px 46px rgba(15,23,42,.12) !important;
+  backdrop-filter:blur(18px) saturate(1.14) !important;
+  -webkit-backdrop-filter:blur(18px) saturate(1.14) !important;
+}
+body.pv-page-body > #pv-root.pv-shell.pv-dark .pv-topbar-260218{
+  background:rgba(7,10,17,.72) !important;
+  border-color:rgba(255,255,255,.14) !important;
+  box-shadow:0 18px 46px rgba(0,0,0,.30) !important;
+}
+.pv-shell.pv-preview-live .pv-topbar-260218{
+  position:sticky !important;
+  top:0 !important;
+  left:auto !important;
+  right:auto !important;
+  border-radius:22px 22px 0 0 !important;
+}
+.pv-layout-260218 .pv-topbar-inner{
+  min-height:58px;
+  padding:8px 12px !important;
+}
+.pv-layout-260218 .pv-brand-logo{
+  max-height:42px !important;
+  width:auto !important;
+  object-fit:contain;
+}
+.pv-layout-260218 .pv-favicon{
+  width:42px !important;
+  height:42px !important;
+  object-fit:contain;
+}
+.pv-layout-260218 .pv-desktop-nav-btn,
+.pv-layout-260218 .pv-menu-btn,
+.pv-layout-260218 .pv-link-btn{
+  border-radius:999px !important;
+  font-weight:900 !important;
+}
+.pv-layout-260218 .pv-link-btn.pv-btn-primary,
+.pv-layout-260218 .pv-btn-primary{
+  background:linear-gradient(135deg, var(--pf-primary), rgba(var(--pv-accent-rgb,30,94,255),.82)) !important;
+  color:#fff !important;
+  box-shadow:0 14px 34px rgba(var(--pv-accent-rgb,30,94,255),.22) !important;
+}
+.pv-layout-260218 .pv-hero-wide{
+  width:100vw !important;
+  margin-left:calc(50% - 50vw) !important;
+  margin-right:calc(50% - 50vw) !important;
+  margin-top:0 !important;
+  margin-bottom:0 !important;
+  overflow:hidden;
+}
+.pv-layout-260218 .pv-hero-stage{
+  position:relative;
+  width:100%;
+  height:clamp(560px, 100svh, 860px) !important;
+  min-height:clamp(560px, 100svh, 860px) !important;
+  overflow:hidden;
+  background:#0f172a;
+}
+.pv-shell.pv-preview-live .pv-hero-stage{
+  height:min(680px, 92vh) !important;
+  min-height:min(560px, 112vw) !important;
+}
+.pv-layout-260218 .pv-hero-slider-wide,
+.pv-layout-260218 .pv-hero-slider{
+  width:100% !important;
+  height:100% !important;
+  aspect-ratio:auto !important;
+  border:0 !important;
+  border-radius:0 !important;
+  box-shadow:none !important;
+  background:#0f172a !important;
+}
+.pv-layout-260218 .pv-hero-track,
+.pv-layout-260218 .pv-hero-slide{
+  width:100%;
+  height:100%;
+}
+.pv-layout-260218 .pv-hero-img{
+  width:100% !important;
+  height:100% !important;
+  object-fit:cover !important;
+  object-position:center center;
+  transform:scale(1.01);
+}
+.pv-layout-260218 .pv-hero-stage::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:5;
+  pointer-events:none;
+  background:
+    linear-gradient(180deg, rgba(2,6,23,.12) 0%, rgba(2,6,23,.05) 38%, rgba(2,6,23,.72) 100%),
+    linear-gradient(90deg, rgba(2,6,23,.40), transparent 48%);
+}
+.pv-layout-260218 .pv-hero-caption{
+  position:absolute !important;
+  z-index:7;
+  left:clamp(18px, 6vw, 78px) !important;
+  right:clamp(18px, 8vw, 96px) !important;
+  bottom:max(104px, calc(env(safe-area-inset-bottom) + 92px)) !important;
+  transform:none !important;
+  width:auto !important;
+  max-width:min(680px, calc(100% - 36px)) !important;
+  min-width:0 !important;
+  padding:0 !important;
+  border:0 !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  color:#fff !important;
+  text-align:left !important;
+}
+.pv-layout-260218 .pv-hero-caption-title{
+  color:#fff !important;
+  font-size:clamp(1.9rem, 8.4vw, 3.05rem) !important;
+  line-height:1.08 !important;
+  letter-spacing:-.045em !important;
+  text-align:left !important;
+  text-wrap:balance;
+  word-break:keep-all;
+  overflow-wrap:anywhere;
+  text-shadow:0 18px 48px rgba(0,0,0,.38);
+}
+.pv-layout-260218 .pv-hero-caption-title.pv-size-l{ font-size:clamp(2.08rem, 9.2vw, 3.35rem) !important; }
+.pv-layout-260218 .pv-hero-caption-title.pv-size-s{ font-size:clamp(1.56rem, 7.2vw, 2.45rem) !important; }
+.pv-layout-260218 .pv-hero-caption-sub{
+  margin-top:16px !important;
+  max-width:42em;
+  color:rgba(255,255,255,.90) !important;
+  font-size:clamp(.98rem, 3.8vw, 1.18rem) !important;
+  line-height:1.82 !important;
+  text-align:left !important;
+  font-weight:800;
+  text-shadow:0 12px 34px rgba(0,0,0,.32);
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-stage{
+  height:clamp(680px, 86vh, 920px) !important;
+  min-height:clamp(680px, 86vh, 920px) !important;
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption{
+  bottom:clamp(112px, 17vh, 180px) !important;
+}
+.pv-layout-260218.pv-mode-pc .pv-hero-caption-title{
+  font-size:clamp(2.6rem, 4.8vw, 5.2rem) !important;
+  max-width:10.5em;
+}
+.pv-layout-260218 .pv-hero-dots{
+  z-index:9 !important;
+  right:clamp(18px, 5vw, 64px) !important;
+  bottom:max(72px, calc(env(safe-area-inset-bottom) + 64px)) !important;
+  top:auto !important;
+  left:auto !important;
+  transform:none !important;
+  flex-direction:row !important;
+}
+.pv-layout-260218 .pv-main{
+  display:block !important;
+  background:transparent !important;
+}
+body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section:first-child{
+  padding-top:clamp(96px, 14vw, 132px) !important;
+}
+.pv-layout-260218 .pv-section{
+  padding:clamp(44px, 11vw, 96px) clamp(18px, 5vw, 64px) !important;
+}
+.pv-layout-260218 .pv-section-head{
+  margin-bottom:18px !important;
+}
+.pv-layout-260218 .pv-section-title{
+  font-size:clamp(1.72rem, 7vw, 3.1rem) !important;
+  line-height:1.16 !important;
+  letter-spacing:-.04em !important;
+}
+.pv-layout-260218 .pv-section-subtitle,
+.pv-layout-260218 .pv-section-en{
+  color:var(--pf-primary) !important;
+  font-size:.76rem !important;
+  letter-spacing:.16em !important;
+  font-weight:1000 !important;
+}
+.pv-layout-260218 .pv-panel,
+.pv-layout-260218 .pv-company-profile-panel,
+.pv-layout-260218 .pv-surface-white{
+  border:1px solid rgba(255,255,255,.72) !important;
+  border-radius:var(--pf-radius-xl) !important;
+  background:rgba(255,255,255,.86) !important;
+  box-shadow:var(--pf-shadow-soft) !important;
+  backdrop-filter:blur(14px) saturate(1.05) !important;
+  -webkit-backdrop-filter:blur(14px) saturate(1.05) !important;
+}
+.pv-layout-260218.pv-dark .pv-panel,
+.pv-layout-260218.pv-dark .pv-company-profile-panel,
+.pv-layout-260218.pv-dark .pv-surface-white{
+  border-color:rgba(255,255,255,.12) !important;
+  background:rgba(15,23,42,.78) !important;
+}
+.pv-layout-260218 .pv-panel::before,
+.pv-layout-260218 .pv-panel::after{
+  content:none !important;
+}
+.pv-layout-260218 .pv-about-grid,
+.pv-layout-260218 .pv-services-grid{
+  gap:clamp(18px, 4vw, 34px) !important;
+}
+.pv-layout-260218.pv-mode-pc .pv-about-grid{
+  grid-template-columns:minmax(0,.92fr) minmax(360px,1.08fr) !important;
+  align-items:center !important;
+}
+.pv-layout-260218.pv-mode-pc .pv-services-grid{
+  grid-template-columns:minmax(360px,.98fr) minmax(0,1.02fr) !important;
+  align-items:center !important;
+}
+.pv-layout-260218 .pv-media-frame{
+  border:0 !important;
+  border-radius:28px !important;
+  box-shadow:0 20px 54px rgba(15,23,42,.12) !important;
+  background:transparent !important;
+}
+.pv-layout-260218 .pv-media-frame .pv-about-img,
+.pv-layout-260218 .pv-media-frame .pv-services-img,
+.pv-layout-260218 .pv-about-img,
+.pv-layout-260218 .pv-services-img{
+  object-fit:cover !important;
+  width:100% !important;
+  height:100% !important;
+  min-height:260px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-media-frame-about,
+.pv-layout-260218.pv-mode-mobile .pv-media-frame-services{
+  aspect-ratio:4 / 3 !important;
+}
+.pv-layout-260218 .pv-about-title,
+.pv-layout-260218 .pv-service-title{
+  border-left:0 !important;
+  padding-left:0 !important;
+  background:transparent !important;
+  letter-spacing:-.02em;
+}
+.pv-layout-260218 .pv-about-text,
+.pv-layout-260218 .pv-bodytext,
+.pv-layout-260218 .pv-service-body,
+.pv-layout-260218 .pv-services-lead,
+.pv-layout-260218 .pv-faq-a,
+.pv-layout-260218 .pv-legal{
+  font-size:clamp(.98rem, 3.85vw, 1.08rem) !important;
+  line-height:1.92 !important;
+  color:var(--pf-ink) !important;
+  opacity:.86 !important;
+}
+.pv-layout-260218.pv-dark .pv-about-text,
+.pv-layout-260218.pv-dark .pv-bodytext,
+.pv-layout-260218.pv-dark .pv-service-body,
+.pv-layout-260218.pv-dark .pv-services-lead,
+.pv-layout-260218.pv-dark .pv-faq-a,
+.pv-layout-260218.pv-dark .pv-legal{
+  color:#e5edf7 !important;
+}
+.pv-layout-260218 .pv-points{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:10px;
+}
+.pv-layout-260218 .pv-point-card{
+  border-radius:18px !important;
+  padding:14px 15px !important;
+  background:rgba(var(--pv-accent-rgb,30,94,255),.08) !important;
+  color:var(--pf-ink) !important;
+  font-weight:900 !important;
+}
+.pv-layout-260218.pv-mode-mobile .pv-points{
+  grid-template-columns:1fr;
+}
+.pv-layout-260218.pv-mode-mobile .pv-service-list{
+  display:flex !important;
+  gap:14px;
+  overflow-x:auto;
+  overscroll-behavior-x:contain;
+  scroll-snap-type:x mandatory;
+  -webkit-overflow-scrolling:touch;
+  padding:4px 2px 12px;
+  margin:0 -2px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-service-item{
+  flex:0 0 min(82vw, 360px);
+  scroll-snap-align:start;
+  border:1px solid var(--pf-line) !important;
+  border-radius:22px !important;
+  padding:18px !important;
+  background:rgba(255,255,255,.74);
+  box-shadow:0 14px 34px rgba(15,23,42,.075);
+}
+.pv-layout-260218.pv-mode-pc .pv-service-list{
+  display:grid !important;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:14px;
+}
+.pv-layout-260218.pv-mode-pc .pv-service-item{
+  border:1px solid var(--pf-line) !important;
+  border-radius:22px !important;
+  padding:18px !important;
+  background:rgba(255,255,255,.66);
+}
+.pv-layout-260218 .pv-news-item,
+.pv-layout-260218 .pv-faq-item{
+  border:1px solid var(--pf-line) !important;
+  border-radius:18px !important;
+  padding:14px 15px !important;
+  background:rgba(255,255,255,.58);
+  box-shadow:0 10px 26px rgba(15,23,42,.055);
+}
+.pv-layout-260218 .pv-news-list,
+.pv-layout-260218 .pv-faq-list{
+  display:grid;
+  gap:12px;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-item{
+  grid-template-columns:1fr 24px !important;
+}
+.pv-layout-260218.pv-mode-mobile .pv-news-date,
+.pv-layout-260218.pv-mode-mobile .pv-news-cat{
+  grid-column:1 / 2;
+}
+.pv-layout-260218 .pv-contact-details,
+.pv-layout-260218 .pv-company-profile-details{
+  border-radius:22px;
+}
+.pv-sticky-cta{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  position:fixed;
+  left:max(12px, env(safe-area-inset-left));
+  right:max(12px, env(safe-area-inset-right));
+  bottom:max(12px, env(safe-area-inset-bottom));
+  z-index:90;
+  max-width:520px;
+  margin:0 auto;
+  padding:8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.82);
+  border:1px solid rgba(255,255,255,.72);
+  box-shadow:0 20px 54px rgba(15,23,42,.18);
+  backdrop-filter:blur(18px) saturate(1.12);
+  -webkit-backdrop-filter:blur(18px) saturate(1.12);
+}
+.pv-sticky-cta-btn{
+  flex:1 1 0;
+  min-height:48px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:999px;
+  text-decoration:none;
+  font-weight:1000;
+  letter-spacing:.01em;
+  color:var(--pf-ink);
+  background:rgba(255,255,255,.76);
+  border:1px solid rgba(15,23,42,.08);
+  transition:transform .16s var(--pf-ease), box-shadow .16s var(--pf-ease);
+}
+.pv-sticky-cta-btn:active{
+  transform:scale(.97);
+}
+.pv-sticky-cta-primary{
+  color:#fff !important;
+  background:linear-gradient(135deg, var(--pf-primary), rgba(var(--pv-accent-rgb,30,94,255),.82)) !important;
+  box-shadow:0 14px 30px rgba(var(--pv-accent-rgb,30,94,255),.24);
+}
+.pv-shell.pv-preview-live .pv-sticky-cta{
+  position:sticky !important;
+  left:auto;
+  right:auto;
+  bottom:12px;
+  margin:18px;
+  max-width:none;
+}
+/* Recruitment page: mobile hiring LP, same data model */
+.pv-layout-260218 #job-overview .pv-section-head{
+  display:none !important;
+}
+.pv-layout-260218 #job-overview .pv-panel{
+  padding:0 !important;
+  overflow:hidden;
+}
+.pv-layout-260218 .pv-job-hero-shell{
+  display:grid !important;
+  grid-template-columns:1fr !important;
+  gap:0 !important;
+}
+.pv-layout-260218 .pv-job-hero-media{
+  min-height:clamp(420px, 72svh, 760px) !important;
+  border:0 !important;
+  border-radius:0 !important;
+  box-shadow:none !important;
+}
+.pv-layout-260218 .pv-job-hero-media img{
+  object-fit:cover !important;
+  width:100% !important;
+  height:100% !important;
+}
+.pv-layout-260218 .pv-job-hero-card{
+  margin:-98px 16px 18px;
+  padding:22px !important;
+  border-radius:28px;
+  background:rgba(255,255,255,.90);
+  box-shadow:0 22px 60px rgba(15,23,42,.16);
+}
+.pv-layout-260218.pv-dark .pv-job-hero-card{
+  background:rgba(15,23,42,.86);
+}
+.pv-layout-260218 .pv-job-title{
+  font-size:clamp(2rem, 8vw, 3.25rem) !important;
+  line-height:1.12 !important;
+  letter-spacing:-.045em;
+}
+.pv-layout-260218 .pv-job-lead,
+.pv-layout-260218 .pv-job-summary,
+.pv-layout-260218 .pv-job-note,
+.pv-layout-260218 .pv-job-meta-value{
+  line-height:1.9 !important;
+}
+.pv-layout-260218 .pv-job-section-nav{
+  display:flex !important;
+  overflow-x:auto;
+  scroll-snap-type:x mandatory;
+  gap:10px;
+  padding-bottom:8px;
+}
+.pv-layout-260218 .pv-job-nav-btn{
+  flex:0 0 auto;
+  min-width:144px;
+  min-height:46px !important;
+  border-radius:999px !important;
+  background:rgba(255,255,255,.70) !important;
+  box-shadow:none !important;
+}
+.pv-layout-260218 .pv-job-highlight-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+}
+.pv-layout-260218 .pv-job-highlight,
+.pv-layout-260218 .pv-job-card,
+.pv-layout-260218 .pv-job-faq-item,
+.pv-layout-260218 .pv-job-list-item{
+  border-radius:22px !important;
+  background:rgba(255,255,255,.72) !important;
+  border:1px solid var(--pf-line) !important;
+  box-shadow:0 12px 30px rgba(15,23,42,.07) !important;
+}
+.pv-layout-260218.pv-dark .pv-job-highlight,
+.pv-layout-260218.pv-dark .pv-job-card,
+.pv-layout-260218.pv-dark .pv-job-faq-item,
+.pv-layout-260218.pv-dark .pv-job-list-item{
+  background:rgba(15,23,42,.70) !important;
+  border-color:rgba(255,255,255,.12) !important;
+}
+.pv-layout-260218 .pv-job-pill{
+  background:rgba(var(--pv-accent-rgb,30,94,255),.10) !important;
+  color:var(--pf-primary) !important;
+}
+@media (min-width:981px){
+  .pv-layout-260218 .pv-job-hero-shell{
+    grid-template-columns:minmax(0,1.08fr) minmax(380px,.92fr) !important;
+    align-items:stretch;
+  }
+  .pv-layout-260218 .pv-job-hero-card{
+    margin:28px 28px 28px -82px;
+    align-self:center;
+  }
+  .pv-layout-260218 .pv-job-section-nav{
+    display:grid !important;
+    grid-template-columns:repeat(5,minmax(0,1fr));
+  }
+  .pv-layout-260218 .pv-job-highlight-grid{
+    grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+  }
+}
+@media (max-width:520px){
+  .pv-layout-260218 .pv-topbar-inner{
+    min-height:54px;
+  }
+  .pv-layout-260218 .pv-desktop-nav{
+    display:none !important;
+  }
+  .pv-layout-260218 .pv-hero-caption-title{
+    word-break:normal;
+  }
+  .pv-layout-260218 .pv-section{
+    padding-left:14px !important;
+    padding-right:14px !important;
+  }
+  .pv-sticky-cta{
+    max-width:none;
+  }
+}
+@media (prefers-reduced-motion:reduce){
+  .pv-layout-260218 *,
+  .pv-sticky-cta *{
+    animation:none !important;
+    transition:none !important;
+  }
+}
+"""
+
+
 def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, in_builder: bool = False) -> None:
     """右側プレビュー（260218配置レイアウト）を描画する。
 
@@ -18965,6 +19549,22 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
     phone = _clean(step2.get("phone"))
     email = _clean(step2.get("email"))
     address = _clean(step2.get("address"))
+
+    def _preview_tel_href(raw: str) -> str:
+        normalized = re.sub(r"[^\d+]", "", str(raw or ""))
+        return f"tel:{normalized}" if normalized else ""
+
+    def _preview_sticky_cta_html() -> str:
+        primary_href = _preview_tel_href(phone) or (f"mailto:{email}" if email else "#pv-access-contact")
+        primary_label = "電話する" if primary_href.startswith("tel:") else ("メールする" if primary_href.startswith("mailto:") else "相談する")
+        root_js = html.escape(json.dumps(root_id), quote=True)
+        contact_onclick = f"event.preventDefault();try{{window.cvhbPreviewScrollTo&&window.cvhbPreviewScrollTo({root_js},'pv-access-contact');}}catch(e){{}}"
+        return (
+            '<nav class="pv-sticky-cta" aria-label="固定CTA">'
+            f'<a class="pv-sticky-cta-btn pv-sticky-cta-primary" href="{html.escape(primary_href, quote=True)}">{html.escape(primary_label)}</a>'
+            f'<a class="pv-sticky-cta-btn pv-sticky-cta-secondary" href="#pv-access-contact" onclick="{html.escape(contact_onclick, quote=True)}">お問い合わせ</a>'
+            '</nav>'
+        )
 
     hero = blocks.get("hero", {}) if isinstance(blocks.get("hero"), dict) else {}
     hero_image_choice = _clean(hero.get("hero_image"), "A: オフィス")
@@ -19479,6 +20079,8 @@ def render_preview(p: dict, mode: str = "pc", *, root_id: Optional[str] = None, 
                         ui.button("プライバシーポリシー", on_click=privacy_dialog.open).props("flat no-caps").classes("pv-footer-link text-white")
                     ui.html(build_footer_credit_html()).classes("pv-footer-copy")
 
+            ui.html(_preview_sticky_cta_html())
+
             if not (in_builder and preview_light_images):
                 ui.run_javascript(
                     f"setTimeout(function(){{try{{window.cvhbInitScrollReveal && window.cvhbInitScrollReveal('{root_id}');window.cvhbInitLazyMaps && window.cvhbInitLazyMaps('{root_id}');}}catch(e){{}}}},0);"
@@ -19528,6 +20130,12 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
     recruitment_public_url = _public_page_url(public_base, RECRUITMENT_PAGE_PATH) if public_base else RECRUITMENT_PAGE_PATH
     jobposting_url = _public_url(public_base, RECRUITMENT_JOBPOSTING_JSON_PATH) if public_base else RECRUITMENT_JOBPOSTING_JSON_PATH
     indeed_feed_url = _public_url(public_base, RECRUITMENT_INDEED_FEED_PATH) if public_base else RECRUITMENT_INDEED_FEED_PATH
+    email = str(step2.get("email") or "").strip()
+    apply_url = str(recruitment.get("apply_url") or "").strip()
+    indeed_url = str(recruitment.get("indeed_url") or "").strip()
+    apply_href = apply_url or (f"mailto:{email}" if email else "#")
+    apply_label = "今すぐ応募する" if apply_url else ("メールで応募する" if email else "応募導線を入力")
+    indeed_button_html = f'<a class="job-action job-action-light" href="{_esc(indeed_url)}" target="_blank" rel="noopener">Indeedで見る</a>' if indeed_url else ""
 
     required_for_google = [
         ("会社名", bool(company_name and company_name != "会社名")),
@@ -19555,7 +20163,7 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
 
     if image_url:
         dims = (880, 520) if mode == "pc" else (720, 520)
-        img_html = f'<img class="job-hero-img" src="{_esc(pv_img_src(image_url, max_w=dims[0], max_h=dims[1], fit_mode="contain"))}" alt="">'
+        img_html = f'<img class="job-hero-img" src="{_esc(pv_img_src(image_url, max_w=dims[0], max_h=dims[1], fit_mode="cover"))}" alt="">'
     else:
         img_html = '<div class="job-hero-placeholder">職場・スタッフ・働く様子の画像</div>'
 
@@ -19566,43 +20174,53 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
         f"""
 <div id="{_esc(root_id)}" class="job-preview {layout_class} notranslate" translate="no">
   <style>
-    .job-preview{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif;background:#f8fafc;color:#0f172a;min-height:720px;border-radius:18px;overflow:hidden;}}
+    .job-preview{{--job-primary:#2563eb;--job-ink:#0f172a;--job-muted:#64748b;font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",Meiryo,sans-serif;background:linear-gradient(180deg,#f8fafc,#eef6ff);color:var(--job-ink);min-height:720px;border-radius:24px;overflow:hidden;position:relative;padding-bottom:86px;}}
     .job-preview *{{box-sizing:border-box;}}
-    .job-top{{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;border-bottom:1px solid rgba(15,23,42,.08);background:rgba(255,255,255,.92);}}
-    .job-brand{{font-weight:800;font-size:18px;line-height:1.3;}}
-    .job-page-path{{font-size:12px;color:#64748b;margin-top:2px;word-break:break-all;}}
-    .job-badge{{background:#0f172a;color:#fff;border-radius:999px;padding:10px 14px;font-size:13px;font-weight:700;white-space:nowrap;}}
-    .job-hero{{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(300px,.95fr);gap:26px;align-items:center;padding:28px 28px 18px;}}
-    .job-hero-visual{{min-width:0;}}
-    .job-hero-img,.job-hero-placeholder{{width:100%;aspect-ratio:16/9;object-fit:contain;background:linear-gradient(135deg,#e2e8f0,#f8fafc);border:1px solid rgba(15,23,42,.08);}}
-    .job-hero-placeholder{{display:grid;place-items:center;color:#64748b;font-weight:700;}}
-    .job-kicker{{font-size:12px;letter-spacing:.12em;color:#2563eb;font-weight:800;margin-bottom:10px;}}
-    .job-title{{font-size:clamp(30px,4.5vw,52px);line-height:1.08;font-weight:900;margin:0 0 14px;}}
-    .job-lead{{font-size:16px;line-height:1.85;color:#334155;margin:0;}}
-    .job-disabled{{margin-top:14px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:10px;padding:10px 12px;font-size:13px;}}
-    .job-grid{{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.56fr);gap:20px;padding:0 28px 28px;}}
-    .job-panel{{background:rgba(255,255,255,.94);border:1px solid rgba(15,23,42,.08);border-radius:14px;padding:20px;}}
-    .job-panel h3{{font-size:18px;margin:0 0 14px;font-weight:850;}}
-    .job-row{{display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;padding:13px 0;border-top:1px solid rgba(15,23,42,.08);}}
+    .job-top{{position:sticky;top:0;z-index:8;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-bottom:1px solid rgba(15,23,42,.08);background:rgba(255,255,255,.76);backdrop-filter:blur(14px) saturate(1.08);}}
+    .job-brand{{font-weight:1000;font-size:17px;line-height:1.3;letter-spacing:-.02em;}}
+    .job-page-path{{font-size:11px;color:var(--job-muted);margin-top:2px;word-break:break-all;}}
+    .job-badge{{background:var(--job-ink);color:#fff;border-radius:999px;padding:9px 12px;font-size:12px;font-weight:900;white-space:nowrap;box-shadow:0 12px 28px rgba(15,23,42,.14);}}
+    .job-hero{{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:0;align-items:stretch;padding:18px;}}
+    .job-hero-visual{{min-width:0;min-height:420px;border-radius:28px;overflow:hidden;box-shadow:0 22px 58px rgba(15,23,42,.14);background:#0f172a;}}
+    .job-hero-img,.job-hero-placeholder{{width:100%;height:100%;min-height:420px;object-fit:cover;background:linear-gradient(135deg,#dbeafe,#f8fafc);border:0;display:block;}}
+    .job-hero-placeholder{{display:grid;place-items:center;color:#64748b;font-weight:900;}}
+    .job-hero-copy{{align-self:center;margin:32px 0 32px -58px;padding:24px;border-radius:28px;background:rgba(255,255,255,.90);box-shadow:0 22px 58px rgba(15,23,42,.14);}}
+    .job-kicker{{font-size:11px;letter-spacing:.16em;color:var(--job-primary);font-weight:1000;margin-bottom:10px;}}
+    .job-title{{font-size:clamp(32px,4.6vw,56px);line-height:1.10;font-weight:1000;letter-spacing:-.045em;margin:0 0 14px;text-wrap:balance;}}
+    .job-lead{{font-size:15px;line-height:1.9;color:#334155;margin:0;}}
+    .job-actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;}}
+    .job-action{{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 16px;border-radius:999px;text-decoration:none;font-weight:1000;}}
+    .job-action-main{{background:linear-gradient(135deg,var(--job-primary),#38bdf8);color:#fff;box-shadow:0 14px 32px rgba(37,99,235,.22);}}
+    .job-action-light{{background:rgba(15,23,42,.06);color:var(--job-ink);border:1px solid rgba(15,23,42,.08);}}
+    .job-disabled{{margin-top:14px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:16px;padding:10px 12px;font-size:13px;}}
+    .job-grid{{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.50fr);gap:18px;padding:0 18px 18px;}}
+    .job-panel{{background:rgba(255,255,255,.86);border:1px solid rgba(255,255,255,.70);border-radius:24px;padding:20px;box-shadow:0 16px 42px rgba(15,23,42,.08);}}
+    .job-panel h3{{font-size:18px;margin:0 0 14px;font-weight:1000;letter-spacing:-.02em;}}
+    .job-row{{display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;padding:15px 0;border-top:1px solid rgba(15,23,42,.08);}}
     .job-row:first-child{{border-top:0;}}
-    .job-row dt{{color:#475569;font-weight:800;font-size:13px;}}
-    .job-row dd{{margin:0;color:#0f172a;line-height:1.75;font-size:14px;}}
-    .job-empty{{padding:22px;border:1px dashed rgba(37,99,235,.28);border-radius:12px;color:#64748b;background:#f8fbff;}}
+    .job-row dt{{color:var(--job-primary);font-weight:1000;font-size:13px;letter-spacing:.03em;}}
+    .job-row dd{{margin:0;color:var(--job-ink);line-height:1.85;font-size:14px;}}
+    .job-empty{{padding:22px;border:1px dashed rgba(37,99,235,.28);border-radius:18px;color:#64748b;background:#f8fbff;}}
     .job-status-wrap{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}}
-    .job-status{{font-size:12px;font-weight:750;border-radius:999px;padding:7px 9px;border:1px solid rgba(15,23,42,.12);}}
+    .job-status{{font-size:12px;font-weight:900;border-radius:999px;padding:7px 9px;border:1px solid rgba(15,23,42,.12);}}
     .job-status.ok{{background:#ecfdf5;color:#047857;border-color:#a7f3d0;}}
     .job-status.warn{{background:#fff7ed;color:#c2410c;border-color:#fed7aa;}}
-    .job-link-list{{display:grid;gap:8px;font-size:13px;line-height:1.5;color:#334155;}}
+    .job-link-list{{display:grid;gap:8px;font-size:12px;line-height:1.55;color:#334155;}}
     .job-link-list div{{word-break:break-all;}}
+    .job-sticky{{position:sticky;bottom:12px;z-index:9;display:flex;gap:10px;margin:0 18px 12px;padding:8px;border-radius:999px;background:rgba(255,255,255,.84);border:1px solid rgba(255,255,255,.70);box-shadow:0 18px 46px rgba(15,23,42,.15);backdrop-filter:blur(16px);}}
+    .job-sticky .job-action{{flex:1 1 0;}}
     .job-footer{{padding:18px 28px;background:#0f172a;color:#e2e8f0;font-size:12px;}}
-    .job-preview.is-mobile{{border-radius:22px;}}
-    .job-preview.is-mobile .job-top{{padding:16px;align-items:flex-start;}}
-    .job-preview.is-mobile .job-badge{{font-size:12px;padding:8px 10px;}}
-    .job-preview.is-mobile .job-hero{{display:block;padding:16px;}}
-    .job-preview.is-mobile .job-title{{font-size:30px;line-height:1.12;}}
-    .job-preview.is-mobile .job-lead{{font-size:14px;line-height:1.75;}}
-    .job-preview.is-mobile .job-grid{{display:block;padding:0 16px 18px;}}
-    .job-preview.is-mobile .job-panel{{padding:16px;margin-top:14px;}}
+    .job-preview.is-mobile{{border-radius:24px;}}
+    .job-preview.is-mobile .job-top{{padding:13px 14px;align-items:flex-start;}}
+    .job-preview.is-mobile .job-badge{{font-size:11px;padding:8px 10px;}}
+    .job-preview.is-mobile .job-hero{{display:block;padding:14px;}}
+    .job-preview.is-mobile .job-hero-visual{{min-height:360px;border-radius:26px;}}
+    .job-preview.is-mobile .job-hero-img,.job-preview.is-mobile .job-hero-placeholder{{min-height:360px;}}
+    .job-preview.is-mobile .job-hero-copy{{margin:-78px 12px 0;padding:20px;position:relative;z-index:2;}}
+    .job-preview.is-mobile .job-title{{font-size:clamp(28px,8.6vw,38px);line-height:1.13;}}
+    .job-preview.is-mobile .job-lead{{font-size:14px;line-height:1.82;}}
+    .job-preview.is-mobile .job-grid{{display:block;padding:0 14px 16px;}}
+    .job-preview.is-mobile .job-panel{{padding:17px;margin-top:14px;border-radius:22px;}}
     .job-preview.is-mobile .job-row{{display:block;}}
     .job-preview.is-mobile .job-row dt{{margin-bottom:4px;}}
   </style>
@@ -19615,10 +20233,14 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
   </header>
   <section class="job-hero">
     <div class="job-hero-visual">{img_html}</div>
-    <div>
+    <div class="job-hero-copy">
       <div class="job-kicker">RECRUIT PAGE</div>
       <h1 class="job-title">{_esc(title)}</h1>
       <p class="job-lead">{_nl(lead or "求人のひとこと説明を入力すると、ここに応募者向けの導入文が表示されます。")}</p>
+      <div class="job-actions">
+        <a class="job-action job-action-main" href="{_esc(apply_href)}">{_esc(apply_label)}</a>
+        {indeed_button_html}
+      </div>
       {disabled_note}
     </div>
   </section>
@@ -19638,6 +20260,10 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
       </div>
     </aside>
   </main>
+  <nav class="job-sticky" aria-label="求人固定CTA">
+    <a class="job-action job-action-main" href="{_esc(apply_href)}">{_esc(apply_label)}</a>
+    <a class="job-action job-action-light" href="#">{'連携チェックOK' if enabled else '表示OFF確認'}</a>
+  </nav>
   <footer class="job-footer">{_esc(PRODUCT_NAME)} {_esc(APP_RELEASE_VERSION)} / dedicated recruitment page preview</footer>
 </div>
 """
