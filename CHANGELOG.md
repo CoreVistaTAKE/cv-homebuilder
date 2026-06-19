@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.9.81] - 2026-06-19
+- 公開URLを開いた直後のログイン画面でも旧PageFlow名に見えないよう、入口のブランド表示を PageFlowAI2 / 求人・会社ページ作成へ変更。
+- 認証後の `/` は引き続きPageFlowAI2ホームへ進む。
+
 ## [1.9.80] - 2026-06-19
 - 公開中の旧PageFlowをPageFlowAI2へ置き換えるため、通常環境の認証後 `/` をPageFlowAI2ホームへ切り替え。
 - 旧PageFlowの案件一覧は `/projects` に残し、必要時は `PF2_ROOT_REPLACES_LEGACY=0` で旧ルートへ戻せるようにした。

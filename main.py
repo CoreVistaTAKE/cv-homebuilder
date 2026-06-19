@@ -8486,8 +8486,8 @@ APP_RELEASE_VERSION = CURRENT_APP_VERSION
 DESIGN_PROFILE_SCHEMA_VERSION = "1.9.schema.1"
 
 
-PRODUCT_NAME = "PageFlow AI"
-BUILDER_NAME = "PageFlow Studio"
+PRODUCT_NAME = "PageFlowAI2"
+BUILDER_NAME = "求人・会社ページ作成"
 BUILDER_NAME_JA = "ページ作成ビルダー"
 BUILDER_LABEL = f"{BUILDER_NAME}（{BUILDER_NAME_JA}）"
 ASSIST_LABEL = "PageFlow Assist（AI作成補助）"
@@ -20479,9 +20479,7 @@ def _header_brand_html() -> str:
 
 
 def _auth_brand_panel_html(note: str, points: list[str]) -> str:
-    logo = html.escape(PAGEFLOW_BUILDER_LOGO_DATA_URL, quote=True)
     icon = html.escape(PAGEFLOW_BUILDER_ICON_DATA_URL, quote=True)
-    alt = html.escape(PRODUCT_NAME, quote=True)
     note_html = "<br>".join(html.escape(line) for line in str(note or "").splitlines() if line is not None)
     point_items = []
     for point in points or []:
@@ -20497,8 +20495,9 @@ def _auth_brand_panel_html(note: str, points: list[str]) -> str:
   <div class="cvhb-auth-brand-shell">
     <div class="cvhb-auth-brand-head">
       <span class="cvhb-auth-brand-mark"><img src="{icon}" alt=""></span>
-      <div class="cvhb-auth-brand-copy">
-        <img class="cvhb-auth-wordmark" src="{logo}" alt="{alt}">
+      <div class="cvhb-auth-brand-copy" style="line-height:1.15">
+        <div style="font-weight:900;font-size:30px;letter-spacing:0;color:#0f172a;">PageFlowAI2</div>
+        <div style="font-weight:800;font-size:13px;color:rgba(15,23,42,.58);margin-top:4px;">求人・会社ページ作成</div>
       </div>
     </div>
     <div class="cvhb-auth-brand-note">{note_html}</div>
@@ -20509,11 +20508,10 @@ def _auth_brand_panel_html(note: str, points: list[str]) -> str:
 
 
 def _startup_brand_panel_html(note: str) -> str:
-    logo = html.escape(PAGEFLOW_BUILDER_LOGO_DATA_URL, quote=True)
     note_html = "<br>".join(html.escape(line) for line in str(note or "").splitlines() if line is not None)
     return f"""
 <div class="cvhb-startup-brand">
-  <div class="cvhb-startup-brandplate"><img src="{logo}" alt="{html.escape(PRODUCT_NAME, quote=True)}"></div>
+  <div class="cvhb-startup-brandplate" style="font-weight:900;font-size:28px;color:#0f172a;">PageFlowAI2</div>
   <div class="cvhb-startup-note">{note_html}</div>
 </div>
 """
