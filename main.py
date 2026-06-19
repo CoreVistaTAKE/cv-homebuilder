@@ -25,6 +25,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, unquote, quote_plus, urljoin, parse_qsl, urlencode, urlunparse
+from urllib import request as urllib_request
 
 # =========================
 # [HELP_MODE] オフラインでヘルプ作成するための安全スイッチ
@@ -543,6 +544,1989 @@ def _recruitment_is_visible(block: Optional[dict]) -> bool:
 def _recruitment_badge_text(block: Optional[dict]) -> str:
     _normalize_recruitment_block(block)
     return RECRUITMENT_BADGE_DEFAULT
+
+
+PAGEFLOWAI2_SCHEMA_VERSION = "0.4"
+PF2_JOB_STATE_NOT_STARTED = "not_started"
+PF2_JOB_STATE_EDITING = "editing"
+PF2_JOB_STATE_REVIEW_REQUIRED = "review_required"
+PF2_JOB_STATE_EXPORT_READY = "export_ready"
+PF2_JOB_STATE_PREPARED = "prepared"
+
+PF2_JOB_STATE_LABELS = {
+    PF2_JOB_STATE_NOT_STARTED: "未開始",
+    PF2_JOB_STATE_EDITING: "入力中",
+    PF2_JOB_STATE_REVIEW_REQUIRED: "確認待ち",
+    PF2_JOB_STATE_EXPORT_READY: "出力可能",
+    PF2_JOB_STATE_PREPARED: "公開準備済",
+}
+
+PF2_JOB_STATE_DESCRIPTIONS = {
+    PF2_JOB_STATE_NOT_STARTED: "必須項目の入力がほとんどありません。",
+    PF2_JOB_STATE_EDITING: "必須項目の入力を進めています。",
+    PF2_JOB_STATE_REVIEW_REQUIRED: "必須項目は入力済みです。確認が必要な項目があります。",
+    PF2_JOB_STATE_EXPORT_READY: "求人ページと公開用ファイルを作成できる状態です。媒体での掲載・審査・検索結果表示を示すものではありません。",
+    PF2_JOB_STATE_PREPARED: "公開用ファイルを作成しました。媒体・自社サイトでの実際の公開は、お客様の操作が必要です。",
+}
+
+PF2_JOB_WIZARD_KEYS = [
+    "service_type",
+    "support_focus",
+    "role_and_tasks",
+    "reassurance_points",
+    "common_candidate_anxieties",
+]
+
+PF2_JOB_CONTENT_FIELDS = {
+    "title",
+    "employment_type",
+    "workplace",
+    "workplace_change_scope",
+    "job_description",
+    "job_change_scope",
+    "contract_period_type",
+    "contract_period",
+    "contract_renewal",
+    "contract_renewal_criteria",
+    "contract_renewal_limit",
+    "salary_type",
+    "salary_min",
+    "salary_max",
+    "salary_note",
+    "salary_breakdown",
+    "fixed_overtime_enabled",
+    "fixed_overtime_hours",
+    "fixed_overtime_amount",
+    "fixed_overtime_extra_pay_note",
+    "working_hours",
+    "break_time",
+    "holidays",
+    "trial_period",
+    "social_insurance",
+    "passive_smoking_policy",
+    "appeal_text",
+    "day_flow",
+    "benefits",
+    "qualification_note",
+    "ideal_candidate",
+    "application_method",
+    "apply_url",
+    "contact_name",
+    "contact_email",
+    "contact_phone",
+}
+
+PF2_AI_LOG_RETENTION_DAYS = 180
+PF2_AI_PUBLIC_LOG_RETENTION_DAYS = 365
+
+PF2_ALLOWED_AI_MODELS = {
+    "claude": ["claude-sonnet-4-20250514", "claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest"],
+    "gpt": ["gpt-5-mini", "gpt-5.4-mini", "gpt-4.1-mini"],
+    "gemini": ["gemini-2.0-flash", "gemini-1.5-flash"],
+}
+
+PF2_REQUIRED_JOB_FIELDS = [
+    ("title", "職種名"),
+    ("employment_type", "雇用形態"),
+    ("workplace", "勤務地"),
+    ("workplace_change_scope", "就業場所の変更範囲"),
+    ("job_description", "業務内容"),
+    ("job_change_scope", "業務内容の変更範囲"),
+    ("salary_note", "給与"),
+    ("working_hours", "勤務時間"),
+    ("break_time", "休憩"),
+    ("holidays", "休日"),
+    ("trial_period", "試用期間"),
+    ("social_insurance", "社会保険"),
+    ("passive_smoking_policy", "受動喫煙防止措置"),
+    ("application_method", "応募方法"),
+]
+
+PF2_CONTRACT_REQUIRED_FIELDS = [
+    ("contract_period", "契約期間"),
+    ("contract_renewal", "契約更新の有無"),
+    ("contract_renewal_criteria", "契約更新の判断基準"),
+    ("contract_renewal_limit", "更新上限の有無"),
+]
+
+PF2_AI_FORBIDDEN_TERMS = [
+    "給与", "賃金", "月給", "時給", "日給", "年収", "賞与",
+    "勤務時間", "休日", "固定残業", "雇用形態", "契約期間",
+    "試用期間", "社会保険", "受動喫煙", "応募条件", "連絡先",
+]
+
+PF2_AI_ASSERTIVE_TERMS = [
+    "必ず", "絶対", "100%", "保証", "確実", "間違いなく",
+]
+
+PF2_AI_COMPARATIVE_TERMS = [
+    "他社より", "最高", "業界一", "トップクラス", "No.1", "ナンバーワン",
+]
+
+PF2_AI_NUMBER_RE = re.compile(r"[0-9０-９]+(?:[,，.．][0-9０-９]+)*(?:\s*)(?:円|万円|時間|分|日|人|名|回|か月|ヶ月|カ月|年|時|%|％)?")
+PF2_PII_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+PF2_PII_PHONE_RE = re.compile(r"(?:0\d{1,4}[-ー−]?\d{1,4}[-ー−]?\d{3,4})")
+PF2_PII_RISK_TERMS = [
+    "個人名", "応募者名", "職員名", "利用者名", "患者名",
+    "病歴", "病名", "障害特性", "家庭事情", "住所", "電話番号",
+    "メールアドレス", "生年月日", "マイナンバー",
+]
+
+
+def pf2_text(value: object) -> str:
+    return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def pf2_normalize_role(role: object) -> str:
+    value = pf2_text(role).lower()
+    return value if value in PF2_ROLE_LABELS else "admin"
+
+
+def pf2_role_allows(role: object, action: str) -> bool:
+    role_key = pf2_normalize_role(role)
+    return action in PF2_ROLE_PERMISSIONS.get(role_key, set())
+
+
+def pf2_role_summary(role: object) -> dict:
+    role_key = pf2_normalize_role(role)
+    allowed = PF2_ROLE_PERMISSIONS.get(role_key, set())
+    return {
+        "role": role_key,
+        "label": PF2_ROLE_LABELS.get(role_key, "管理者"),
+        "can_edit": "edit" in allowed,
+        "can_export": "export" in allowed,
+        "can_change_settings": "settings" in allowed,
+        "can_view_audit": "audit_view" in allowed,
+    }
+
+
+def pf2_effective_role(settings: Optional[dict] = None, user: object = None) -> str:
+    """Return the PF2 role used for permission checks.
+
+    Local HELP_MODE keeps the manual role switch for UI verification. In
+    production, the logged-in user role is the only source of truth.
+    """
+    if HELP_MODE:
+        return pf2_normalize_role((settings or {}).get("local_role") if isinstance(settings, dict) else "")
+    app_role = pf2_text(getattr(user, "role", "")).lower()
+    if app_role == "admin":
+        return "admin"
+    if app_role == "subadmin":
+        return "editor"
+    return "viewer"
+
+
+def pf2_normalize_number_token(value: object) -> str:
+    raw = pf2_text(value)
+    if not raw:
+        return ""
+    table = str.maketrans("０１２３４５６７８９，．％", "0123456789,.%")
+    normalized = raw.translate(table)
+    normalized = re.sub(r"\s+", "", normalized)
+    normalized = normalized.replace(",", "")
+    return normalized
+
+
+def pf2_extract_number_tokens(text: object) -> list[str]:
+    body = pf2_text(text)
+    if not body:
+        return []
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for match in PF2_AI_NUMBER_RE.finditer(body):
+        token = pf2_normalize_number_token(match.group(0))
+        if token and token not in seen:
+            seen.add(token)
+            tokens.append(token)
+    return tokens
+
+
+def pf2_scan_ai_draft(text: object, *, allowed_numbers: Optional[list[object]] = None) -> dict:
+    body = pf2_text(text)
+    allowed = {pf2_normalize_number_token(x) for x in (allowed_numbers or []) if pf2_normalize_number_token(x)}
+    detected_numbers = pf2_extract_number_tokens(body)
+    unentered_numbers = [token for token in detected_numbers if token not in allowed]
+    forbidden_terms = [term for term in PF2_AI_FORBIDDEN_TERMS if term in body]
+    assertive_terms = [term for term in PF2_AI_ASSERTIVE_TERMS if term in body]
+    comparative_terms = [term for term in PF2_AI_COMPARATIVE_TERMS if term in body]
+    return {
+        "detected_numbers": detected_numbers,
+        "unentered_numbers": unentered_numbers,
+        "forbidden_terms": forbidden_terms,
+        "assertive_terms": assertive_terms,
+        "comparative_terms": comparative_terms,
+        "passed": not (unentered_numbers or forbidden_terms or assertive_terms or comparative_terms),
+    }
+
+
+def pf2_scan_pii_text(text: object) -> dict:
+    body = pf2_text(text)
+    emails = sorted(set(PF2_PII_EMAIL_RE.findall(body)))
+    phones = sorted(set(match.group(0) for match in PF2_PII_PHONE_RE.finditer(body)))
+    risk_terms = [term for term in PF2_PII_RISK_TERMS if term in body]
+    return {
+        "emails": emails,
+        "phones": phones,
+        "risk_terms": risk_terms,
+        "passed": not (emails or phones or risk_terms),
+    }
+
+
+def pf2_edit_distance_ratio(original: object, edited: object) -> float:
+    before = pf2_text(original)
+    after = pf2_text(edited)
+    if not before and not after:
+        return 1.0
+    if not before or not after:
+        return 0.0
+    previous = list(range(len(after) + 1))
+    for i, char_before in enumerate(before, start=1):
+        current = [i]
+        for j, char_after in enumerate(after, start=1):
+            insert_cost = current[j - 1] + 1
+            delete_cost = previous[j] + 1
+            replace_cost = previous[j - 1] + (0 if char_before == char_after else 1)
+            current.append(min(insert_cost, delete_cost, replace_cost))
+        previous = current
+    distance = previous[-1]
+    return min(1.0, distance / max(len(before), len(after), 1))
+
+
+def pf2_resolve_ai_model(provider: str, settings: Optional[dict] = None) -> str:
+    provider_key = pf2_text(provider).lower() or "claude"
+    settings = settings if isinstance(settings, dict) else {}
+    if provider_key == "gpt":
+        requested = pf2_text(settings.get("openai_model")) or os.getenv("OPENAI_MODEL") or PF2_ALLOWED_AI_MODELS["gpt"][0]
+    elif provider_key == "gemini":
+        requested = pf2_text(settings.get("gemini_model")) or os.getenv("GEMINI_MODEL") or PF2_ALLOWED_AI_MODELS["gemini"][0]
+    else:
+        provider_key = "claude"
+        requested = pf2_text(settings.get("claude_model")) or os.getenv("ANTHROPIC_MODEL") or PF2_ALLOWED_AI_MODELS["claude"][0]
+    allowed = PF2_ALLOWED_AI_MODELS.get(provider_key, PF2_ALLOWED_AI_MODELS["claude"])
+    return requested if requested in allowed else allowed[0]
+
+
+def pf2_validate_wizard_answer(answer: dict) -> dict:
+    item = answer if isinstance(answer, dict) else {}
+    blocks_: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
+    if not bool(item.get("pii_warning_confirmed")):
+        blocks_.append({
+            "field": "pii_warning_confirmed",
+            "label": "個人情報注意文の確認",
+            "message": "個人情報を入力しない注意文の確認が必要です",
+        })
+    free_text = pf2_text(item.get("free_text_note"))
+    pii_scan = pf2_scan_pii_text(free_text)
+    if not pii_scan["passed"]:
+        blocks_.append({
+            "field": "free_text_note",
+            "label": "自由記述",
+            "message": "個人情報につながる可能性がある表現を削除してください",
+        })
+    for key in ["service_type", "support_focus", "role_and_tasks", "reassurance_points", "common_candidate_anxieties"]:
+        value = item.get(key)
+        if isinstance(value, list):
+            has_value = any(pf2_text(v) for v in value)
+        else:
+            has_value = bool(pf2_text(value))
+        if not has_value:
+            warnings.append({
+                "field": key,
+                "label": key,
+                "message": "未選択です。未確認、該当なし、あとで考えるのいずれかを選べます",
+            })
+    return {"blocks": blocks_, "warnings": warnings, "pii_scan": pii_scan}
+
+
+def pf2_artifact_text(value: object) -> str:
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return pf2_text(value)
+    return pf2_text(value)
+
+
+def pf2_xml_tag_text(xml_text: str, tag: str) -> str:
+    match = re.search(rf"<{re.escape(tag)}>(.*?)</{re.escape(tag)}>", xml_text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ""
+    value = match.group(1)
+    cdata = re.fullmatch(r"\s*<!\[CDATA\[(.*)\]\]>\s*", value, flags=re.DOTALL)
+    if cdata:
+        value = cdata.group(1)
+    return re.sub(r"\s+", " ", html.unescape(value)).strip()
+
+
+def pf2_add_media_block(blocks_: list[dict[str, str]], artifact: str, field: str, label: str, message: str) -> None:
+    blocks_.append({
+        "artifact": artifact,
+        "field": field,
+        "label": label,
+        "message": message,
+    })
+
+
+def pf2_check_media_alignment(job: dict, *, jobposting: object = None, indeed_xml: object = None) -> dict:
+    """Check local consistency between the job source and generated media artifacts.
+
+    This does not claim that a media platform will publish or rank the job. It
+    only verifies that the generated local artifacts still contain the same
+    important source values at generation time.
+    """
+    source = job if isinstance(job, dict) else {}
+    google_text = pf2_artifact_text(jobposting)
+    indeed_text = pf2_artifact_text(indeed_xml)
+    checks = [
+        ("title", "職種名"),
+        ("company_name", "会社名"),
+        ("workplace", "勤務地"),
+        ("employment_type", "雇用形態"),
+        ("salary_note", "給与"),
+        ("job_description", "業務内容"),
+        ("workplace_change_scope", "就業場所の変更範囲"),
+        ("job_change_scope", "業務内容の変更範囲"),
+        ("working_hours", "勤務時間"),
+        ("break_time", "休憩"),
+        ("holidays", "休日"),
+        ("trial_period", "試用期間"),
+        ("social_insurance", "社会保険"),
+        ("passive_smoking_policy", "受動喫煙防止措置"),
+        ("qualification_note", "応募資格・必要資格"),
+        ("application_method", "応募方法"),
+    ]
+    blocks_: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
+    artifacts = {"google_jobposting": google_text, "indeed_xml": indeed_text}
+    for artifact_name, artifact_body in artifacts.items():
+        if not artifact_body:
+            warnings.append({
+                "artifact": artifact_name,
+                "field": "artifact",
+                "label": artifact_name,
+                "message": "公開用ファイルがまだ作成されていません",
+            })
+            continue
+        for field, label in checks:
+            expected = pf2_text(source.get(field))
+            if expected and expected not in artifact_body:
+                blocks_.append({
+                    "artifact": artifact_name,
+                    "field": field,
+                    "label": label,
+                    "message": f"{artifact_name} と求人データの {label} が一致していません",
+                })
+    if google_text:
+        if not isinstance(jobposting, dict):
+                pf2_add_media_block(blocks_, "google_jobposting", "json", "検索向けの求人情報", "検索向けの求人情報を読み取れません")
+        else:
+            if jobposting.get("@type") != "JobPosting":
+                pf2_add_media_block(blocks_, "google_jobposting", "@type", "検索向けの求人情報", "検索向けの求人情報として読み取れません")
+            required_paths = [
+                ("title", "職種名", jobposting.get("title")),
+                ("description", "求人説明", jobposting.get("description")),
+                ("datePosted", "投稿日", jobposting.get("datePosted")),
+                ("employmentType", "雇用形態", jobposting.get("employmentType")),
+                ("hiringOrganization.name", "会社名", (jobposting.get("hiringOrganization") or {}).get("name") if isinstance(jobposting.get("hiringOrganization"), dict) else ""),
+                ("jobLocation", "勤務地", jobposting.get("jobLocation")),
+            ]
+            for field, label, value in required_paths:
+                if value in (None, "", {}, []):
+                    pf2_add_media_block(blocks_, "google_jobposting", field, label, f"検索向けの求人情報で {label} が不足しています")
+            if not jobposting.get("validThrough"):
+                warnings.append({
+                    "artifact": "google_jobposting",
+                    "field": "validThrough",
+                    "label": "掲載期限",
+                    "message": "validThrough が未設定です。求人終了日がある場合は設定してください",
+                })
+            job_location = jobposting.get("jobLocation") if isinstance(jobposting.get("jobLocation"), dict) else {}
+            postal_address = job_location.get("address") if isinstance(job_location.get("address"), dict) else {}
+            parsed_address = _pf2_japan_address_parts(source.get("workplace"))
+            if parsed_address.get("state") and not postal_address.get("addressRegion"):
+                pf2_add_media_block(blocks_, "google_jobposting", "addressRegion", "都道府県", "検索向けの求人情報で都道府県が不足しています")
+            if parsed_address.get("city") and not postal_address.get("addressLocality"):
+                pf2_add_media_block(blocks_, "google_jobposting", "addressLocality", "市区町村", "検索向けの求人情報で市区町村が不足しています")
+    if indeed_text:
+        required_tags = [
+            ("title", "職種名"),
+            ("date", "投稿日"),
+            ("referencenumber", "参照番号"),
+            ("url", "求人URL"),
+            ("company", "会社名"),
+            ("city", "市区町村"),
+            ("state", "都道府県"),
+            ("country", "国"),
+            ("streetaddress", "住所"),
+            ("jobtype", "雇用形態"),
+            ("email", "連絡メール"),
+            ("description", "求人説明"),
+        ]
+        for tag, label in required_tags:
+            if not pf2_xml_tag_text(indeed_text, tag):
+                pf2_add_media_block(blocks_, "indeed_xml", tag, label, f"外部求人サービス向けの情報で {label} が不足しています")
+        ref = pf2_xml_tag_text(indeed_text, "referencenumber")
+        req = pf2_xml_tag_text(indeed_text, "requisitionid")
+        if ref and req and ref != req:
+            warnings.append({
+                "artifact": "indeed_xml",
+                "field": "reference",
+                "label": "参照番号",
+                "message": "referencenumber と requisitionid が異なります。運用上意図したIDか確認してください",
+            })
+    return {"blocks": blocks_, "warnings": warnings, "passed": not blocks_}
+
+
+def pf2_json_object_from_text(text: str) -> dict:
+    raw = pf2_text(text)
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        pass
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if not match:
+        return {}
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def pf2_ai_provider_from_settings(settings: Optional[dict]) -> str:
+    provider = (os.getenv("PF2_AI_PROVIDER") or pf2_text((settings or {}).get("ai_provider"))).lower()
+    if "gemini" in provider or "google" in provider:
+        return "gemini"
+    if "gpt" in provider or "openai" in provider:
+        return "gpt"
+    return "claude"
+
+
+def pf2_ai_provider_ready(provider: str) -> bool:
+    provider = pf2_text(provider).lower()
+    if provider == "gemini":
+        return bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    if provider == "gpt":
+        return bool(os.getenv("OPENAI_API_KEY"))
+    return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY"))
+
+
+def pf2_ai_provider_label(provider: str) -> str:
+    return "入力補助"
+
+
+def pf2_available_ai_provider(settings: Optional[dict] = None) -> str:
+    preferred = pf2_ai_provider_from_settings(settings)
+    if pf2_ai_provider_ready(preferred):
+        return preferred
+    for provider in ("claude", "gpt", "gemini"):
+        if pf2_ai_provider_ready(provider):
+            return provider
+    return preferred
+
+
+def pf2_any_ai_provider_ready(settings: Optional[dict] = None) -> bool:
+    return pf2_ai_provider_ready(pf2_available_ai_provider(settings))
+
+
+def pf2_call_ai_text(provider: str, prompt: str, *, settings: Optional[dict] = None, max_tokens: int = 1400) -> dict:
+    provider = pf2_text(provider).lower() or "claude"
+    settings = settings if isinstance(settings, dict) else {}
+    prompt = pf2_text(prompt)
+    if not prompt:
+        return {"ok": False, "message": "prompt is empty", "provider": provider, "text": ""}
+    try:
+        if provider == "gemini":
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                return {"ok": False, "message": "GEMINI_API_KEY is not set", "provider": provider, "text": ""}
+            model = pf2_resolve_ai_model("gemini", settings)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{quote_plus(model)}:generateContent?key={quote_plus(api_key)}"
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.25, "maxOutputTokens": int(max_tokens)},
+            }
+            req = urllib_request.Request(url, data=json.dumps(body).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
+        elif provider == "gpt":
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return {"ok": False, "message": "OPENAI_API_KEY is not set", "provider": provider, "text": ""}
+            model = pf2_resolve_ai_model("gpt", settings)
+            body = {"model": model, "input": prompt, "max_output_tokens": int(max_tokens)}
+            req = urllib_request.Request(
+                "https://api.openai.com/v1/responses",
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                method="POST",
+            )
+        else:
+            api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+            if not api_key:
+                return {"ok": False, "message": "ANTHROPIC_API_KEY is not set", "provider": "claude", "text": ""}
+            model = pf2_resolve_ai_model("claude", settings)
+            body = {
+                "model": model,
+                "max_tokens": int(max_tokens),
+                "system": "You draft Japanese welfare and care website copy. Output valid JSON only.",
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            req = urllib_request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                method="POST",
+            )
+        with urllib_request.urlopen(req, timeout=45) as res:
+            payload = json.loads(res.read().decode("utf-8", errors="replace"))
+    except Exception as ex:
+        return {"ok": False, "message": sanitize_error_text(ex), "provider": provider, "text": ""}
+
+    text = ""
+    if provider == "gemini":
+        candidates = payload.get("candidates") if isinstance(payload, dict) else []
+        if candidates and isinstance(candidates[0], dict):
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = "\n".join(pf2_text(part.get("text")) for part in parts if isinstance(part, dict) and pf2_text(part.get("text")))
+    elif provider == "gpt":
+        text = pf2_text(payload.get("output_text")) if isinstance(payload, dict) else ""
+        if not text and isinstance(payload, dict):
+            chunks = []
+            for item in payload.get("output") or []:
+                if not isinstance(item, dict):
+                    continue
+                for content in item.get("content") or []:
+                    if isinstance(content, dict) and pf2_text(content.get("text")):
+                        chunks.append(pf2_text(content.get("text")))
+            text = "\n".join(chunks)
+    else:
+        chunks = []
+        for part in payload.get("content", []) if isinstance(payload, dict) else []:
+            if isinstance(part, dict) and pf2_text(part.get("text")):
+                chunks.append(pf2_text(part.get("text")))
+        text = "\n".join(chunks)
+    return {"ok": bool(text), "message": "ok" if text else "empty response", "provider": provider, "text": text}
+
+
+def pf2_local_job_seed(job: Optional[dict] = None) -> dict:
+    source = job if isinstance(job, dict) else {}
+    title = pf2_text(source.get("title")) or "生活支援スタッフ"
+    return {
+        "title": title,
+        "job_description": "利用者さんの日常生活を支える仕事です。見守り、生活支援、記録、関係機関との連絡補助などを、チームで分担して行います。",
+        "appeal_text": "最初の1か月は先輩職員が同行し、記録の書き方や日々の流れを一つずつ確認できます。",
+        "day_flow": "9:00 出勤・申し送り\n10:00 生活支援・記録\n12:00 休憩\n14:00 活動支援・関係機関連絡\n17:00 記録整理\n18:00 退勤",
+        "ideal_candidate": "利用者さんのペースを大切にしながら、チームで落ち着いて対応できる方を歓迎します。",
+        "application_method": "応募フォームまたはお電話でお問い合わせください。見学希望も相談できます。",
+    }
+
+
+def pf2_local_homepage_seed(project: Optional[dict] = None) -> dict:
+    step2 = ((project or {}).get("data") or {}).get("step2") if isinstance(project, dict) else {}
+    company = pf2_clean_company_name((step2 or {}).get("company_name"), fallback="地域の福祉事業所")
+    return {
+        "catch_copy": f"{company}のことを、分かりやすく。",
+        "hero_sub_catch": "事業内容、会社の考え方、問い合わせ先をスマホで読みやすく確認できます。",
+        "about_title": "私たちについて",
+        "about_body": "私たちは、利用者さん一人ひとりの暮らしを大切にしながら、地域の中で安心して過ごせる支援を行っています。",
+        "about_points": "チームで支える\n相談しやすい体制\n日々の記録と共有を大切にする",
+        "services_title": "事業内容",
+        "services_body": "日々の生活支援、活動支援、記録、関係機関との連携を行っています。",
+        "services_items": "生活支援｜食事・移動・日常生活の見守りを行います\n記録・連携｜支援内容を記録し、チームで共有します\n相談対応｜不安や困りごとを早めに相談できる体制を整えます",
+        "recruitment_link_label": "採用情報",
+        "recruitment_lead": "現在、一緒に働く仲間を募集しています。未経験の方も、見学から相談できます。",
+        "contact_button_text": "お問い合わせ",
+        "access_notes": "見学や応募前の相談も受け付けています。",
+    }
+
+
+def pf2_job_seed_from_wizard_answer(answer: dict) -> dict:
+    item = answer if isinstance(answer, dict) else {}
+
+    def _pick(key: str, fallback: str = "") -> str:
+        value = item.get(key)
+        if isinstance(value, list):
+            return pf2_text(value[0]) if value else fallback
+        return pf2_text(value) or fallback
+
+    service_type = _pick("service_type", "福祉サービス")
+    support_focus = _pick("support_focus", "日々の生活を支えること")
+    role = _pick("role_and_tasks", "生活支援")
+    reassurance = _pick("reassurance_points", "入職後に相談しやすい体制")
+    anxiety = _pick("common_candidate_anxieties", "未経験でもできるか不安")
+    title = "生活支援スタッフ" if role in {"生活支援", "介助", "記録"} else f"{role}スタッフ"
+    if role in {"送迎", "事務", "相談"}:
+        title = f"{role}スタッフ"
+    description = (
+        f"{service_type}の現場で、{role}を中心に担当します。"
+        f"{support_focus}を大切にしながら、記録や申し送りを通じてチームで支援を進めます。"
+    )
+    appeal = (
+        f"新しく入る方には、{reassurance}を用意します。"
+        f"{anxiety}という不安がある方にも、仕事内容を一つずつ確認できるようにします。"
+    )
+    day_flow = "9:00 出勤・申し送り\n10:00 支援業務\n12:00 休憩\n14:00 記録・活動支援\n17:00 振り返り・申し送り\n18:00 退勤"
+    ideal = f"{support_focus}に共感し、チームで落ち着いて{role}に取り組める方を歓迎します。"
+    return {
+        "title": title,
+        "service_type": service_type,
+        "job_description": description,
+        "appeal_text": appeal,
+        "day_flow": day_flow,
+        "ideal_candidate": ideal,
+        "application_method": "仕事内容を確認のうえ、見学や応募についてお問い合わせください。",
+    }
+
+
+def pf2_next_action_for_job(job: dict) -> dict:
+    item = job if isinstance(job, dict) else {}
+    public_check = item.get("public_check") if isinstance(item.get("public_check"), dict) else pf2_public_check_job(item)
+    blocks_ = public_check.get("blocks") if isinstance(public_check.get("blocks"), list) else []
+    if blocks_:
+        first = blocks_[0]
+        label = pf2_text(first.get("label")) or "必須項目"
+        return {
+            "kind": "fill_required",
+            "label": f"{pf2_text(item.get('title')) or '求人'}の{label}を入力しましょう。",
+            "detail": f"{label}を入れると、求人ページと公開用ファイルに反映できます。",
+            "action_label": "求人を入力する",
+            "route": "/pf2/jobs",
+        }
+    if bool(item.get("ai_draft_used")) and not pf2_text(item.get("ai_draft_human_confirmed_at")):
+        return {
+            "kind": "ai_review",
+            "label": f"{pf2_text(item.get('title')) or '求人'}の入力補助文を確認しましょう。",
+            "detail": "実際と異なる条件や、入力していない約束が混ざっていないか確認できます。",
+            "action_label": "確認画面へ進む",
+            "route": "/pf2/jobs",
+        }
+    if not pf2_text(item.get("mobile_preview_checked_at")):
+        return {
+            "kind": "mobile_review",
+            "label": f"{pf2_text(item.get('title')) or '求人'}のスマホ表示を確認しましょう。",
+            "detail": "求職者がスマホで読んだときに、仕事内容と働き方が伝わるか確認できます。",
+            "action_label": "スマホ表示を見る",
+            "route": "/pf2/jobs",
+        }
+    if not pf2_text(item.get("last_public_check_at")):
+        return {
+            "kind": "public_check",
+            "label": f"{pf2_text(item.get('title')) or '求人'}の公開前チェックを実行しましょう。",
+            "detail": "出力前に必要な項目の抜けや矛盾を確認できます。",
+            "action_label": "公開前チェックへ進む",
+            "route": "/pf2/jobs",
+        }
+    if not pf2_text(item.get("export_pack_generated_at")):
+        return {
+            "kind": "export_pack",
+            "label": f"{pf2_text(item.get('title')) or '求人'}の公開用ファイルを作れます。",
+            "detail": "作成後、公開用ファイルに含められます。媒体掲載・審査・検索結果表示を示すものではありません。",
+            "action_label": "出力画面へ進む",
+            "route": "/pf2/jobs",
+        }
+    return {
+        "kind": "done",
+        "label": "現在対応すべき項目はありません。",
+        "detail": "新しい求人を作るか、求人一覧から内容を確認してください。",
+        "action_label": "求人一覧を見る",
+        "route": "/pf2",
+    }
+
+
+def pf2_dashboard_rows(projects: list[dict], *, limit: int = 20) -> list[dict]:
+    rows: list[dict] = []
+    for project in projects or []:
+        if not isinstance(project, dict):
+            continue
+        jid = pf2_job_id_for_project(project)
+        job = pf2_job_from_project(project, jid)
+        action = pf2_next_action_for_job(job)
+        public_check = job.get("public_check") if isinstance(job.get("public_check"), dict) else pf2_public_check_job(job)
+        rows.append({
+            "project_id": pf2_text(project.get("project_id")),
+            "project_name": pf2_text(project.get("project_name")) or pf2_text(job.get("title")) or "名称未設定",
+            "job_id": jid,
+            "job_title": pf2_text(job.get("title")) or "求人",
+            "state": job.get("main_state") or pf2_compute_job_state(job),
+            "block_count": len(public_check.get("blocks") if isinstance(public_check.get("blocks"), list) else []),
+            "warning_count": len(public_check.get("warnings") if isinstance(public_check.get("warnings"), list) else []),
+            "next_action_kind": action.get("kind"),
+            "next_action_label": action.get("label"),
+            "updated_at": pf2_text(project.get("updated_at")),
+        })
+    rows.sort(key=lambda row: (row["block_count"], row["warning_count"], row["updated_at"]), reverse=True)
+    return rows[: max(0, int(limit or 20))]
+
+
+def pf2_build_job_seed_prompt(project: dict, job: dict) -> str:
+    company = pf2_clean_company_name(project.get("data", {}).get("step2", {}).get("company_name"), project.get("project_name"), fallback="福祉事業所")
+    return f"""
+以下の福祉・介護事業所向け求人ページの下書き材料をJSONだけで作成してください。
+会社名: {company}
+現在の職種名: {pf2_text(job.get('title')) or '未入力'}
+
+絶対条件:
+- 給与、勤務時間、休日、雇用形態、固定残業代、勤務地、応募条件、連絡先は作成しない。
+- 採用成功、上位表示、掲載保証、応募増加を示唆しない。
+- 個人名、利用者名、病歴、障害特性、家庭事情を書かない。
+- JSON以外を書かない。
+
+JSONキー:
+title, job_description, appeal_text, day_flow, ideal_candidate, application_method
+"""
+
+
+def pf2_build_homepage_seed_prompt(project: dict) -> str:
+    step2 = project.get("data", {}).get("step2", {}) if isinstance(project, dict) else {}
+    company_name = pf2_clean_company_name(step2.get("company_name"), fallback="未入力")
+    return f"""
+future-craft-portable-prototypeの考え方に沿って、福祉・介護事業所の会社ページ作成用JSONだけを出力してください。
+会社名: {company_name}
+所在地: {pf2_text(step2.get('address')) or '未入力'}
+
+絶対条件:
+- 採用成功、媒体掲載、上位表示、応募増加を約束しない。
+- 個人名、応募者名、職員名、利用者名、病歴、障害特性、家庭事情を書かない。
+- スマホ表示で読みやすい短い文章にする。
+- JSON以外を書かない。
+
+JSONキー:
+catch_copy, hero_sub_catch, about_title, about_body, about_points, services_title, services_body, services_items, recruitment_link_label, recruitment_lead, contact_button_text, access_notes
+"""
+
+
+def pf2_assist_rule(target: str, field_key: str) -> dict:
+    target_rules = PF2_ASSIST_FIELD_RULES.get(pf2_text(target), {})
+    rule = target_rules.get(pf2_text(field_key), {})
+    return rule if isinstance(rule, dict) else {}
+
+
+def pf2_build_field_assist_prompt(
+    project: dict,
+    *,
+    target: str,
+    field_key: str,
+    current_value: str,
+    user_note: str,
+    mode: str,
+) -> str:
+    p = normalize_project(project if isinstance(project, dict) else {})
+    data = p.get("data") if isinstance(p.get("data"), dict) else {}
+    step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
+    blocks = data.get("blocks") if isinstance(data.get("blocks"), dict) else {}
+    ext = pf2_ensure_extension(p)
+    homepage = ext.get("homepage") if isinstance(ext.get("homepage"), dict) else {}
+    interview = homepage.get("interview") if isinstance(homepage.get("interview"), dict) else {}
+    job = pf2_job_from_project(p, pf2_job_id_for_project(p))
+    rule = pf2_assist_rule(target, field_key)
+    label = pf2_text(rule.get("label")) or field_key
+    questions = rule.get("questions") if isinstance(rule.get("questions"), list) else []
+    regional_instruction = "住所や地域名が入力されている場合だけ、通いやすさや地域との関わりを自然に反映する。実在確認できない駅名、施設名、ランドマークは作らない。" if rule.get("region") else "地域情報を無理に入れない。"
+    return f"""
+以下の入力枠だけに反映する文章をJSONだけで作成してください。
+
+反映先:
+- 種別: {pf2_text(target)}
+- 入力枠キー: {pf2_text(field_key)}
+- 入力枠名: {label}
+- 配置ルール: {pf2_text(rule.get('placement'))}
+- 形式ルール: {pf2_text(rule.get('format'))}
+- 実行モード: {pf2_text(mode)}
+
+聞き出す観点:
+{json.dumps([pf2_text(q) for q in questions], ensure_ascii=False)}
+
+現在の入力:
+{pf2_text(current_value) or '未入力'}
+
+利用者メモ:
+{pf2_text(user_note) or '未入力'}
+
+会社・地域情報:
+- 会社名: {pf2_text(step2.get('company_name')) or '未入力'}
+- 所在地: {pf2_text(step2.get('address')) or '未入力'}
+- 電話・メールは本文内で新規作成しない
+
+HP質問回答:
+{json.dumps(interview, ensure_ascii=False)}
+
+求人情報の参照:
+{json.dumps({k: job.get(k) for k in ['title', 'employment_type', 'workplace', 'working_hours', 'holidays', 'salary_note', 'job_description', 'appeal_text', 'day_flow', 'ideal_candidate']}, ensure_ascii=False)}
+
+絶対条件:
+- 返すJSONキーは field_key, value, followup_questions のみ。
+- value は指定された1つの入力枠にそのまま入れる完成文にする。
+- 給与、勤務時間、休日、雇用形態、固定残業代、勤務地、応募条件、連絡先を新規に作らない。
+- 入力済みの労働条件と矛盾することを書かない。
+- 採用成功、応募増加、上位表示、媒体掲載を示唆しない。
+- 個人名、応募者名、職員名、利用者名、病歴、障害特性、家庭事情を書かない。
+- 生成AI、API、モデル名、提供元名に触れない。
+- {regional_instruction}
+- JSON以外を書かない。
+"""
+
+
+def pf2_local_field_assist_value(
+    project: dict,
+    *,
+    target: str,
+    field_key: str,
+    current_value: str,
+    user_note: str,
+    mode: str,
+) -> dict:
+    p = normalize_project(project if isinstance(project, dict) else {})
+    step2 = p.get("data", {}).get("step2", {}) if isinstance(p.get("data"), dict) else {}
+    company = pf2_clean_company_name(step2.get("company_name"), p.get("project_name"), fallback="事業所")
+    address = pf2_text(step2.get("address"))
+    region = ""
+    if address:
+        region = re.split(r"[ 　,、]", address.strip())[0][:18]
+    source = pf2_text(user_note) or pf2_text(current_value)
+    rule = pf2_assist_rule(target, field_key)
+    label = pf2_text(rule.get("label")) or field_key
+    if source:
+        base = source
+    elif target == "job":
+        base = {
+            "title": "生活支援スタッフ",
+            "job_description": "生活支援、記録、関係機関との連絡補助などを、チームで分担して行います。",
+            "appeal_text": "入職後は日々の流れを確認しながら、相談しやすい体制の中で仕事を覚えられます。",
+            "day_flow": "9:00 出勤・申し送り\n10:00 生活支援・記録\n12:00 休憩\n14:00 活動支援\n17:00 記録整理\n18:00 退勤",
+            "ideal_candidate": "相手のペースを大切にしながら、チームで落ち着いて対応できる方を歓迎します。",
+            "application_method": "求人ページの内容を確認のうえ、見学や応募についてお問い合わせください。",
+        }.get(field_key, "")
+    else:
+        base = {
+            "catch_copy": f"{company}の毎日を、分かりやすく伝える。",
+            "hero_sub_catch": "事業内容、会社の考え方、求人情報をスマホで確認できます。",
+            "about_title": "私たちについて",
+            "about_body": "私たちは、日々の支援を通じて、地域の中で安心して過ごせる環境づくりを大切にしています。",
+            "about_points": "チームで支える\n相談しやすい体制\nスマホで読みやすい情報整理",
+            "services_title": "事業内容",
+            "services_body": "主なサービスや支援内容を、初めて見る方にも分かりやすく整理して掲載します。",
+            "services_items": "生活支援｜日々の生活をチームで支えます\n記録・連携｜支援内容を共有しやすく整えます\n相談対応｜見学や問い合わせ前の不安に対応します",
+            "recruitment_link_label": "採用情報",
+            "recruitment_lead": "仕事内容や働き方を確認し、見学や応募について相談できます。",
+            "contact_button_text": "お問い合わせ",
+            "access_notes": "見学や応募前の相談も受け付けています。",
+        }.get(field_key, "")
+    if mode == "region" and region and rule.get("region"):
+        if region not in base:
+            base = f"{region}で事業を行う{company}として、{base}"
+    if mode == "polish" and base:
+        base = base.strip()
+    return {
+        "field_key": field_key,
+        "value": base,
+        "followup_questions": [pf2_text(q) for q in (rule.get("questions") or [])][:3],
+        "source": "local",
+        "label": label,
+    }
+
+
+def pf2_run_field_assist(
+    project: dict,
+    *,
+    target: str,
+    field_key: str,
+    current_value: str,
+    user_note: str,
+    mode: str,
+    settings: Optional[dict] = None,
+) -> dict:
+    rule = pf2_assist_rule(target, field_key)
+    if not rule:
+        return {"ok": False, "message": "入力補助の配置ルールがありません", "value": ""}
+    settings = settings if isinstance(settings, dict) else {}
+    pii_scan = pf2_scan_pii_text(pf2_text(current_value) + "\n" + pf2_text(user_note))
+    if not pii_scan.get("passed"):
+        return {
+            "ok": False,
+            "message": "個人情報につながる可能性がある内容を削除してから入力補助を使ってください",
+            "value": "",
+            "pii_scan": pii_scan,
+        }
+    provider = pf2_available_ai_provider(settings)
+    if pf2_ai_provider_ready(provider):
+        prompt = pf2_build_field_assist_prompt(project, target=target, field_key=field_key, current_value=current_value, user_note=user_note, mode=mode)
+        result = pf2_call_ai_text(provider, prompt, settings=settings, max_tokens=900)
+        payload = pf2_json_object_from_text(result.get("text", "")) if result.get("ok") else {}
+        value = pf2_text(payload.get("value"))
+        if value:
+            scan = pf2_scan_ai_draft(value, allowed_numbers=pf2_extract_number_tokens(pf2_text(current_value) + "\n" + pf2_text(user_note)))
+            if not scan.get("passed"):
+                payload = {}
+                value = ""
+            else:
+                return {
+                    "ok": True,
+                    "message": "入力補助で整えました",
+                    "value": value,
+                    "followup_questions": payload.get("followup_questions") if isinstance(payload.get("followup_questions"), list) else [],
+                    "source": "connected",
+                    "scan": scan,
+                }
+    fallback = pf2_local_field_assist_value(project, target=target, field_key=field_key, current_value=current_value, user_note=user_note, mode=mode)
+    return {"ok": True, "message": "入力補助で下書きを作りました", **fallback}
+
+
+def pf2_gate7_demo_diagnostics() -> dict:
+    job = {
+        "job_id": "gate7-demo-job",
+        "title": "生活支援スタッフ",
+        "employment_type": "正社員",
+        "workplace": "東京都架空市サンプル町1-2-3",
+        "workplace_change_scope": "法人の定める事業所",
+        "job_description": "生活支援、記録、日中活動の補助を行います。",
+        "job_change_scope": "法人の定める業務",
+        "salary_note": "月給200,000円から",
+        "salary_breakdown": "基本給180,000円、処遇改善手当20,000円",
+        "working_hours": "9:00-18:00",
+        "break_time": "60分",
+        "holidays": "週休2日",
+        "trial_period": "3か月",
+        "social_insurance": "法定通り加入",
+        "passive_smoking_policy": "屋内禁煙",
+        "application_method": "応募フォームから応募",
+        "contract_period_type": "no_fixed_term",
+        "mobile_preview_checked_at": "2026-05-28T10:00:00+09:00",
+        "last_public_check_at": "2026-05-28T10:05:00+09:00",
+    }
+    job["public_check"] = pf2_public_check_job(job)
+    sample_project = {
+        "project_id": "gate7-demo",
+        "project_name": "架空サンプル案件",
+        "data": {
+            "step1": {"company_name": "架空サンプル法人"},
+            "step2": {
+                "company_name": "架空サンプル法人",
+                "email": "sample@example.test",
+                "phone": "03-0000-0000",
+                "address": "東京都架空市サンプル町1-2-3",
+                "site_url": "https://example.test/",
+            },
+            "publish": {"public_site_url": "https://example.test/"},
+            "blocks": {"custom": {"keep": True}},
+        },
+    }
+    saved_project = pf2_apply_job_to_project(sample_project, job)
+    saved_project = pf2_append_export_history(saved_project, {
+        "job_id": job["job_id"],
+        "export_type": "zip_pack",
+        "file_names": ["gate7-demo.zip"],
+        "warning_snapshot": [],
+        "block_snapshot": [],
+        "note_for_user": "公開用ファイルを作成しました。媒体側の掲載・審査は別途確認が必要です。",
+    })
+    saved_project = pf2_append_audit_log(saved_project, "public_check_run", target_type="job", target_id=job["job_id"], metadata={
+        "block_count": len(job["public_check"].get("blocks", [])),
+        "warning_count": len(job["public_check"].get("warnings", [])),
+    })
+    ext = pf2_ensure_extension(saved_project)
+    saved_job = pf2_job_from_project(saved_project, job["job_id"])
+    ai_scan = pf2_scan_ai_draft("最初の1か月は先輩が同行します。", allowed_numbers=["1か月"])
+    risky_ai_scan = pf2_scan_ai_draft("月給25万円を保証します。業界一働きやすい職場です。")
+    wizard_check = pf2_validate_wizard_answer({
+        "service_type": "共同生活援助",
+        "support_focus": ["穏やかな生活"],
+        "role_and_tasks": ["生活支援"],
+        "reassurance_points": ["先輩が同行"],
+        "common_candidate_anxieties": ["未経験でもできるか不安"],
+        "pii_warning_confirmed": True,
+    })
+    generated_files = build_pageflowai2_site_files(saved_project)
+    try:
+        jobposting = json.loads(generated_files.get(RECRUITMENT_JOBPOSTING_JSON_PATH, b"{}").decode("utf-8", errors="replace"))
+    except Exception:
+        jobposting = {}
+    indeed_xml = generated_files.get(RECRUITMENT_INDEED_FEED_PATH, b"").decode("utf-8", errors="replace")
+    media_check = pf2_check_media_alignment(job, jobposting=jobposting, indeed_xml=indeed_xml)
+    retention_now = datetime(2026, 5, 29, 12, 0, tzinfo=JST)
+    retention_project = {
+        "project_id": "gate7-retention",
+        "data": {
+            "pageflowai2": {
+                "ai_drafts": {
+                    "old": {
+                        "created_at": (retention_now - timedelta(days=181)).isoformat(),
+                        "retention_days": PF2_AI_LOG_RETENTION_DAYS,
+                    },
+                    "fresh": {
+                        "created_at": (retention_now - timedelta(days=3)).isoformat(),
+                        "retention_days": PF2_AI_LOG_RETENTION_DAYS,
+                    },
+                }
+            }
+        },
+    }
+    retention_project = pf2_prune_ai_drafts(retention_project, now=retention_now)
+    retention_drafts = pf2_ensure_extension(retention_project).get("ai_drafts", {})
+    cleanup_script = clear_client_sensitive_storage_script("/")
+    role_checks = {
+        "admin_settings": pf2_role_allows("admin", "settings"),
+        "editor_export": pf2_role_allows("editor", "export"),
+        "viewer_no_edit": not pf2_role_allows("viewer", "edit"),
+    }
+    return {
+        "state": saved_job.get("main_state"),
+        "extension_saved": bool(ext.get("jobs", {}).get(job["job_id"])),
+        "legacy_preserved": bool(saved_project.get("data", {}).get("blocks", {}).get("custom", {}).get("keep")),
+        "public_check_passed": not bool(job["public_check"].get("blocks")),
+        "ai_scan_passed": bool(ai_scan.get("passed")),
+        "risky_ai_detected": not bool(risky_ai_scan.get("passed")),
+        "wizard_check_passed": not bool(wizard_check.get("blocks")),
+        "media_alignment_passed": bool(media_check.get("passed")),
+        "export_history_logged": bool(ext.get("export_history")),
+        "audit_logged": bool(ext.get("audit_logs")),
+        "role_permissions_passed": all(role_checks.values()),
+        "ai_log_prune_passed": "old" not in retention_drafts and "fresh" in retention_drafts,
+        "logout_cleanup_script_ready": all(
+            token in cleanup_script
+            for token in ["localStorage.clear()", "sessionStorage.clear()", "indexedDB.deleteDatabase", "caches.delete"]
+        ),
+        "test_count": 17,
+    }
+
+
+PF2_E2E_BANNED_TERM_PARTS = [
+    ("Indeed", "掲載OK"),
+    ("Indeed", "連携OK"),
+    ("Google", "連携OK"),
+    ("媒体", "連携OK"),
+    ("準備", "OK"),
+    ("100%", "達成"),
+    ("応募が", "増えます"),
+    ("採用に", "近づいています"),
+    ("上位表示", "されます"),
+    ("上位表示", "されやすい"),
+    ("Google", "掲載"),
+    ("求人ボックス", "掲載"),
+    ("Indeedに", "最適化"),
+    ("Indeedで", "見つかりやすい"),
+    ("Indeedに", "嫌われにくい"),
+    ("採用", "代行"),
+    ("虹", "家"),
+    ("Ni", "jiya"),
+]
+PF2_E2E_BANNED_TERMS = ["".join(parts) for parts in PF2_E2E_BANNED_TERM_PARTS]
+
+
+def pf2_gate8_demo_diagnostics() -> dict:
+    """Run a local end-to-end check with fictional data only."""
+    project = {
+        "project_id": "pf2-gate8-fictional",
+        "project_name": "架空サンプル法人 採用ページ",
+        "created_by": "gate8-demo",
+        "updated_by": "gate8-demo",
+        "data": {
+            "step1": {
+                "primary_color": "green",
+                "hero_type": "simple",
+                "industry": "福祉・介護",
+            },
+            "step2": {
+                "company_name": "架空サンプル法人",
+                "catch_copy": "地域で穏やかな暮らしを支える",
+                "email": "recruit@example.test",
+                "phone": "03-0000-0000",
+                "address": "東京都架空区サンプル町1-2-3",
+                "site_url": "https://example.test/",
+            },
+            "publish": {"public_site_url": "https://example.test/"},
+            "blocks": {
+                "custom": {"keep": True},
+                "philosophy": {
+                    "company_profile": {"site_url": "https://example.test/"},
+                },
+            },
+        },
+    }
+    job = {
+        "job_id": "pf2-gate8-job",
+        "enabled": True,
+        "title": "生活支援スタッフ",
+        "employment_type": "正社員",
+        "workplace": "東京都架空区サンプル町1-2-3",
+        "workplace_change_scope": "法人の定める事業所",
+        "job_description": "生活支援、記録、日中活動の補助を行います。",
+        "job_change_scope": "法人の定める業務",
+        "salary_note": "月給200,000円から",
+        "salary_breakdown": "基本給180,000円、処遇改善手当20,000円",
+        "working_hours": "9:00-18:00",
+        "break_time": "60分",
+        "holidays": "週休2日",
+        "trial_period": "3か月",
+        "social_insurance": "法定通り加入",
+        "passive_smoking_policy": "屋内禁煙",
+        "application_method": "応募フォームから応募",
+        "contract_period_type": "no_fixed_term",
+        "appeal_text": "最初の1か月は先輩が同行します。",
+        "day_flow": "9:00 出勤、10:00 支援、17:00 記録、18:00 退勤",
+        "ideal_candidate": "チームで落ち着いて対応できる方",
+        "faq_items": [{"question": "未経験でも応募できますか", "answer": "研修と同行期間があります。"}],
+        "contact_email": "recruit@example.test",
+        "contact_phone": "03-0000-0000",
+        "mobile_preview_checked_at": "2026-05-28T10:00:00+09:00",
+        "last_public_check_at": "2026-05-28T10:05:00+09:00",
+    }
+    job["public_check"] = pf2_public_check_job(job)
+    wizard_check = pf2_validate_wizard_answer({
+        "service_type": "共同生活援助",
+        "support_focus": ["穏やかな生活"],
+        "role_and_tasks": ["生活支援"],
+        "reassurance_points": ["先輩が同行"],
+        "common_candidate_anxieties": ["未経験でもできるか不安"],
+        "pii_warning_confirmed": True,
+    })
+    safe_ai_scan = pf2_scan_ai_draft("最初の1か月は先輩が同行します。", allowed_numbers=["1か月"])
+    risky_ai_scan = pf2_scan_ai_draft("月給25万円を保証します。業界一働きやすい職場です。")
+    saved_project = pf2_apply_job_to_project(project, job)
+    source_job = pf2_job_from_project(saved_project, job["job_id"])
+    files = build_pageflowai2_site_files(saved_project)
+    jobposting_raw = files.get(RECRUITMENT_JOBPOSTING_JSON_PATH, b"{}")
+    try:
+        jobposting = json.loads(jobposting_raw.decode("utf-8", errors="replace"))
+    except Exception:
+        jobposting = {}
+    indeed_xml = files.get(RECRUITMENT_INDEED_FEED_PATH, b"").decode("utf-8", errors="replace")
+    media_check = pf2_check_media_alignment(source_job, jobposting=jobposting, indeed_xml=indeed_xml)
+    distribution_raw = files.get(RECRUITMENT_DISTRIBUTION_JSON_PATH, b"{}")
+    try:
+        distribution = json.loads(distribution_raw.decode("utf-8", errors="replace"))
+    except Exception:
+        distribution = {}
+    visible_text = "\n".join(
+        raw.decode("utf-8", errors="replace")
+        for key, raw in files.items()
+        if key.endswith(".html") or key.endswith(".json") or key.endswith(".xml") or key.endswith(".txt")
+    )
+    banned_found = [term for term in PF2_E2E_BANNED_TERMS if term in visible_text]
+    saved_project = pf2_append_export_history(saved_project, {
+        "job_id": job["job_id"],
+        "export_type": "zip_pack",
+        "file_names": ["pf2-gate8-fictional.zip"],
+        "warning_snapshot": [],
+        "block_snapshot": [],
+        "note_for_user": "公開用ファイルを作成しました。媒体側の掲載・審査は別途確認が必要です。",
+    })
+    saved_project = pf2_append_audit_log(saved_project, "gate8_e2e_checked", target_type="job", target_id=job["job_id"], metadata={"file_count": len(files)})
+    ext = pf2_ensure_extension(saved_project)
+    prepared_job = dict(source_job)
+    prepared_job["export_pack_generated_at"] = "2026-05-28T10:10:00+09:00"
+    prepared_state = pf2_compute_job_state(prepared_job)
+    return {
+        "test_count": 4,
+        "file_count": len(files),
+        "state": source_job.get("main_state"),
+        "prepared_state": prepared_state,
+        "wizard_check_passed": not bool(wizard_check.get("blocks")),
+        "safe_ai_scan_passed": bool(safe_ai_scan.get("passed")),
+        "risky_ai_blocked": not bool(risky_ai_scan.get("passed")),
+        "recruitment_page_generated": RECRUITMENT_PAGE_PATH in files,
+        "jobposting_generated": RECRUITMENT_JOBPOSTING_JSON_PATH in files,
+        "indeed_feed_generated": RECRUITMENT_INDEED_FEED_PATH in files,
+        "sitemap_generated": SITE_SITEMAP_PATH in files,
+        "robots_generated": SITE_ROBOTS_PATH in files,
+        "media_alignment_passed": bool(media_check.get("passed")),
+        "indeed_feed_ready": bool(distribution.get("indeed", {}).get("feed_ready")),
+        "export_history_logged": bool(ext.get("export_history")),
+        "audit_logged": bool(ext.get("audit_logs")),
+        "banned_found": banned_found,
+    }
+
+
+def pf2_local_data_dir() -> Path:
+    configured = pf2_text(os.getenv("PF2_LOCAL_DATA_DIR"))
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[1] / "pf2_local_data"
+
+
+def pf2_local_store_path() -> Path:
+    configured = pf2_text(os.getenv("PF2_LOCAL_STORE_PATH"))
+    if configured:
+        return Path(configured)
+    return pf2_local_data_dir() / "projects.json"
+
+
+def pf2_local_export_dir() -> Path:
+    configured = pf2_text(os.getenv("PF2_LOCAL_EXPORT_DIR"))
+    if configured:
+        return Path(configured)
+    return pf2_local_data_dir() / "exports"
+
+
+def pf2_local_load_store() -> dict:
+    path = pf2_local_store_path()
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                projects = data.get("projects") if isinstance(data.get("projects"), dict) else {}
+                pruned_projects = dict(projects)
+                pruned_any = False
+                for pid, item in list(projects.items()):
+                    if not isinstance(item, dict):
+                        continue
+                    ext = ((item.get("data") or {}).get("pageflowai2") if isinstance(item.get("data"), dict) else {})
+                    if not (isinstance(ext, dict) and isinstance(ext.get("ai_drafts"), dict) and ext.get("ai_drafts")):
+                        continue
+                    before_keys = set(ext.get("ai_drafts", {}).keys())
+                    cleaned = pf2_prune_ai_drafts(item)
+                    cleaned_ext = ((cleaned.get("data") or {}).get("pageflowai2") if isinstance(cleaned.get("data"), dict) else {})
+                    after_keys = set((cleaned_ext or {}).get("ai_drafts", {}).keys()) if isinstance(cleaned_ext, dict) else set()
+                    pruned_projects[pid] = cleaned
+                    if before_keys != after_keys:
+                        pruned_any = True
+                loaded = {
+                    "schema_version": PAGEFLOWAI2_SCHEMA_VERSION,
+                    "active_project_id": pf2_text(data.get("active_project_id")),
+                    "projects": pruned_projects,
+                }
+                if pruned_any:
+                    pf2_local_save_store(loaded)
+                return loaded
+    except Exception:
+        pass
+    return {"schema_version": PAGEFLOWAI2_SCHEMA_VERSION, "active_project_id": "", "projects": {}}
+
+
+def pf2_local_save_store(store: dict) -> None:
+    payload = {
+        "schema_version": PAGEFLOWAI2_SCHEMA_VERSION,
+        "active_project_id": pf2_text((store or {}).get("active_project_id")),
+        "projects": (store or {}).get("projects") if isinstance((store or {}).get("projects"), dict) else {},
+        "updated_at": now_jst_iso(),
+    }
+    path = pf2_local_store_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def pf2_local_blank_project(project_name: str = "") -> dict:
+    pid = "pf2-" + datetime.now(JST).strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(3)
+    name = pf2_text(project_name) or "新しい求人"
+    project = {
+        "project_id": pid,
+        "project_name": name,
+        "created_at": now_jst_iso(),
+        "updated_at": now_jst_iso(),
+        "created_by": "pageflowai2-local",
+        "updated_by": "pageflowai2-local",
+        "data": {
+            "step1": {
+                "primary_color": "green",
+                "industry": "福祉・介護",
+                "hero_type": "simple",
+            },
+            "step2": {
+                "company_name": "",
+                "catch_copy": "",
+                "email": "",
+                "phone": "",
+                "address": "",
+                "site_url": "",
+            },
+            "publish": {"public_site_url": ""},
+            "blocks": {
+                "recruitment": _normalize_recruitment_block({
+                    "enabled": True,
+                    "title": "",
+                    "lead": "",
+                    "employment_types": "",
+                    "work_location": "",
+                    "work_hours": "",
+                    "salary_note": "",
+                    "holidays": "",
+                    "benefits": "",
+                    "work_summary": "",
+                    "work_details": "",
+                    "daily_flow": "",
+                    "qualification_note": "",
+                    "target_person": "",
+                    "application_flow": "",
+                    "apply_url": "",
+                    "faq_items": [],
+                }),
+                "philosophy": {"company_profile": {"site_url": ""}},
+            },
+        },
+    }
+    return normalize_project(project)
+
+
+def pf2_is_placeholder_company_name(value: object, project_name: object = "") -> bool:
+    name = pf2_text(value)
+    project_label = pf2_text(project_name)
+    if not name:
+        return False
+    generic_names = {"新しい求人", "新規求人", "名称未設定", "未設定"}
+    return name in generic_names or (bool(project_label) and name == project_label and project_label in generic_names)
+
+
+def pf2_clean_company_name(value: object, project_name: object = "", *, fallback: str = "") -> str:
+    name = pf2_text(value)
+    if pf2_is_placeholder_company_name(name, project_name):
+        return pf2_text(fallback)
+    return name or pf2_text(fallback)
+
+
+def pf2_local_save_project(project: dict, *, active: bool = True) -> dict:
+    p = normalize_project(project if isinstance(project, dict) else {})
+    p = pf2_prune_ai_drafts(p)
+    p["updated_at"] = now_jst_iso()
+    store = pf2_local_load_store()
+    projects = store.get("projects") if isinstance(store.get("projects"), dict) else {}
+    projects[pf2_text(p.get("project_id"))] = p
+    store["projects"] = projects
+    if active:
+        store["active_project_id"] = pf2_text(p.get("project_id"))
+    pf2_local_save_store(store)
+    return p
+
+
+def pf2_local_create_project(project_name: str = "") -> dict:
+    p = pf2_local_blank_project(project_name)
+    return pf2_local_save_project(p, active=True)
+
+
+def pf2_local_list_projects() -> list[dict]:
+    store = pf2_local_load_store()
+    projects = store.get("projects") if isinstance(store.get("projects"), dict) else {}
+    items = [normalize_project(p) for p in projects.values() if isinstance(p, dict)]
+    items.sort(key=lambda item: pf2_text(item.get("updated_at")), reverse=True)
+    return items
+
+
+def pf2_local_get_project(project_id: str = "") -> Optional[dict]:
+    store = pf2_local_load_store()
+    projects = store.get("projects") if isinstance(store.get("projects"), dict) else {}
+    pid = pf2_text(project_id) or pf2_text(store.get("active_project_id"))
+    if pid and isinstance(projects.get(pid), dict):
+        return normalize_project(projects[pid])
+    for item in projects.values():
+        if isinstance(item, dict):
+            return normalize_project(item)
+    return None
+
+
+def pf2_local_set_active_project(project_id: str) -> Optional[dict]:
+    store = pf2_local_load_store()
+    projects = store.get("projects") if isinstance(store.get("projects"), dict) else {}
+    pid = pf2_text(project_id)
+    if not pid or pid not in projects:
+        return None
+    store["active_project_id"] = pid
+    pf2_local_save_store(store)
+    return normalize_project(projects[pid])
+
+
+def pf2_local_ensure_active_project() -> dict:
+    project = pf2_local_get_project()
+    if project:
+        return project
+    return pf2_local_create_project("新しい求人")
+
+
+def pf2_safe_export_member_path(relative_path: str) -> Optional[Path]:
+    raw = pf2_text(relative_path).replace("\\", "/").lstrip("/")
+    if not raw or raw.startswith("../") or "/../" in raw or raw == "..":
+        return None
+    path = Path(raw)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        return None
+    return path
+
+
+def pf2_local_export_project(project: dict, job_id: str = "") -> dict:
+    p = normalize_project(project if isinstance(project, dict) else {})
+    jid = pf2_text(job_id) or pf2_job_id_for_project(p)
+    job = pf2_job_from_project(p, jid)
+    job["public_check"] = pf2_public_check_job(job)
+    blocks_ = job["public_check"].get("blocks") if isinstance(job["public_check"].get("blocks"), list) else []
+    if blocks_:
+        return {"ok": False, "message": "公開前チェックで確認が必要な項目があります", "blocks": blocks_}
+    if not pf2_text(job.get("mobile_preview_checked_at")):
+        return {"ok": False, "message": "スマホ表示確認が必要です", "blocks": [{"field": "mobile_preview_checked_at", "label": "スマホ表示確認"}]}
+    if bool(job.get("ai_draft_used")) and not pf2_text(job.get("ai_draft_human_confirmed_at")):
+        return {"ok": False, "message": "入力補助文の確認が必要です", "blocks": [{"field": "ai_draft_human_confirmed_at", "label": "入力補助文の確認"}]}
+    if not pf2_text(job.get("last_public_check_at")):
+        job["last_public_check_at"] = now_jst_iso()
+        p = pf2_apply_job_to_project(p, job)
+    settings = pf2_ensure_extension(p).get("settings")
+    settings = settings if isinstance(settings, dict) else {}
+    google_enabled = settings.get("google_jobposting_enabled", True) is not False
+    indeed_enabled = settings.get("indeed_xml_enabled", True) is not False
+    sitemap_robots_enabled = settings.get("sitemap_robots_enabled", True) is not False
+    files = build_pageflowai2_site_files(p)
+    if not google_enabled:
+        files.pop(RECRUITMENT_JOBPOSTING_JSON_PATH, None)
+    if not indeed_enabled:
+        files.pop(RECRUITMENT_INDEED_FEED_PATH, None)
+    if not sitemap_robots_enabled:
+        files.pop(SITE_SITEMAP_PATH, None)
+        files.pop(SITE_ROBOTS_PATH, None)
+    if google_enabled:
+        try:
+            jobposting = json.loads(files.get(RECRUITMENT_JOBPOSTING_JSON_PATH, b"{}").decode("utf-8", errors="replace"))
+        except Exception:
+            jobposting = {}
+    else:
+        jobposting = ""
+    indeed_xml = files.get(RECRUITMENT_INDEED_FEED_PATH, b"").decode("utf-8", errors="replace") if indeed_enabled else ""
+    media_check = pf2_check_media_alignment(job, jobposting=jobposting, indeed_xml=indeed_xml)
+    if media_check.get("blocks"):
+        return {"ok": False, "message": "公開用ファイルと求人内容に差があります", "blocks": media_check.get("blocks", [])}
+
+    timestamp = datetime.now(JST).strftime("%Y%m%d_%H%M%S")
+    safe_pid = re.sub(r"[^a-zA-Z0-9_-]", "_", pf2_text(p.get("project_id")) or "project")
+    export_root = pf2_local_export_dir() / safe_pid / timestamp
+    site_root = export_root / "site"
+    site_root.mkdir(parents=True, exist_ok=True)
+    for rel, raw in files.items():
+        member = pf2_safe_export_member_path(rel)
+        if member is None:
+            continue
+        out_path = site_root / member
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(raw if isinstance(raw, bytes) else bytes(raw or b""))
+
+    filename = f"PageFlowAI2_{safe_pid}_{timestamp}.zip"
+    zip_path = export_root / filename
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rel, raw in files.items():
+            member = pf2_safe_export_member_path(rel)
+            if member is None:
+                continue
+            zf.writestr(str(Path("site") / member).replace("\\", "/"), raw if isinstance(raw, bytes) else bytes(raw or b""))
+    zip_bytes = buffer.getvalue()
+    zip_path.write_bytes(zip_bytes)
+
+    job["export_pack_generated_at"] = now_jst_iso()
+    p = pf2_apply_job_to_project(p, job)
+    p = pf2_append_public_check_run(p, jid, job["public_check"])
+    artifact_files = {
+        "job_lp_html": [RECRUITMENT_PAGE_PATH] if RECRUITMENT_PAGE_PATH in files else [],
+        "google_jobposting_jsonld": [RECRUITMENT_JOBPOSTING_JSON_PATH] if RECRUITMENT_JOBPOSTING_JSON_PATH in files else [],
+        "indeed_xml": [RECRUITMENT_INDEED_FEED_PATH] if RECRUITMENT_INDEED_FEED_PATH in files else [],
+        "sitemap": [SITE_SITEMAP_PATH] if SITE_SITEMAP_PATH in files else [],
+        "robots": [SITE_ROBOTS_PATH] if SITE_ROBOTS_PATH in files else [],
+    }
+    for artifact_type, names in artifact_files.items():
+        if names:
+            p = pf2_append_media_artifact(p, jid, artifact_type, file_names=names, metadata={"source": "local_export"})
+    p = pf2_append_media_artifact(p, jid, "zip_pack", file_names=[filename], metadata={"file_count": len(files)})
+    p = pf2_append_export_history(p, {
+        "job_id": jid,
+        "export_type": "zip_pack",
+        "file_names": [filename],
+        "generated_at": now_jst_iso(),
+        "local_zip_path": str(zip_path),
+        "local_site_dir": str(site_root),
+        "warning_snapshot": job["public_check"].get("warnings", []),
+        "block_snapshot": [],
+        "note_for_user": "公開用ファイルを作成しました。媒体側の掲載・審査は別途確認が必要です。",
+    })
+    p = pf2_append_audit_log(p, "pf2_local_export_generated", target_type="job", target_id=jid, metadata={
+        "zip_path": str(zip_path),
+        "file_count": len(files),
+    })
+    p = pf2_local_save_project(p, active=True)
+    return {
+        "ok": True,
+        "message": "公開用ファイルを作成しました",
+        "project": p,
+        "zip_path": str(zip_path),
+        "site_dir": str(site_root),
+        "filename": filename,
+        "zip_bytes": zip_bytes,
+        "file_count": len(files),
+    }
+
+
+def pf2_local_export_homepage_project(project: dict) -> dict:
+    p = normalize_project(project if isinstance(project, dict) else {})
+    settings = pf2_ensure_extension(p).get("settings")
+    settings = settings if isinstance(settings, dict) else {}
+    google_enabled = settings.get("google_jobposting_enabled", True) is not False
+    indeed_enabled = settings.get("indeed_xml_enabled", True) is not False
+    sitemap_robots_enabled = settings.get("sitemap_robots_enabled", True) is not False
+    files = build_pageflowai2_site_files(p)
+    if not google_enabled:
+        files.pop(RECRUITMENT_JOBPOSTING_JSON_PATH, None)
+    if not indeed_enabled:
+        files.pop(RECRUITMENT_INDEED_FEED_PATH, None)
+    if not sitemap_robots_enabled:
+        files.pop(SITE_SITEMAP_PATH, None)
+        files.pop(SITE_ROBOTS_PATH, None)
+
+    timestamp = datetime.now(JST).strftime("%Y%m%d_%H%M%S")
+    safe_pid = re.sub(r"[^a-zA-Z0-9_-]", "_", pf2_text(p.get("project_id")) or "project")
+    export_root = pf2_local_export_dir() / safe_pid / f"homepage_{timestamp}"
+    site_root = export_root / "site"
+    site_root.mkdir(parents=True, exist_ok=True)
+    for rel, raw in files.items():
+        member = pf2_safe_export_member_path(rel)
+        if member is None:
+            continue
+        out_path = site_root / member
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(raw if isinstance(raw, bytes) else bytes(raw or b""))
+
+    filename = f"PageFlowAI2_CompanyPage_{safe_pid}_{timestamp}.zip"
+    zip_path = export_root / filename
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rel, raw in files.items():
+            member = pf2_safe_export_member_path(rel)
+            if member is None:
+                continue
+            zf.writestr(str(Path("site") / member).replace("\\", "/"), raw if isinstance(raw, bytes) else bytes(raw or b""))
+    zip_bytes = buffer.getvalue()
+    zip_path.write_bytes(zip_bytes)
+    jid = pf2_job_id_for_project(p)
+    artifact_files = {
+        "company_page_html": ["index.html"] if "index.html" in files else [],
+        "job_lp_html": [RECRUITMENT_PAGE_PATH] if RECRUITMENT_PAGE_PATH in files else [],
+        "google_jobposting_jsonld": [RECRUITMENT_JOBPOSTING_JSON_PATH] if RECRUITMENT_JOBPOSTING_JSON_PATH in files else [],
+        "indeed_xml": [RECRUITMENT_INDEED_FEED_PATH] if RECRUITMENT_INDEED_FEED_PATH in files else [],
+        "sitemap": [SITE_SITEMAP_PATH] if SITE_SITEMAP_PATH in files else [],
+        "robots": [SITE_ROBOTS_PATH] if SITE_ROBOTS_PATH in files else [],
+    }
+    for artifact_type, names in artifact_files.items():
+        if names:
+            p = pf2_append_media_artifact(p, jid, artifact_type, file_names=names, metadata={"source": "homepage_export"})
+    p = pf2_append_media_artifact(p, jid, "homepage_zip_pack", file_names=[filename], metadata={"file_count": len(files)})
+
+    p = pf2_append_export_history(p, {
+        "export_type": "homepage_zip_pack",
+        "file_names": [filename],
+        "generated_at": now_jst_iso(),
+        "local_zip_path": str(zip_path),
+        "local_site_dir": str(site_root),
+        "warning_snapshot": [],
+        "block_snapshot": [],
+        "note_for_user": "会社ページ用ファイルを作成しました。実際の公開はお客様のWebサーバで行ってください。",
+    })
+    p = pf2_append_audit_log(p, "pf2_local_homepage_export_generated", target_type="homepage", target_id=safe_pid, metadata={
+        "zip_path": str(zip_path),
+        "file_count": len(files),
+    })
+    p = pf2_local_save_project(p, active=True)
+    return {
+        "ok": True,
+        "message": "会社ページ用ファイルを作成しました",
+        "project": p,
+        "zip_path": str(zip_path),
+        "site_dir": str(site_root),
+        "filename": filename,
+        "zip_bytes": zip_bytes,
+        "file_count": len(files),
+    }
+
+
+def pf2_job_id_for_project(p: Optional[dict]) -> str:
+    raw = pf2_text(p.get("project_id")) if isinstance(p, dict) else ""
+    return (raw or "project") + "-recruitment"
+
+
+def pf2_active_job_id_for_project(p: Optional[dict]) -> str:
+    if not isinstance(p, dict):
+        return pf2_job_id_for_project(p)
+    ext = pf2_ensure_extension(p)
+    jobs = ext.get("jobs") if isinstance(ext.get("jobs"), dict) else {}
+    active = pf2_text(ext.get("active_job_id"))
+    if active and active in jobs:
+        return active
+    default = pf2_job_id_for_project(p)
+    if default in jobs:
+        return default
+    if len(jobs) == 1:
+        return next(iter(jobs.keys()))
+    return default
+
+
+def pf2_ensure_extension(p: dict) -> dict:
+    """Create the PageFlowAI2 extension area without disturbing legacy fields."""
+    if not isinstance(p, dict):
+        p = {}
+    data = p.get("data") if isinstance(p.get("data"), dict) else {}
+    p["data"] = data
+    ext = data.get("pageflowai2") if isinstance(data.get("pageflowai2"), dict) else {}
+    data["pageflowai2"] = ext
+    ext.setdefault("schema_version", PAGEFLOWAI2_SCHEMA_VERSION)
+    ext.setdefault("jobs", {})
+    ext.setdefault("wizard_answers", {})
+    ext.setdefault("ai_drafts", {})
+    ext.setdefault("public_check_runs", [])
+    ext.setdefault("media_artifacts", [])
+    ext.setdefault("export_history", [])
+    ext.setdefault("audit_logs", [])
+    ext.setdefault("homepage", {})
+    ext.setdefault("settings", {})
+    if not isinstance(ext.get("jobs"), dict):
+        ext["jobs"] = {}
+    if not isinstance(ext.get("wizard_answers"), dict):
+        ext["wizard_answers"] = {}
+    if not isinstance(ext.get("ai_drafts"), dict):
+        ext["ai_drafts"] = {}
+    if not isinstance(ext.get("public_check_runs"), list):
+        ext["public_check_runs"] = []
+    if not isinstance(ext.get("media_artifacts"), list):
+        ext["media_artifacts"] = []
+    if not isinstance(ext.get("export_history"), list):
+        ext["export_history"] = []
+    if not isinstance(ext.get("audit_logs"), list):
+        ext["audit_logs"] = []
+    if not isinstance(ext.get("homepage"), dict):
+        ext["homepage"] = {}
+    if not isinstance(ext.get("settings"), dict):
+        ext["settings"] = {}
+    settings = ext["settings"]
+    settings.setdefault("local_role", "admin")
+    settings["local_role"] = pf2_normalize_role(settings.get("local_role"))
+    return ext
+
+
+def pf2_job_extra_for_project(p: dict, job_id: str = "") -> dict:
+    ext = pf2_ensure_extension(p)
+    jobs = ext.get("jobs") if isinstance(ext.get("jobs"), dict) else {}
+    jid = pf2_text(job_id) or pf2_job_id_for_project(p)
+    item = jobs.get(jid) if isinstance(jobs.get(jid), dict) else {}
+    jobs[jid] = item
+    ext["jobs"] = jobs
+    return item
+
+
+def pf2_job_from_project(p: dict, job_id: str = "") -> dict:
+    """Project -> PageFlowAI2 Job adapter.
+
+    Legacy recruitment fields remain the source for current output paths, while
+    v0.4-only fields live under data.pageflowai2.jobs[job_id].
+    """
+    project = normalize_project(p if isinstance(p, dict) else {})
+    data = project.get("data") if isinstance(project.get("data"), dict) else {}
+    step1 = data.get("step1") if isinstance(data.get("step1"), dict) else {}
+    step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
+    blocks = data.get("blocks") if isinstance(data.get("blocks"), dict) else {}
+    recruitment = _normalize_recruitment_block(blocks.get("recruitment") if isinstance(blocks.get("recruitment"), dict) else {})
+    jid = pf2_text(job_id) or pf2_job_id_for_project(project)
+    extra = pf2_job_extra_for_project(project, jid)
+    faq_items = []
+    for item in recruitment.get("faq_items") or []:
+        if isinstance(item, dict):
+            faq_items.append({"question": pf2_text(item.get("q")), "answer": pf2_text(item.get("a"))})
+    job = {
+        "tenant_id": pf2_text(project.get("owner_company_id")),
+        "company_id": pf2_text(project.get("owner_company_id")),
+        "job_id": jid,
+        "project_id": pf2_text(project.get("project_id")),
+        "company_name": pf2_clean_company_name(step2.get("company_name"), project.get("project_name")),
+        "title": pf2_text(recruitment.get("title")),
+        "employment_type": pf2_text(recruitment.get("employment_types")),
+        "service_type": pf2_text(extra.get("service_type")) or pf2_text(step1.get("welfare_domain")) or pf2_text(step1.get("industry")),
+        "workplace": pf2_text(recruitment.get("work_location")) or pf2_text(step2.get("address")),
+        "workplace_change_scope": pf2_text(extra.get("workplace_change_scope")),
+        "job_description": pf2_text(recruitment.get("work_details")) or pf2_text(recruitment.get("work_summary")),
+        "job_summary": pf2_text(recruitment.get("work_summary")),
+        "job_change_scope": pf2_text(extra.get("job_change_scope")),
+        "contract_period_type": pf2_text(extra.get("contract_period_type")) or "unknown",
+        "contract_period": pf2_text(extra.get("contract_period")),
+        "contract_renewal": pf2_text(extra.get("contract_renewal")),
+        "contract_renewal_criteria": pf2_text(extra.get("contract_renewal_criteria")),
+        "contract_renewal_limit": pf2_text(extra.get("contract_renewal_limit")),
+        "salary_type": pf2_text(extra.get("salary_type")),
+        "salary_min": extra.get("salary_min"),
+        "salary_max": extra.get("salary_max"),
+        "salary_note": pf2_text(recruitment.get("salary_note")),
+        "salary_breakdown": pf2_text(extra.get("salary_breakdown")),
+        "fixed_overtime_enabled": bool(extra.get("fixed_overtime_enabled", False)),
+        "fixed_overtime_hours": extra.get("fixed_overtime_hours"),
+        "fixed_overtime_amount": extra.get("fixed_overtime_amount"),
+        "fixed_overtime_extra_pay_note": pf2_text(extra.get("fixed_overtime_extra_pay_note")),
+        "working_hours": pf2_text(recruitment.get("work_hours")),
+        "break_time": pf2_text(extra.get("break_time")),
+        "holidays": pf2_text(recruitment.get("holidays")),
+        "trial_period": pf2_text(extra.get("trial_period")),
+        "social_insurance": pf2_text(extra.get("social_insurance")),
+        "passive_smoking_policy": pf2_text(extra.get("passive_smoking_policy")),
+        "appeal_text": pf2_text(recruitment.get("lead")),
+        "day_flow": pf2_text(recruitment.get("daily_flow")),
+        "benefits": pf2_text(recruitment.get("benefits")),
+        "qualification_note": pf2_text(recruitment.get("qualification_note")),
+        "ideal_candidate": pf2_text(recruitment.get("target_person")),
+        "faq_items": faq_items,
+        "application_method": pf2_text(recruitment.get("application_flow")),
+        "apply_url": pf2_text(recruitment.get("apply_url")),
+        "contact_name": pf2_text(extra.get("contact_name")),
+        "contact_email": pf2_text(step2.get("email")),
+        "contact_phone": pf2_text(step2.get("phone")),
+        "ai_draft_used": bool(extra.get("ai_draft_used", False)),
+        "ai_draft_human_confirmed_at": pf2_text(extra.get("ai_draft_human_confirmed_at")),
+        "mobile_preview_checked_at": pf2_text(extra.get("mobile_preview_checked_at")),
+        "last_public_check_at": pf2_text(extra.get("last_public_check_at")),
+        "export_pack_generated_at": pf2_text(extra.get("export_pack_generated_at")),
+        "created_by": pf2_text(project.get("created_by")),
+        "updated_by": pf2_text(project.get("updated_by")),
+        "created_at": pf2_text(project.get("created_at")),
+        "updated_at": pf2_text(project.get("updated_at")),
+    }
+    job["public_check"] = pf2_public_check_job(job)
+    job["main_state"] = pf2_compute_job_state(job)
+    extra["main_state"] = job["main_state"]
+    return job
+
+
+def pf2_apply_job_to_project(p: dict, job: dict) -> dict:
+    project = normalize_project(p if isinstance(p, dict) else {})
+    data = project.get("data") if isinstance(project.get("data"), dict) else {}
+    step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
+    blocks = data.get("blocks") if isinstance(data.get("blocks"), dict) else {}
+    recruitment = _normalize_recruitment_block(blocks.get("recruitment") if isinstance(blocks.get("recruitment"), dict) else {})
+    blocks["recruitment"] = recruitment
+    jid = pf2_text(job.get("job_id")) or pf2_job_id_for_project(project)
+    recruitment["enabled"] = bool(job.get("enabled", recruitment.get("enabled", True)))
+    recruitment["title"] = pf2_text(job.get("title")) or recruitment.get("title") or "求人情報"
+    recruitment["lead"] = pf2_text(job.get("appeal_text")) or recruitment.get("lead") or ""
+    recruitment["employment_types"] = pf2_text(job.get("employment_type"))
+    recruitment["work_location"] = pf2_text(job.get("workplace"))
+    recruitment["work_hours"] = pf2_text(job.get("working_hours"))
+    recruitment["salary_note"] = pf2_text(job.get("salary_note"))
+    recruitment["holidays"] = pf2_text(job.get("holidays"))
+    recruitment["benefits"] = pf2_text(job.get("benefits"))
+    recruitment["work_summary"] = pf2_text(job.get("job_summary"))
+    recruitment["work_details"] = pf2_text(job.get("job_description"))
+    recruitment["daily_flow"] = pf2_text(job.get("day_flow"))
+    recruitment["qualification_note"] = pf2_text(job.get("qualification_note"))
+    recruitment["target_person"] = pf2_text(job.get("ideal_candidate"))
+    recruitment["application_flow"] = pf2_text(job.get("application_method"))
+    recruitment["apply_url"] = pf2_text(job.get("apply_url"))
+    if pf2_text(job.get("company_name")):
+        step2["company_name"] = pf2_text(job.get("company_name"))
+    if pf2_text(job.get("contact_email")):
+        step2["email"] = pf2_text(job.get("contact_email"))
+    if pf2_text(job.get("contact_phone")):
+        step2["phone"] = pf2_text(job.get("contact_phone"))
+    faq_items = []
+    for item in job.get("faq_items") or []:
+        if isinstance(item, dict):
+            q = pf2_text(item.get("question") or item.get("q"))
+            a = pf2_text(item.get("answer") or item.get("a"))
+            if q or a:
+                faq_items.append({"q": q, "a": a})
+    recruitment["faq_items"] = faq_items[:RECRUITMENT_FAQ_COUNT]
+
+    extra = pf2_job_extra_for_project(project, jid)
+    pf2_ensure_extension(project)["active_job_id"] = jid
+    for key in [
+        "service_type", "workplace_change_scope", "job_change_scope", "contract_period_type",
+        "contract_period", "contract_renewal", "contract_renewal_criteria",
+        "contract_renewal_limit", "salary_type", "salary_min", "salary_max",
+        "salary_breakdown", "fixed_overtime_enabled", "fixed_overtime_hours",
+        "fixed_overtime_amount", "fixed_overtime_extra_pay_note", "break_time",
+        "trial_period", "social_insurance", "passive_smoking_policy",
+        "contact_name", "ai_draft_used", "ai_draft_human_confirmed_at",
+        "mobile_preview_checked_at", "last_public_check_at", "export_pack_generated_at",
+    ]:
+        if key in job:
+            extra[key] = job.get(key)
+    extra["main_state"] = pf2_compute_job_state(job)
+    return normalize_project(project)
+
+
+def pf2_public_check_job(job: dict) -> dict:
+    blocks_: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
+    for key, label in PF2_REQUIRED_JOB_FIELDS:
+        if not pf2_text(job.get(key)):
+            blocks_.append({"field": key, "label": label, "message": f"{label}が未入力です"})
+    if pf2_text(job.get("contract_period_type")) == "fixed_term":
+        for key, label in PF2_CONTRACT_REQUIRED_FIELDS:
+            if not pf2_text(job.get(key)):
+                blocks_.append({"field": key, "label": label, "message": f"有期契約の場合、{label}が必要です"})
+    if bool(job.get("fixed_overtime_enabled")):
+        for key, label in [
+            ("salary_breakdown", "基本給または給与内訳"),
+            ("fixed_overtime_hours", "固定残業時間"),
+            ("fixed_overtime_amount", "固定残業代の金額"),
+            ("fixed_overtime_extra_pay_note", "固定残業代を超える時間外労働の扱い"),
+        ]:
+            if not pf2_text(job.get(key)):
+                blocks_.append({"field": key, "label": label, "message": f"固定残業代を含む場合、{label}が必要です"})
+    if bool(job.get("ai_draft_used")) and not pf2_text(job.get("ai_draft_human_confirmed_at")):
+        blocks_.append({"field": "ai_draft_human_confirmed_at", "label": "入力補助文の確認", "message": "入力補助で作った文章の確認が未完了です"})
+    if not pf2_text(job.get("mobile_preview_checked_at")):
+        warnings.append({"field": "mobile_preview_checked_at", "label": "スマホ表示確認", "message": "スマホ表示の確認が未完了です"})
+    return {"blocks": blocks_, "warnings": warnings}
+
+
+def pf2_compute_job_state(job: dict) -> str:
+    meaningful = ["title", "employment_type", "workplace", "job_description", "salary_note", "working_hours", "appeal_text"]
+    filled_count = sum(1 for key in meaningful if pf2_text(job.get(key)))
+    if filled_count == 0:
+        return PF2_JOB_STATE_NOT_STARTED
+    public_check = job.get("public_check") if isinstance(job.get("public_check"), dict) else pf2_public_check_job(job)
+    blocks_ = public_check.get("blocks") if isinstance(public_check.get("blocks"), list) else []
+    warnings = public_check.get("warnings") if isinstance(public_check.get("warnings"), list) else []
+    if blocks_:
+        return PF2_JOB_STATE_EDITING
+    if warnings or not pf2_text(job.get("last_public_check_at")):
+        return PF2_JOB_STATE_REVIEW_REQUIRED
+    if pf2_text(job.get("export_pack_generated_at")):
+        return PF2_JOB_STATE_PREPARED
+    return PF2_JOB_STATE_EXPORT_READY
+
+
+def pf2_append_export_history(p: dict, export_item: dict) -> dict:
+    project = p if isinstance(p, dict) else {}
+    ext = pf2_ensure_extension(project)
+    history = ext.get("export_history") if isinstance(ext.get("export_history"), list) else []
+    item = dict(export_item or {})
+    item.setdefault("created_at", now_jst_iso())
+    item.setdefault("export_id", f"export-{len(history) + 1}")
+    history.append(item)
+    ext["export_history"] = history[-100:]
+    return project
+
+
+def pf2_append_public_check_run(p: dict, job_id: str, result: dict) -> dict:
+    project = p if isinstance(p, dict) else {}
+    ext = pf2_ensure_extension(project)
+    runs = ext.get("public_check_runs") if isinstance(ext.get("public_check_runs"), list) else []
+    check = result if isinstance(result, dict) else {}
+    blocks_ = check.get("blocks") if isinstance(check.get("blocks"), list) else []
+    warnings = check.get("warnings") if isinstance(check.get("warnings"), list) else []
+    runs.append({
+        "run_id": f"public-check-{len(runs) + 1}",
+        "job_id": pf2_text(job_id),
+        "block_count": len(blocks_),
+        "warning_count": len(warnings),
+        "blocks": blocks_,
+        "warnings": warnings,
+        "created_at": now_jst_iso(),
+    })
+    ext["public_check_runs"] = runs[-100:]
+    return project
+
+
+def pf2_append_media_artifact(
+    p: dict,
+    job_id: str,
+    artifact_type: str,
+    *,
+    status: str = "generated",
+    file_names: Optional[list[str]] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    project = p if isinstance(p, dict) else {}
+    ext = pf2_ensure_extension(project)
+    artifacts = ext.get("media_artifacts") if isinstance(ext.get("media_artifacts"), list) else []
+    artifacts.append({
+        "artifact_id": f"media-artifact-{len(artifacts) + 1}",
+        "job_id": pf2_text(job_id),
+        "artifact_type": pf2_text(artifact_type),
+        "status": pf2_text(status) or "generated",
+        "file_names": [pf2_text(name) for name in (file_names or []) if pf2_text(name)],
+        "metadata": metadata if isinstance(metadata, dict) else {},
+        "created_at": now_jst_iso(),
+    })
+    ext["media_artifacts"] = artifacts[-100:]
+    return project
+
+
+def pf2_append_audit_log(p: dict, action: str, *, target_type: str = "", target_id: str = "", metadata: Optional[dict] = None) -> dict:
+    project = p if isinstance(p, dict) else {}
+    ext = pf2_ensure_extension(project)
+    logs = ext.get("audit_logs") if isinstance(ext.get("audit_logs"), list) else []
+    logs.append({
+        "audit_id": f"audit-{len(logs) + 1}",
+        "action": pf2_text(action),
+        "target_type": pf2_text(target_type),
+        "target_id": pf2_text(target_id),
+        "metadata": metadata if isinstance(metadata, dict) else {},
+        "created_at": now_jst_iso(),
+    })
+    ext["audit_logs"] = logs[-500:]
+    return project
+
+
+def pf2_ai_log_timestamp(draft: dict) -> Optional[datetime]:
+    if not isinstance(draft, dict):
+        return None
+    for key in ["created_at", "human_confirmed_at", "generated_at"]:
+        dt = parse_iso_datetime(pf2_text(draft.get(key)))
+        if dt:
+            return dt
+    return None
+
+
+def pf2_prune_ai_drafts(p: dict, *, now: Optional[datetime] = None) -> dict:
+    project = p if isinstance(p, dict) else {}
+    ext = pf2_ensure_extension(project)
+    drafts = ext.get("ai_drafts") if isinstance(ext.get("ai_drafts"), dict) else {}
+    current = now or datetime.now(JST)
+    kept: dict[str, dict] = {}
+    removed = 0
+    for draft_id, draft in drafts.items():
+        if not isinstance(draft, dict):
+            removed += 1
+            continue
+        created = pf2_ai_log_timestamp(draft)
+        if not created:
+            kept[str(draft_id)] = draft
+            continue
+        try:
+            retention_days = int(draft.get("retention_days") or PF2_AI_LOG_RETENTION_DAYS)
+        except Exception:
+            retention_days = PF2_AI_LOG_RETENTION_DAYS
+        retention_days = max(1, min(retention_days, PF2_AI_PUBLIC_LOG_RETENTION_DAYS))
+        if created.astimezone(JST) < current.astimezone(JST) - timedelta(days=retention_days):
+            removed += 1
+            continue
+        kept[str(draft_id)] = draft
+    if removed:
+        ext["ai_drafts"] = kept
+        ext["last_ai_log_pruned_at"] = now_jst_iso()
+        ext["last_ai_log_pruned_count"] = removed
+    return project
+
+
+def pf2_record_ai_draft_log(
+    p: dict,
+    *,
+    job_id: str = "",
+    purpose: str,
+    provider: str,
+    input_snapshot: Optional[dict] = None,
+    generated_text: str = "",
+    edited_text: str = "",
+    scan: Optional[dict] = None,
+    retention_days: int = PF2_AI_LOG_RETENTION_DAYS,
+) -> dict:
+    project = p if isinstance(p, dict) else {}
+    ext = pf2_ensure_extension(project)
+    draft_id = "draft-" + datetime.now(JST).strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(2)
+    ext.setdefault("ai_drafts", {})[draft_id] = {
+        "draft_id": draft_id,
+        "job_id": pf2_text(job_id),
+        "purpose": pf2_text(purpose),
+        "provider": pf2_text(provider) or "input_assist",
+        "input_context_snapshot": input_snapshot if isinstance(input_snapshot, dict) else {},
+        "generated_text": pf2_text(generated_text),
+        "edited_text": pf2_text(edited_text),
+        "scan": scan if isinstance(scan, dict) else {},
+        "human_confirmed": False,
+        "created_at": now_jst_iso(),
+        "retention_days": max(1, min(int(retention_days or PF2_AI_LOG_RETENTION_DAYS), PF2_AI_PUBLIC_LOG_RETENTION_DAYS)),
+    }
+    return pf2_prune_ai_drafts(project)
 
 
 def _public_site_base_url(site_url: str) -> str:
@@ -1751,6 +3735,29 @@ def _export_cache_put(user_id: int, filename: str, data: bytes) -> str:
         "created_at": now_jst_iso(),
     }
     return key
+
+
+def _register_export_zip(data: bytes, filename: str) -> str:
+    """UIから生成したZIPを現在ユーザーのダウンロードキャッシュへ登録する。"""
+    user_id = 0
+    try:
+        user = current_user()
+        user_id = int(getattr(user, "id", 0) or 0) if user else 0
+    except Exception:
+        user_id = 0
+    try:
+        if isinstance(data, memoryview):
+            payload = data.tobytes()
+        elif isinstance(data, bytearray):
+            payload = bytes(data)
+        elif isinstance(data, bytes):
+            payload = data
+        else:
+            payload = bytes(data or b"")
+    except Exception:
+        payload = b""
+    return _export_cache_put(user_id, filename or "pageflowai2.zip", payload)
+
 
 try:
     _export_route_added = getattr(app, "_cvhb_export_route_added", False)
@@ -6937,6 +8944,32 @@ def navigate_to(path: str) -> None:
         pass
 
 
+def clear_client_sensitive_storage_script(redirect_path: str = "/") -> str:
+    safe_redirect = json.dumps(str(redirect_path or "/"))
+    return f"""
+(async () => {{
+  try {{ localStorage.clear(); }} catch (e) {{}}
+  try {{ sessionStorage.clear(); }} catch (e) {{}}
+  try {{
+    if (window.indexedDB && indexedDB.databases) {{
+      const dbs = await indexedDB.databases();
+      await Promise.all((dbs || []).map(db => db && db.name ? new Promise(resolve => {{
+        const req = indexedDB.deleteDatabase(db.name);
+        req.onsuccess = req.onerror = req.onblocked = () => resolve();
+      }}) : Promise.resolve()));
+    }}
+  }} catch (e) {{}}
+  try {{
+    if (window.caches) {{
+      const keys = await caches.keys();
+      await Promise.all(keys.map(key => caches.delete(key)));
+    }}
+  }} catch (e) {{}}
+  window.location.href = {safe_redirect};
+}})();
+"""
+
+
 def replace_browser_url(path: str) -> None:
     try:
         safe_path = json.dumps(str(path or "/") or "/")
@@ -7347,7 +9380,10 @@ def logout() -> None:
         safe_log_action(u, "logout")
         clear_current_project(u)
     app.storage.user.clear()
-    navigate_to("/")
+    try:
+        ui.run_javascript(clear_client_sensitive_storage_script("/"))
+    except Exception:
+        navigate_to("/")
 
 
 def _ensure_stg_test_users__base_6212() -> tuple[bool, str]:
@@ -15134,7 +17170,7 @@ body{ top:0 !important; }
         footer_meta_parts.append('TEL ' + _esc(phone))
     elif email:
         footer_meta_parts.append(_esc(email))
-    footer_company_meta_html = ' / '.join(footer_meta_parts)
+    footer_company_meta_html = ' / '.join(footer_meta_parts) or "所在地・連絡先はお問い合わせ欄をご確認ください"
     index_footer_cta_html = f'<a class="pv-link-btn pv-btn-primary" href="{_esc(recruitment_page_href)}">{_esc(recruitment_badge_text)}</a>' if recruitment_visible else ""
     index_footer_html = build_footer_markup(company_name=company_name, footer_links_html=footer_links_html, cta_html=index_footer_cta_html, company_meta_html=footer_company_meta_html)
 
@@ -15692,7 +17728,7 @@ body{ top:0 !important; }
 
     recruit_contact_href = "../index.html#pv-access-contact"
     recruit_contact_label = "まずは相談する"
-    recruit_indeed_button_html = f'<a class="pv-link-btn pv-btn-outline" href="{_esc(recruitment_indeed_url)}" target="_blank" rel="noopener nofollow">Indeed掲載を見る</a>' if recruitment_indeed_url else ""
+    recruit_indeed_button_html = f'<a class="pv-link-btn pv-btn-outline" href="{_esc(recruitment_indeed_url)}" target="_blank" rel="noopener nofollow">Indeed求人ページを開く</a>' if recruitment_indeed_url else ""
 
     recruit_hero_src = ""
     if recruitment_img_url:
@@ -16016,14 +18052,15 @@ body{ top:0 !important; }
         public_sitemap_url = _public_url(public_site_base_url, SITE_SITEMAP_PATH)
         public_robots_url = _public_url(public_site_base_url, SITE_ROBOTS_PATH)
         public_logo_url = _public_url(public_site_base_url, str(brand_logo_href or "").lstrip("/")) if brand_logo_href else ""
+        media_address = address or work_location_text
         job_id = (str(p.get("project_id") or "").strip() or "project") + "-recruitment"
         requisition_id = str(p.get("project_id") or job_id).strip() or job_id
         published_source = str(p.get("created_at") or p.get("updated_at") or now_jst_iso())
         published_at_iso = _iso_datetime_utc(published_source, str(p.get("updated_at") or now_jst_iso()))
         published_at_date = _iso_date_only(published_source)
         valid_through_iso = _iso_date_only(recruitment_valid_through)
-        address_parts = _split_japanese_address(address)
-        indeed_job_url = _append_query_param(public_recruitment_url, "source", "Indeed") if public_recruitment_url else ""
+        address_parts = _split_japanese_address(media_address)
+        indeed_job_url = _append_query_param(public_recruitment_url, "source", "Indeed") if public_recruitment_url else RECRUITMENT_PAGE_PATH
         google_service_account_info, google_service_account_source, google_service_account_error = _load_google_service_account_info(publish_cfg)
         recruitment_description_html = _build_recruitment_description_html([
             ("募集概要", recruitment_lead),
@@ -16066,7 +18103,7 @@ body{ top:0 !important; }
             job_posting["employmentType"] = _types if _types else employment_text
         if valid_through_iso:
             job_posting["validThrough"] = valid_through_iso
-        if address:
+        if media_address:
             postal_address = {
                 "@type": "PostalAddress",
                 "addressCountry": "JP",
@@ -16079,8 +18116,8 @@ body{ top:0 !important; }
                 postal_address["addressLocality"] = address_parts["city"]
             if address_parts.get("streetaddress"):
                 postal_address["streetAddress"] = address_parts["streetaddress"]
-            elif address:
-                postal_address["streetAddress"] = address
+            elif media_address:
+                postal_address["streetAddress"] = media_address
             job_posting["jobLocation"] = {
                 "@type": "Place",
                 "address": postal_address,
@@ -16096,7 +18133,7 @@ body{ top:0 !important; }
             indeed_missing_required_fields.append("company_name")
         if not email:
             indeed_missing_required_fields.append("email")
-        if not address:
+        if not media_address:
             indeed_missing_required_fields.append("address")
 
         google_missing_required_fields: list[str] = []
@@ -16119,9 +18156,9 @@ body{ top:0 !important; }
             f"    <company>{_xml_cdata(company_name)}</company>",
             f"    <city>{_xml_cdata(address_parts.get('city', ''))}</city>",
             f"    <state>{_xml_cdata(address_parts.get('state', ''))}</state>",
-            f"    <country>{_xml_cdata('JP' if address else '')}</country>",
+            f"    <country>{_xml_cdata('JP' if media_address else '')}</country>",
             f"    <postalcode>{_xml_cdata(address_parts.get('postalcode', ''))}</postalcode>",
-            f"    <streetaddress>{_xml_cdata(address_parts.get('streetaddress') or address)}</streetaddress>",
+            f"    <streetaddress>{_xml_cdata(address_parts.get('streetaddress') or media_address)}</streetaddress>",
             f"    <email>{_xml_cdata(email)}</email>",
             f"    <description>{_xml_cdata(recruitment_description_html)}</description>",
             f"    <salary>{_xml_cdata(indeed_salary)}</salary>",
@@ -16357,6 +18394,845 @@ body{ top:0 !important; }
     audit_product_release_readiness(files, source_text=source_text, expected_version=APP_RELEASE_VERSION, raise_on_error=True)
 
     return files
+
+
+def _pf2_safe_preview_file_path(file_path: str) -> str:
+    raw = unquote(str(file_path or "index.html")).replace("\\", "/").lstrip("/")
+    if raw in {"", "."}:
+        raw = "index.html"
+    parts = [part for part in raw.split("/") if part and part != "."]
+    if any(part == ".." for part in parts):
+        return ""
+    return "/".join(parts)
+
+
+def _pf2_live_preview_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-store, max-age=0",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Content-Security-Policy": "frame-ancestors 'self'",
+    }
+
+
+def _pf2_lines(value: object, *, limit: int = 8) -> list[str]:
+    lines: list[str] = []
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[\r\n]+", pf2_text(value))
+    for raw in raw_items:
+        if isinstance(raw, dict):
+            text = pf2_text(raw.get("title") or raw.get("label") or raw.get("body") or raw.get("value"))
+        else:
+            text = pf2_text(raw)
+        text = re.sub(r"\s+", " ", text).strip()
+        if text:
+            lines.append(text)
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+def _pf2_homepage_service_items(homepage: dict, blocks: dict) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    source = pf2_text(homepage.get("services_items"))
+    for line in re.split(r"[\r\n]+", source):
+        raw = pf2_text(line)
+        if not raw:
+            continue
+        if "｜" in raw:
+            title, body = raw.split("｜", 1)
+        elif "|" in raw:
+            title, body = raw.split("|", 1)
+        else:
+            title, body = raw, ""
+        items.append({"title": pf2_text(title), "body": pf2_text(body)})
+    if not items:
+        services = ((blocks.get("philosophy") or {}).get("services") or {})
+        for item in services.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            items.append({"title": pf2_text(item.get("title")), "body": pf2_text(item.get("body"))})
+    while len(items) < 3:
+        fallback = [
+            ("事業内容", "提供しているサービスや支援内容を分かりやすく紹介します。"),
+            ("安心材料", "相談しやすい体制や大切にしている考え方を整理します。"),
+            ("求人への案内", "仕事内容や働き方を確認できる求人ページへつなげます。"),
+        ][len(items)]
+        items.append({"title": fallback[0], "body": fallback[1]})
+    return items[:3]
+
+
+def _pf2_design_archetype(project: dict) -> str:
+    key = pf2_text(pf2_ensure_extension(project).get("homepage", {}).get("selected_design_key"))
+    mapping = {
+        "photo_trust": "photo-trust",
+        "mission_network": "mission-network",
+        "friendly_guide": "friendly-illustration",
+        "friendly_illustration": "friendly-illustration",
+    }
+    return mapping.get(key, "photo-trust")
+
+
+def _pf2_jobposting_employment_type(value: object) -> str:
+    text = pf2_text(value)
+    if not text:
+        return ""
+    if any(word in text for word in ["正社員", "常勤", "フルタイム"]):
+        return "FULL_TIME"
+    if any(word in text for word in ["パート", "アルバイト", "非常勤", "短時間"]):
+        return "PART_TIME"
+    if any(word in text for word in ["契約", "有期"]):
+        return "CONTRACTOR"
+    if any(word in text for word in ["派遣", "臨時", "期間限定"]):
+        return "TEMPORARY"
+    if "インターン" in text:
+        return "INTERN"
+    if "ボランティア" in text:
+        return "VOLUNTEER"
+    return "OTHER"
+
+
+PF2_JAPAN_PREFECTURES = [
+    "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+    "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+    "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
+    "岐阜県", "静岡県", "愛知県", "三重県",
+    "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県",
+    "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+    "徳島県", "香川県", "愛媛県", "高知県",
+    "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+]
+
+
+def _pf2_japan_address_parts(value: object) -> dict[str, str]:
+    address = pf2_text(value)
+    parts = {"state": "", "city": "", "street": address}
+    if not address:
+        return parts
+    for pref in PF2_JAPAN_PREFECTURES:
+        if address.startswith(pref):
+            rest = address[len(pref):].strip()
+            parts["state"] = pref
+            match = re.match(r"(.+?[市区町村])(.+)?$", rest)
+            if match:
+                parts["city"] = pf2_text(match.group(1))
+                parts["street"] = pf2_text(match.group(2)) or address
+            else:
+                parts["street"] = rest or address
+            return parts
+    match = re.match(r"(.+?[都道府県])(.+?[市区町村])(.+)?$", address)
+    if match:
+        parts["state"] = pf2_text(match.group(1))
+        parts["city"] = pf2_text(match.group(2))
+        parts["street"] = pf2_text(match.group(3)) or address
+    return parts
+
+
+def _pf2_future_craft_css() -> str:
+    return """
+:root{color-scheme:light;--fc-ink:#172033;--fc-muted:#637083;--fc-line:#e6edf2;--fc-card:rgba(255,255,255,.88);--fc-green:#1f8d49;--fc-blue:#2563eb;--fc-orange:#f28c28;--fc-shadow:0 18px 48px rgba(17,24,39,.10)}
+*{box-sizing:border-box}
+html{margin:0;scroll-behavior:smooth;background:#f7faf8;color:var(--fc-ink);font-family:"Noto Sans JP","Yu Gothic",Meiryo,system-ui,sans-serif;letter-spacing:0}
+body.fc-site{margin:0;min-width:0;overflow-x:hidden;background:linear-gradient(180deg,#f9fbf7 0%,#eef8f2 48%,#fffaf1 100%);font-size:15px;line-height:1.78}
+body[data-archetype="mission-network"]{background:radial-gradient(circle at 12% 12%,rgba(37,99,235,.14),transparent 18rem),linear-gradient(90deg,rgba(37,99,235,.05) 1px,transparent 1px),linear-gradient(180deg,#f8fbff,#eff8f6);background-size:auto,64px 64px,auto}
+body[data-archetype="friendly-illustration"]{background:radial-gradient(circle at 16% 10%,rgba(255,255,255,.92) 0 48px,transparent 49px),linear-gradient(180deg,#ecfbff 0%,#f8fff2 54%,#fff5df 100%)}
+a{color:inherit}
+.fc-skip{position:absolute;left:12px;top:10px;z-index:30;transform:translateY(-160%);border-radius:999px;background:#172033;color:#fff;padding:9px 13px;text-decoration:none;font-weight:850}
+.fc-skip:focus{transform:translateY(0)}
+.fc-wrap{width:min(100% - 28px,1080px);margin-inline:auto}
+.fc-header{position:sticky;top:0;z-index:10;padding:12px 0;background:rgba(255,255,255,.74);backdrop-filter:blur(18px);border-bottom:1px solid rgba(230,237,242,.85)}
+.fc-header-inner{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.fc-brand{display:flex;align-items:center;gap:9px;text-decoration:none;font-weight:850;min-width:0}
+.fc-logo{width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,var(--fc-green),#8fd3b0);display:grid;place-items:center;color:#fff;font-weight:900;flex:0 0 auto}
+.fc-brand span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fc-menu{display:flex;align-items:center;gap:8px}
+.fc-menu a{display:none;text-decoration:none;color:var(--fc-muted);font-size:13px;font-weight:750}
+.fc-cta{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 15px;border-radius:999px;background:var(--fc-green);color:#fff!important;text-decoration:none;font-weight:850;box-shadow:0 12px 28px rgba(31,141,73,.18)}
+.fc-hero{padding:34px 0 28px}
+.fc-hero-grid{display:grid;gap:20px;align-items:center}
+.fc-eyebrow{margin:0 0 8px;color:var(--fc-green);font-size:12px;font-weight:850;letter-spacing:.08em}
+h1{margin:0;font-size:clamp(31px,10vw,52px);line-height:1.08;letter-spacing:0;font-weight:900}
+.fc-lead{margin:14px 0 0;color:#435164;font-size:15px;line-height:1.85}
+.fc-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.fc-btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 16px;border-radius:999px;text-decoration:none;font-weight:850;border:1px solid var(--fc-line);background:#fff;color:var(--fc-ink)}
+.fc-btn.primary{background:var(--fc-green);color:#fff;border-color:transparent}
+.fc-visual{min-height:310px;border-radius:34px;overflow:hidden;background:linear-gradient(140deg,#dcece5,#fff4e4);box-shadow:var(--fc-shadow);position:relative}
+.fc-visual img{width:100%;height:100%;min-height:310px;object-fit:cover;display:block}
+.fc-visual::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(15,23,42,.12))}
+.fc-inline-visual{min-height:220px;margin:16px 0;border-radius:24px}
+.fc-inline-visual img{min-height:220px}
+.fc-section{padding:28px 0}
+.fc-section-head{margin-bottom:14px}
+.fc-kicker{margin:0 0 4px;color:var(--fc-green);font-size:11px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}
+h2{margin:0;font-size:clamp(24px,7vw,34px);line-height:1.22;letter-spacing:0}
+.fc-panel,.fc-card{background:var(--fc-card);border:1px solid rgba(230,237,242,.92);border-radius:24px;box-shadow:0 10px 30px rgba(17,24,39,.06)}
+.fc-panel{padding:18px}
+.fc-grid{display:grid;gap:12px}
+.fc-card{padding:16px;text-decoration:none;color:inherit}
+.fc-card h3{margin:0 0 8px;font-size:17px;line-height:1.35}
+.fc-card p,.fc-panel p{margin:0;color:#4b596b}
+.fc-tag{display:inline-flex;margin-bottom:9px;border-radius:999px;background:#eef7f1;color:var(--fc-green);padding:4px 9px;font-size:11px;font-weight:850}
+.fc-points{display:grid;gap:8px;margin-top:14px}
+.fc-point{display:flex;gap:9px;align-items:flex-start;color:#334155;font-weight:750}
+.fc-point::before{content:"";width:9px;height:9px;border-radius:999px;background:var(--fc-green);margin-top:.72em;flex:0 0 auto}
+.fc-footer{padding:30px 0;color:#667085;font-size:12px}
+.fc-footer p{margin:0 0 6px}
+.fc-job-summary{display:grid;gap:10px}
+.fc-detail{display:grid;grid-template-columns:90px minmax(0,1fr);gap:8px;padding:10px 0;border-bottom:1px solid var(--fc-line)}
+.fc-detail dt{font-weight:850;color:#243244}.fc-detail dd{margin:0;color:#4b596b}
+.fc-form{display:grid;gap:12px;margin-top:18px}
+.fc-form label{display:grid;gap:5px;font-weight:850;color:#243244}
+.fc-form input,.fc-form textarea{width:100%;border:1px solid var(--fc-line);border-radius:14px;padding:11px 12px;font:inherit;background:#fff;color:var(--fc-ink)}
+.fc-form textarea{min-height:120px;resize:vertical}
+.fc-check{display:flex!important;grid-template-columns:none!important;align-items:flex-start;gap:9px;color:#4b596b;font-weight:700!important}
+.fc-check input{width:auto;margin-top:.45em;accent-color:var(--fc-green)}
+.fc-hidden{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}
+body[data-archetype="mission-network"] .fc-logo,body[data-archetype="mission-network"] .fc-cta,body[data-archetype="mission-network"] .fc-btn.primary,body[data-archetype="mission-network"] .fc-point::before{background:var(--fc-blue)}
+body[data-archetype="friendly-illustration"] .fc-logo,body[data-archetype="friendly-illustration"] .fc-cta,body[data-archetype="friendly-illustration"] .fc-btn.primary,body[data-archetype="friendly-illustration"] .fc-point::before{background:var(--fc-orange)}
+@media (min-width:760px){body.fc-site{font-size:16px}.fc-wrap{width:min(100% - 52px,1080px)}.fc-menu a{display:inline-flex}.fc-hero{padding:58px 0 46px}.fc-hero-grid{grid-template-columns:.92fr 1.08fr;gap:34px}.fc-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.fc-panel{padding:24px}.fc-visual{min-height:420px}.fc-visual img{min-height:420px}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+""".strip()
+
+
+def build_pageflowai2_site_files(project: dict) -> dict[str, bytes]:
+    """Build the PageFlowAI2 public bundle.
+
+    This generator is intentionally separate from the legacy PageFlowAI static renderer:
+    PageFlowAI2 previews and ZIPs must not expose legacy product comments or pv/cvhb UI chrome.
+    """
+    p = normalize_project(project if isinstance(project, dict) else {})
+    data = p.get("data") if isinstance(p.get("data"), dict) else {}
+    step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
+    blocks = data.get("blocks") if isinstance(data.get("blocks"), dict) else {}
+    ext = pf2_ensure_extension(p)
+    homepage = ext.get("homepage") if isinstance(ext.get("homepage"), dict) else {}
+    job = pf2_job_from_project(p, pf2_active_job_id_for_project(p))
+    company_name = pf2_clean_company_name(step2.get("company_name"), fallback="会社名")
+    email = pf2_text(step2.get("email"))
+    phone = pf2_text(step2.get("phone"))
+    address = pf2_text(step2.get("address"))
+    public_url = pf2_text((ext.get("publish") or {}).get("public_site_url")) or pf2_text(step2.get("site_url")) or "https://example.com/"
+    catch_raw = pf2_text(step2.get("catch_copy")) or pf2_text(homepage.get("catch_copy"))
+    if catch_raw in {"地域の福祉事業所で、安心して働ける毎日を。", f"{company_name}で、安心して働ける毎日を。"}:
+        catch_raw = ""
+    catch = catch_raw or "会社の紹介を、スマホで読みやすく。"
+    hero_lead_raw = pf2_text(homepage.get("hero_sub_catch")) or pf2_text((blocks.get("hero") or {}).get("sub_catch"))
+    if hero_lead_raw == "見学・相談を受け付けています。仕事内容や職場の雰囲気を、事前に確認できます。":
+        hero_lead_raw = ""
+    hero_lead = hero_lead_raw or "事業内容、会社の考え方、問い合わせ先を短い文章と写真で確認できます。"
+    about_title = pf2_text(homepage.get("about_title")) or pf2_text((blocks.get("philosophy") or {}).get("title")) or "私たちについて"
+    about_body = pf2_text(homepage.get("about_body")) or pf2_text((blocks.get("philosophy") or {}).get("body")) or "日々の支援で大切にしていることを、はじめて見る方にも分かる言葉で伝えます。"
+    about_points = _pf2_lines(homepage.get("about_points") or (blocks.get("philosophy") or {}).get("points"), limit=5)
+    if about_points == ["チームで支える", "最初は先輩が同行する", "記録や相談の流れを整えている"]:
+        about_points = []
+    about_points = about_points or ["相談しやすい体制", "スマホで読みやすい情報整理", "事業内容が分かる構成"]
+    services_title = pf2_text(homepage.get("services_title")) or pf2_text(((blocks.get("philosophy") or {}).get("services") or {}).get("title")) or "事業内容"
+    services_body = pf2_text(homepage.get("services_body")) or pf2_text(((blocks.get("philosophy") or {}).get("services") or {}).get("lead")) or "提供しているサービスや支援内容を、カードで読みやすく整理します。"
+    services = _pf2_homepage_service_items(homepage, blocks)
+    recruitment_label = pf2_text(homepage.get("recruitment_link_label")) or "採用情報"
+    recruitment_lead = pf2_text(homepage.get("recruitment_lead")) or "仕事内容や働き方を確認し、見学や応募について相談できます。"
+    contact_button = pf2_text(homepage.get("contact_button_text")) or "お問い合わせ"
+    access_notes = pf2_text(homepage.get("access_notes")) or "見学や応募前の相談も受け付けています。"
+    archetype = _pf2_design_archetype(p)
+    hero_image = pf2_text(homepage.get("hero_image_url")) or pf2_text((blocks.get("hero") or {}).get("hero_image_url")) or pf2_text(step2.get("hero_image_url"))
+    about_image = pf2_text(homepage.get("about_image_url"))
+    services_image = pf2_text(homepage.get("services_image_url"))
+    recruitment_image = pf2_text(homepage.get("recruitment_image_url")) or pf2_text((blocks.get("recruitment") or {}).get("image_url")) or hero_image
+    logo_url = pf2_text(step2.get("logo_url"))
+    favicon_url = pf2_text(step2.get("favicon_url")) or logo_url
+
+    def esc(v: object) -> str:
+        return html.escape(pf2_text(v))
+
+    def attr(v: object) -> str:
+        return html.escape(pf2_text(v), quote=True)
+
+    def tel_href(v: object) -> str:
+        digits = re.sub(r"[^\d+]+", "", pf2_text(v))
+        return f"tel:{digits}" if digits else "contact.html"
+
+    def mail_href(v: object) -> str:
+        mail = pf2_text(v)
+        if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", mail):
+            return f"mailto:{attr(mail)}"
+        return "contact.html"
+
+    def image(src: str, alt: str, cls: str = "") -> str:
+        if not src:
+            return ""
+        return f'<img src="{attr(src)}" alt="{attr(alt)}" loading="lazy" decoding="async"{(" class=" + json.dumps(cls)) if cls else ""}>'
+
+    def nav(prefix: str = "") -> str:
+        items = [
+            (f"{prefix}index.html", "トップ"),
+            (f"{prefix}about.html", about_title),
+            (f"{prefix}services.html", services_title),
+            (f"{prefix}recruit.html", recruitment_label),
+            (f"{prefix}contact.html", contact_button),
+        ]
+        return "".join(f'<a href="{attr(href)}">{esc(label)}</a>' for href, label in items)
+
+    def shell(title: str, body: str, *, description: str = "", prefix: str = "") -> str:
+        favicon = f'<link rel="icon" href="{attr(prefix + favicon_url)}">' if favicon_url and not re.match(r"^https?://|^data:", favicon_url) else (f'<link rel="icon" href="{attr(favicon_url)}">' if favicon_url else "")
+        logo = image(logo_url, company_name, "fc-logo-img") if logo_url else '<span class="fc-logo">P</span>'
+        contact_links = []
+        if phone:
+            contact_links.append(f'<a href="{attr(tel_href(phone))}">{esc(phone)}</a>')
+        if email:
+            contact_links.append(f'<a href="{mail_href(email)}">{esc(email)}</a>')
+        contact_html = " / ".join(contact_links) if contact_links else "連絡先は公開前に確認してください。"
+        return f"""<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{esc(title)}</title>
+  <meta name="description" content="{attr(description or hero_lead)}">
+  {favicon}
+  <link rel="stylesheet" href="{attr(prefix)}assets/site.css">
+</head>
+<body class="fc-site" data-archetype="{attr(archetype)}">
+  <a class="fc-skip" href="#main">本文へ移動</a>
+  <header class="fc-header">
+    <div class="fc-wrap fc-header-inner">
+      <a class="fc-brand" href="{attr(prefix)}index.html">{logo}<span>{esc(company_name)}</span></a>
+      <nav class="fc-menu" aria-label="ページメニュー">{nav(prefix)}<a class="fc-cta" href="{attr(prefix)}contact.html">{esc(contact_button)}</a></nav>
+    </div>
+  </header>
+  {body}
+  <footer class="fc-footer" aria-label="サイト情報"><div class="fc-wrap"><p>© {esc(company_name)}</p><p>{contact_html}</p><p>このページの公開・外部サービス側の掲載確認はお客様の操作が必要です。</p></div></footer>
+  <script src="{attr(prefix)}assets/site.js"></script>
+</body>
+</html>"""
+
+    hero_visual = image(hero_image, f"{company_name}のメイン画像") or "<span></span>"
+    points_html = "".join(f'<div class="fc-point">{esc(point)}</div>' for point in about_points)
+    services_cards = "".join(
+        f'<article class="fc-card"><h3>{esc(item.get("title"))}</h3><p>{esc(item.get("body"))}</p></article>'
+        for item in services
+    )
+    about_home_visual = f'<div class="fc-visual fc-inline-visual">{image(about_image, about_title)}</div>' if about_image else ""
+    services_home_visual = f'<div class="fc-visual fc-inline-visual">{image(services_image, services_title)}</div>' if services_image else ""
+    home_contact_rows = [
+        ("メール", f'<a href="{mail_href(email)}">{esc(email) or "入力後に表示されます"}</a>'),
+        ("電話", f'<a href="{attr(tel_href(phone))}">{esc(phone) or "入力後に表示されます"}</a>'),
+        ("所在地", esc(address) or "入力後に表示されます"),
+    ]
+    home_contact_html = "".join(
+        f'<div class="fc-detail"><dt>{esc(label)}</dt><dd>{value}</dd></div>'
+        for label, value in home_contact_rows
+    )
+    home_body = f"""
+  <main id="main">
+    <section id="home" data-pf2-preview-focus="home" class="fc-hero"><div class="fc-wrap fc-hero-grid"><div><p class="fc-eyebrow">COMPANY</p><h1>{esc(catch)}</h1><p class="fc-lead">{esc(hero_lead)}</p><div class="fc-actions"><a class="fc-btn primary" href="about.html">{esc(about_title)}</a><a class="fc-btn" href="services.html">{esc(services_title)}</a></div></div><div class="fc-visual">{hero_visual}</div></div></section>
+    <section id="about" class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">ABOUT</p><h2>{esc(about_title)}</h2></div>{about_home_visual}<div class="fc-panel"><p>{esc(about_body)}</p><div class="fc-points">{points_html}</div></div></div></section>
+    <section id="services" class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">SERVICES</p><h2>{esc(services_title)}</h2></div>{services_home_visual}<p class="fc-lead">{esc(services_body)}</p><div class="fc-grid">{services_cards}</div></div></section>
+    <section id="recruit" class="fc-section"><div class="fc-wrap"><div class="fc-panel"><p class="fc-kicker">RECRUIT</p><h2>{esc(recruitment_label)}</h2><p>{esc(recruitment_lead)}</p><div class="fc-actions"><a class="fc-btn primary" href="recruit.html">求人ページを見る</a><a class="fc-btn" href="contact.html">見学・相談する</a></div></div></div></section>
+    <section id="contact" class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">CONTACT</p><h2>{esc(contact_button)}</h2></div><div class="fc-panel"><p>{esc(access_notes)}</p><dl class="fc-job-summary">{home_contact_html}</dl><div class="fc-actions"><a class="fc-btn primary" href="contact.html">問い合わせページへ進む</a></div></div></div></section>
+  </main>"""
+    about_body_html = f'<main id="main"><section class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">ABOUT</p><h1>{esc(about_title)}</h1></div><div class="fc-visual">{image(about_image, about_title) or hero_visual}</div><div class="fc-panel" style="margin-top:16px"><p>{esc(about_body)}</p><div class="fc-points">{points_html}</div></div></div></section></main>'
+    services_body_html = f'<main id="main"><section class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">SERVICES</p><h1>{esc(services_title)}</h1></div><p class="fc-lead">{esc(services_body)}</p><div class="fc-grid">{services_cards}</div></div></section></main>'
+
+    def service_page(idx: int, item: dict[str, str]) -> str:
+        service_title = pf2_text(item.get("title")) or f"サービス{idx}"
+        service_body = pf2_text(item.get("body")) or "サービス内容を入力すると、ここに説明が表示されます。"
+        visual = image(services_image, service_title) or hero_visual
+        return shell(
+            f"{service_title}｜{company_name}",
+            f'''<main id="main">
+    <section class="fc-section"><div class="fc-wrap"><p class="fc-kicker">SERVICE 0{idx}</p><h1>{esc(service_title)}</h1><p class="fc-lead">{esc(service_body)}</p><div class="fc-visual" style="margin-top:18px">{visual}</div><div class="fc-actions"><a class="fc-btn" href="services.html">事業内容へ戻る</a><a class="fc-btn primary" href="contact.html" aria-label="{attr(service_title)}について相談する">相談する</a></div></div></section>
+    <section class="fc-section" aria-labelledby="service-detail-info-title"><div class="fc-wrap"><h2 id="service-detail-info-title">サービスの確認事項</h2><div class="fc-grid">
+      <article class="fc-card"><span class="fc-tag">01</span><h3>主なサービス内容</h3><p>{esc(service_body)}</p></article>
+      <article class="fc-card"><span class="fc-tag">02</span><h3>利用までの流れ</h3><p>お問い合わせ後、状況を確認し、必要な内容を一つずつご案内します。</p></article>
+      <article class="fc-card"><span class="fc-tag">03</span><h3>よくあるご質問</h3><p>対象地域、利用条件、相談方法はお問い合わせから確認できます。</p></article>
+      <article class="fc-card"><span class="fc-tag">04</span><h3>事業所情報</h3><p>{esc(address) or "所在地は入力後に表示されます。"}</p><p><a href="{attr(tel_href(phone))}">{esc(phone) or "電話番号を確認する"}</a> / <a href="{mail_href(email)}">{esc(email) or "メールを確認する"}</a></p></article>
+    </div></div></section>
+  </main>''',
+            description=service_body,
+        )
+
+    job_title = pf2_text(job.get("title")) or "募集職種"
+    job_summary = pf2_text(job.get("appeal_text")) or pf2_text(job.get("job_description")) or "仕事内容や働き方を確認できます。"
+    job_description = pf2_text(job.get("job_description")) or "仕事内容を入力すると、求職者が具体的な働き方を確認できます。"
+    job_appeal = pf2_text(job.get("appeal_text")) or "職場の雰囲気や安心材料を入力すると、ここに表示されます。"
+    job_day_flow = pf2_text(job.get("day_flow"))
+    job_ideal = pf2_text(job.get("ideal_candidate"))
+    job_benefits = pf2_text(job.get("benefits"))
+    job_workplace = pf2_text(job.get("workplace"))
+    job_workplace_scope = pf2_text(job.get("workplace_change_scope"))
+    job_application = pf2_text(job.get("application_method")) or "応募・見学について、お問い合わせから相談できます。"
+    job_contact_line = " / ".join(v for v in [pf2_text(job.get("contact_name")), email, phone] if v)
+    job_visual = image(recruitment_image, f"{job_title}のイメージ画像") or hero_visual
+    job_details = [
+        ("職種", job_title),
+        ("会社名", company_name),
+        ("雇用形態", job.get("employment_type")),
+        ("勤務地", job_workplace),
+        ("就業場所の変更範囲", job_workplace_scope),
+        ("業務内容", job_description),
+        ("業務内容の変更範囲", job.get("job_change_scope")),
+        ("給与", job.get("salary_note")),
+        ("基本給・給与内訳", job.get("salary_breakdown")),
+        ("勤務時間", job.get("working_hours")),
+        ("休憩", job.get("break_time")),
+        ("休日", job.get("holidays")),
+        ("契約期間", job.get("contract_period")),
+        ("契約更新の有無", job.get("contract_renewal")),
+        ("契約更新の判断基準", job.get("contract_renewal_criteria")),
+        ("更新上限の有無", job.get("contract_renewal_limit")),
+        ("試用期間", job.get("trial_period")),
+        ("社会保険", job.get("social_insurance")),
+        ("受動喫煙防止措置", job.get("passive_smoking_policy")),
+        ("応募資格・必要資格", job.get("qualification_note")),
+        ("応募方法", job_application),
+        ("応募連絡先", job_contact_line),
+    ]
+    if bool(job.get("fixed_overtime_enabled")):
+        job_details[5:5] = [
+            ("固定残業代", "含む"),
+            ("固定残業代の対象時間", job.get("fixed_overtime_hours")),
+            ("固定残業代の金額", job.get("fixed_overtime_amount")),
+            ("固定残業代を超える時間外労働", job.get("fixed_overtime_extra_pay_note")),
+        ]
+    detail_html = "".join(f'<div class="fc-detail"><dt>{esc(label)}</dt><dd>{esc(value) or "入力後に表示されます"}</dd></div>' for label, value in job_details)
+    job_detail_rows_for_search = [(label, pf2_text(value)) for label, value in job_details if pf2_text(value)]
+    job_description_html = (
+        f"<p>{html.escape(job_summary)}</p>"
+        f"<p>{html.escape(job_description)}</p>"
+        "<ul>"
+        + "".join(f"<li>{html.escape(label)}: {html.escape(value)}</li>" for label, value in job_detail_rows_for_search)
+        + "</ul>"
+    )
+    faq_items = job.get("faq_items") if isinstance(job.get("faq_items"), list) else []
+    visible_faq_items = [
+        item for item in faq_items
+        if isinstance(item, dict) and (pf2_text(item.get("question")) or pf2_text(item.get("answer")))
+    ][:3]
+    faq_html = "".join(
+        f'<article class="fc-card"><h3>{esc(item.get("question")) or "応募前の確認"}</h3><p>{esc(item.get("answer")) or "詳しくはお問い合わせから確認できます。"}</p></article>'
+        for item in visible_faq_items
+    ) or '<article class="fc-card"><h3>見学はできますか？</h3><p>見学や応募前の相談について、お問い合わせから確認できます。</p></article>'
+    day_flow_html = "".join(f'<div class="fc-point">{esc(line)}</div>' for line in _pf2_lines(job_day_flow, limit=8))
+    if not day_flow_html:
+        day_flow_html = '<div class="fc-point">1日の流れを入力すると、時系列で表示されます。</div>'
+    application_flow_lines = _pf2_lines(job_application, limit=5) or [
+        "求人ページの内容を確認します。",
+        "見学や応募について問い合わせます。",
+        "日程や必要な持ち物を確認します。",
+    ]
+    application_flow_html = "".join(f'<div class="fc-point">{esc(line)}</div>' for line in application_flow_lines)
+    access_rows = [
+        ("勤務地", job_workplace),
+        ("就業場所の変更範囲", job_workplace_scope),
+        ("応募連絡先", job_contact_line),
+    ]
+    access_html = "".join(
+        f'<div class="fc-detail"><dt>{esc(label)}</dt><dd>{esc(value) or "入力後に表示されます"}</dd></div>'
+        for label, value in access_rows
+    )
+    job_body_root = f"""
+  <main id="main">
+    <section class="fc-hero"><div class="fc-wrap fc-hero-grid"><div><p class="fc-eyebrow">RECRUIT</p><h1>{esc(job_title)}</h1><p class="fc-lead">{esc(job_summary)}</p><div class="fc-actions"><a class="fc-btn primary" href="contact.html">応募・見学を相談する</a><a class="fc-btn" href="index.html">会社ページへ戻る</a></div></div><div class="fc-visual">{job_visual}</div></div></section>
+    <section id="job-overview" data-pf2-preview-focus="job" class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">WORK</p><h2>仕事内容</h2></div><div class="fc-panel"><p>{esc(job_description)}</p></div></div></section>
+    <section class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">PLACE</p><h2>職場の安心材料</h2></div><div class="fc-panel"><p>{esc(job_appeal)}</p><div class="fc-points">{''.join(f'<div class="fc-point">{esc(v)}</div>' for v in [job_ideal, job_benefits] if v)}</div></div></div></section>
+    <section class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">DAY</p><h2>1日の流れ</h2></div><div class="fc-panel"><div class="fc-points">{day_flow_html}</div></div></div></section>
+    <section id="job-access" class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">ACCESS</p><h2>所在地・アクセス</h2></div><dl class="fc-panel fc-job-summary">{access_html}</dl></div></section>
+    <section class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">DETAIL</p><h2>募集内容</h2></div><dl class="fc-panel fc-job-summary">{detail_html}</dl></div></section>
+    <section id="job-apply" class="fc-section" aria-labelledby="recruit-info-title"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">ENTRY</p><h2 id="recruit-info-title">応募・見学の流れ</h2></div><div class="fc-panel"><p>{esc(job_application)}</p><div class="fc-points">{application_flow_html}</div><div class="fc-actions"><a class="fc-btn primary" href="contact.html">応募・見学を相談する</a></div></div></div></section>
+    <section class="fc-section"><div class="fc-wrap"><div class="fc-section-head"><p class="fc-kicker">FAQ</p><h2>応募前によくある確認</h2></div><div class="fc-grid">{faq_html}</div></div></section>
+  </main>"""
+    job_body_nested = job_body_root.replace('href="contact.html"', 'href="../contact.html"').replace('href="index.html"', 'href="../index.html"')
+    contact_body = f'''<main id="main"><section class="fc-section"><div class="fc-wrap"><p class="fc-kicker">CONTACT</p><h1>{esc(contact_button)}</h1><div class="fc-panel"><p>{esc(access_notes)}</p><dl class="fc-job-summary"><div class="fc-detail"><dt>メール</dt><dd><a href="{mail_href(email)}">{esc(email) or "入力後に表示されます"}</a></dd></div><div class="fc-detail"><dt>電話</dt><dd><a href="{attr(tel_href(phone))}">{esc(phone) or "入力後に表示されます"}</a></dd></div><div class="fc-detail"><dt>所在地</dt><dd>{esc(address) or "入力後に表示されます"}</dd></div></dl></div>
+    <form class="fc-panel fc-form" name="contact" method="post" data-netlify="true" netlify-honeypot="bot-field" aria-describedby="contact-form-help">
+      <input type="hidden" name="form-name" value="contact">
+      <input type="hidden" name="site-name" value="{attr(company_name)}">
+      <input type="hidden" name="subject" value="{attr(company_name)}へのお問い合わせ">
+      <p id="contact-form-help">公開前に送信先と動作を確認してください。</p>
+      <p class="fc-hidden"><label>入力しないでください<input name="bot-field" tabindex="-1" autocomplete="off"></label></p>
+      <label>お名前<input id="contact-name" name="name" autocomplete="name" required aria-required="true"></label>
+      <label>メールアドレス<input id="contact-email" name="email" type="email" autocomplete="email" required aria-required="true"></label>
+      <label>お問い合わせ内容<textarea id="contact-message" name="message" required aria-required="true"></textarea></label>
+      <label class="fc-check"><input type="checkbox" name="privacy-consent" value="同意済み" required aria-required="true"> プライバシーポリシーを確認しました</label>
+      <button class="fc-btn primary" type="submit">送信する</button>
+    </form></div></section></main>'''
+    privacy_body = '<main id="main"><section class="fc-section"><div class="fc-wrap"><p class="fc-kicker">PRIVACY</p><h1>プライバシーポリシー</h1><div class="fc-panel"><p>お問い合わせや応募相談で受け取った情報は、連絡と確認の目的で取り扱います。公開前に内容を確認してください。</p></div></div></section></main>'
+    thanks_body = '<main id="main"><section class="fc-section"><div class="fc-wrap"><p class="fc-kicker">THANKS</p><h1>送信を受け付けました</h1><p class="fc-lead">内容を確認し、必要に応じてご連絡します。</p><div class="fc-actions"><a class="fc-btn primary" href="index.html">トップへ戻る</a></div></div></section></main>'
+
+    files: dict[str, bytes] = {
+        "assets/site.css": _pf2_future_craft_css().encode("utf-8"),
+        "assets/site.js": b"document.documentElement.classList.add('fc-js');",
+        "index.html": shell(f"{company_name}", home_body, description=hero_lead).encode("utf-8"),
+        "about.html": shell(f"{about_title}｜{company_name}", about_body_html, description=about_body).encode("utf-8"),
+        "services.html": shell(f"{services_title}｜{company_name}", services_body_html, description=services_body).encode("utf-8"),
+        "recruit.html": shell(f"{job_title}｜{company_name}", job_body_root, description=job_summary).encode("utf-8"),
+        "recruitment/index.html": shell(f"{job_title}｜{company_name}", job_body_nested, description=job_summary, prefix="../").encode("utf-8"),
+        "contact.html": shell(f"{contact_button}｜{company_name}", contact_body, description=access_notes).encode("utf-8"),
+        "privacy.html": shell(f"プライバシーポリシー｜{company_name}", privacy_body, description="プライバシーポリシー").encode("utf-8"),
+        "thanks.html": shell(f"送信完了｜{company_name}", thanks_body, description="送信完了").encode("utf-8"),
+        "404.html": shell(f"ページが見つかりません｜{company_name}", '<main id="main"><section class="fc-section"><div class="fc-wrap"><h1>ページが見つかりません</h1><p class="fc-lead">トップページから確認してください。</p><div class="fc-actions"><a class="fc-btn primary" href="index.html">トップへ戻る</a></div></div></section></main>').encode("utf-8"),
+        "_redirects": "/thanks /thanks.html 200\n/* /404.html 404\n".encode("utf-8"),
+        "_headers": "/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n".encode("utf-8"),
+        "site.webmanifest": json.dumps({"name": company_name, "short_name": company_name[:12], "start_url": "index.html", "display": "standalone"}, ensure_ascii=False, indent=2).encode("utf-8"),
+        "humans.txt": f"{company_name}\nGenerated site bundle\n".encode("utf-8"),
+        "PUBLICATION_CHECKLIST.txt": "1. 会社ページを確認\n2. 求人ページを確認\n3. 外部サービス側の登録・審査を確認\n".encode("utf-8"),
+    }
+    for idx, item in enumerate(services, start=1):
+        files[f"service-{idx}.html"] = service_page(idx, item).encode("utf-8")
+
+    page_urls = [
+        "index.html", "about.html", "services.html", "service-1.html", "service-2.html", "service-3.html",
+        "recruit.html", RECRUITMENT_PAGE_PATH, "contact.html", "privacy.html", "thanks.html",
+    ]
+    base = public_url.rstrip("/") + "/" if re.match(r"^https?://", public_url) else ""
+    files[SITE_SITEMAP_PATH] = _build_sitemap_xml([(base + path) if base else path for path in page_urls], lastmod=datetime.now(JST).date().isoformat()).encode("utf-8")
+    files[SITE_ROBOTS_PATH] = _build_robots_txt(sitemap_url=(base + SITE_SITEMAP_PATH) if base else SITE_SITEMAP_PATH).encode("utf-8")
+
+    recruitment_url = (base + RECRUITMENT_PAGE_PATH) if base else RECRUITMENT_PAGE_PATH
+    job_address_parts = _pf2_japan_address_parts(job.get("workplace") or address)
+    job_search_description = "\n".join(
+        line for line in [
+            job_summary,
+            job_description,
+            job_appeal,
+            job_day_flow,
+            job_ideal,
+            job_benefits,
+            *[f"{label}: {value}" for label, value in job_detail_rows_for_search],
+        ]
+        if pf2_text(line)
+    )
+    jobposting = {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        "title": job_title,
+        "description": job_description_html,
+        "datePosted": datetime.now(JST).date().isoformat(),
+        "identifier": {"@type": "PropertyValue", "name": company_name, "value": f"{pf2_text(p.get('project_id')) or 'project'}-recruitment"},
+        "hiringOrganization": {"@type": "Organization", "name": company_name},
+        "mainEntityOfPage": recruitment_url,
+    }
+    employment_type_schema = _pf2_jobposting_employment_type(job.get("employment_type"))
+    if employment_type_schema:
+        jobposting["employmentType"] = employment_type_schema
+    if pf2_text(job.get("workplace")):
+        postal_address = {
+            "@type": "PostalAddress",
+            "addressCountry": "JP",
+            "streetAddress": pf2_text(job.get("workplace")),
+        }
+        if job_address_parts.get("state"):
+            postal_address["addressRegion"] = job_address_parts["state"]
+        if job_address_parts.get("city"):
+            postal_address["addressLocality"] = job_address_parts["city"]
+        jobposting["jobLocation"] = {
+            "@type": "Place",
+            "address": postal_address,
+        }
+    if pf2_text(job.get("salary_note")):
+        jobposting["baseSalary"] = pf2_text(job.get("salary_note"))
+    files[RECRUITMENT_JOBPOSTING_JSON_PATH] = json.dumps(jobposting, ensure_ascii=False, indent=2).encode("utf-8")
+    jobposting_inline_json = json.dumps(jobposting, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    recruitment_html = files.get(RECRUITMENT_PAGE_PATH, b"").decode("utf-8", errors="replace")
+    if "application/ld+json" not in recruitment_html and "</head>" in recruitment_html:
+        recruitment_html = recruitment_html.replace(
+            "</head>",
+            f'  <script type="application/ld+json">{jobposting_inline_json}</script>\n</head>',
+            1,
+        )
+        files[RECRUITMENT_PAGE_PATH] = recruitment_html.encode("utf-8")
+    recruitment_reference = f"{pf2_text(p.get('project_id')) or 'project'}-recruitment"
+    indeed_xml = "\n".join([
+        '<?xml version="1.0" encoding="utf-8"?>',
+        "<source>",
+        "  <job>",
+        f"    <title>{_xml_cdata(job_title)}</title>",
+        f"    <date>{_xml_cdata(now_jst_iso())}</date>",
+        f"    <referencenumber>{_xml_cdata(recruitment_reference)}</referencenumber>",
+        f"    <requisitionid>{_xml_cdata(recruitment_reference)}</requisitionid>",
+        f"    <url>{_xml_cdata(recruitment_url)}</url>",
+        f"    <company>{_xml_cdata(company_name)}</company>",
+        f"    <city>{_xml_cdata(job_address_parts.get('city'))}</city>",
+        f"    <state>{_xml_cdata(job_address_parts.get('state'))}</state>",
+        f"    <country>{_xml_cdata('JP')}</country>",
+        f"    <streetaddress>{_xml_cdata(pf2_text(job.get('workplace')) or address)}</streetaddress>",
+        f"    <jobtype>{_xml_cdata(pf2_text(job.get('employment_type')))}</jobtype>",
+        f"    <email>{_xml_cdata(email)}</email>",
+        f"    <salary>{_xml_cdata(pf2_text(job.get('salary_note')))}</salary>",
+        f"    <description>{_xml_cdata(job_search_description)}</description>",
+        "  </job>",
+        "</source>",
+        "",
+    ])
+    files[RECRUITMENT_INDEED_FEED_PATH] = indeed_xml.encode("utf-8")
+    files[RECRUITMENT_DISTRIBUTION_JSON_PATH] = json.dumps({
+        "generated_at": now_jst_iso(),
+        "mode": "public_bundle",
+        "paths": {
+            "home": "index.html",
+            "recruitment_page": RECRUITMENT_PAGE_PATH,
+            "jobposting_json": RECRUITMENT_JOBPOSTING_JSON_PATH,
+            "indeed_feed_xml": RECRUITMENT_INDEED_FEED_PATH,
+            "sitemap_xml": SITE_SITEMAP_PATH,
+            "robots_txt": SITE_ROBOTS_PATH,
+        },
+        "public_urls": {
+            "home": base or "index.html",
+            "recruitment_page": recruitment_url,
+            "jobposting_json": (base + RECRUITMENT_JOBPOSTING_JSON_PATH) if base else RECRUITMENT_JOBPOSTING_JSON_PATH,
+            "indeed_feed_xml": (base + RECRUITMENT_INDEED_FEED_PATH) if base else RECRUITMENT_INDEED_FEED_PATH,
+            "sitemap_xml": (base + SITE_SITEMAP_PATH) if base else SITE_SITEMAP_PATH,
+            "robots_txt": (base + SITE_ROBOTS_PATH) if base else SITE_ROBOTS_PATH,
+        },
+        "indeed": {"feed_ready": True},
+        "notice": "媒体側での掲載・審査・検索結果表示は別途確認が必要です。",
+    }, ensure_ascii=False, indent=2).encode("utf-8")
+    return files
+
+
+def _pf2_live_preview_message_html(title: str, body: str) -> bytes:
+    safe_title = html.escape(pf2_text(title) or "まだ表示できません")
+    safe_body = html.escape(pf2_text(body) or "入力内容を保存すると、ここに実際のページが表示されます。")
+    return f"""<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {{ margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#f8fafc; color:#344054; }}
+    .box {{ min-height:100vh; display:grid; place-items:center; padding:28px; box-sizing:border-box; }}
+    .card {{ width:100%; max-width:330px; border:1px solid #e4e7ec; border-radius:14px; background:#fff; padding:18px; box-shadow:0 12px 28px rgba(15,23,42,.08); }}
+    h1 {{ margin:0 0 8px; font-size:18px; line-height:1.35; color:#101828; }}
+    p {{ margin:0; font-size:13px; line-height:1.75; }}
+  </style>
+</head>
+<body><div class="box"><div class="card"><h1>{safe_title}</h1><p>{safe_body}</p></div></div></body>
+</html>""".encode("utf-8")
+
+
+def _pf2_apply_live_preview_mode(raw: object, *, media_type: str, preview: str = "", light: str = "", focus: str = "") -> bytes:
+    data = raw.encode("utf-8") if isinstance(raw, str) else bytes(raw or b"")
+    if "html" not in pf2_text(media_type).lower():
+        return data
+    preview_mode = pf2_text(preview).lower()
+    light_mode = "1" if pf2_text(light).lower() in {"1", "true", "yes", "on"} else "0"
+    focus_mode = re.sub(r"[^a-z0-9_-]+", "", pf2_text(focus).lower())
+    if preview_mode != "phone":
+        return data
+    text = data.decode("utf-8", errors="replace")
+
+    def _html_attrs(match: re.Match) -> str:
+        tag = match.group(0)
+        if "data-pf2-preview" in tag:
+            return tag
+        return tag[:-1] + f' data-pf2-preview="phone" data-pf2-light="{light_mode}">'
+
+    text = re.sub(r"<html\b[^>]*>", _html_attrs, text, count=1, flags=re.IGNORECASE)
+    style = """
+<style id="pf2-live-preview-mode">
+  html[data-pf2-preview="phone"],
+  html[data-pf2-preview="phone"] body {
+    width: 393px !important;
+    min-width: 393px !important;
+    max-width: 393px !important;
+    margin: 0 !important;
+    overflow-x: hidden !important;
+    scroll-behavior: auto !important;
+  }
+  html[data-pf2-preview="phone"] body.fc-site {
+    background-attachment: scroll !important;
+    font-size: 15px !important;
+    line-height: 1.78 !important;
+  }
+  html[data-pf2-preview="phone"] .fc-wrap {
+    width: min(100% - 28px, 365px) !important;
+    max-width: 365px !important;
+  }
+  html[data-pf2-preview="phone"] .fc-menu a:not(.fc-cta) {
+    display: none !important;
+  }
+  html[data-pf2-preview="phone"] .fc-header {
+    padding: 12px 0 !important;
+  }
+  html[data-pf2-preview="phone"] .fc-header-inner {
+    gap: 10px !important;
+  }
+  html[data-pf2-preview="phone"] .fc-brand {
+    min-width: 0 !important;
+    max-width: 170px !important;
+  }
+  html[data-pf2-preview="phone"] .fc-hero {
+    padding: 34px 0 28px !important;
+    text-align: left !important;
+  }
+  html[data-pf2-preview="phone"] .fc-hero-grid,
+  html[data-pf2-preview="phone"] body[data-archetype] .fc-hero-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+    text-align: left !important;
+  }
+  html[data-pf2-preview="phone"] h1,
+  html[data-pf2-preview="phone"] body[data-archetype] .fc-hero h1 {
+    font-size: 28px !important;
+    line-height: 1.12 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+    max-width: 100% !important;
+  }
+  html[data-pf2-preview="phone"] h2 {
+    font-size: 22px !important;
+    line-height: 1.22 !important;
+  }
+  html[data-pf2-preview="phone"] .fc-lead {
+    font-size: 15px !important;
+    line-height: 1.85 !important;
+  }
+  html[data-pf2-preview="phone"] .fc-grid,
+  html[data-pf2-preview="phone"] .fc-grid.two {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  html[data-pf2-preview="phone"] .fc-panel {
+    padding: 18px !important;
+  }
+  html[data-pf2-preview="phone"] .fc-card {
+    padding: 16px !important;
+    transform: none !important;
+  }
+  html[data-pf2-preview="phone"] .fc-visual,
+  html[data-pf2-preview="phone"] body[data-archetype] .fc-visual {
+    width: 100% !important;
+    min-height: 260px !important;
+    border-radius: 24px !important;
+    transform: none !important;
+  }
+  html[data-pf2-preview="phone"] .fc-visual img,
+  html[data-pf2-preview="phone"] body[data-archetype] .fc-visual img {
+    min-height: 260px !important;
+  }
+  html[data-pf2-preview="phone"] .fc-inline-visual,
+  html[data-pf2-preview="phone"] .fc-inline-visual img {
+    min-height: 180px !important;
+  }
+  html[data-pf2-preview="phone"] .fc-section {
+    padding: 28px 0 !important;
+  }
+  html[data-pf2-light="1"] *,
+  html[data-pf2-light="1"] *::before,
+  html[data-pf2-light="1"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+  html[data-pf2-light="1"] video,
+  html[data-pf2-light="1"] iframe:not([data-pf2-allow-preview="1"]) {
+    display: none !important;
+  }
+</style>
+"""
+    script = f"""
+<script id="pf2-live-preview-focus">
+(function() {{
+  var focusMode = {json.dumps(focus_mode)};
+  var pathKey = location.pathname;
+  var scrollKey = "pf2PreviewScroll:" + pathKey + ":" + location.search;
+  var memoryStore = window.__pf2PreviewMemory || (window.__pf2PreviewMemory = {{}});
+  function getStore(key) {{
+    try {{ return window.sessionStorage ? sessionStorage.getItem(key) : memoryStore[key]; }} catch (e) {{ return memoryStore[key]; }}
+  }}
+  function setStore(key, value) {{
+    memoryStore[key] = String(value);
+    try {{ if (window.sessionStorage) sessionStorage.setItem(key, String(value)); }} catch (e) {{}}
+  }}
+  function getTop() {{ return window.scrollY || document.documentElement.scrollTop || 0; }}
+  function setTop(y) {{ window.scrollTo(0, Math.max(0, y || 0)); }}
+  function saveScroll() {{ setStore(scrollKey, String(getTop())); }}
+  function restoreOrFocus() {{
+    try {{
+      if (focusMode === "job") {{
+        var target = document.querySelector("main h1") || document.querySelector("[data-pf2-preview-focus='job']");
+        if (target) setTop(Math.max(0, target.getBoundingClientRect().top + getTop() - 8));
+        return;
+      }}
+      var saved = parseInt(getStore(scrollKey) || "0", 10);
+      if (saved > 0) {{ setTop(saved); return; }}
+    }} catch (e) {{}}
+  }}
+  window.addEventListener("beforeunload", saveScroll);
+  window.addEventListener("pagehide", saveScroll);
+  requestAnimationFrame(function() {{ setTimeout(restoreOrFocus, 0); }});
+}})();
+</script>
+"""
+    if re.search(r"</head>", text, flags=re.IGNORECASE):
+        text = re.sub(r"</head>", style + "\n</head>", text, count=1, flags=re.IGNORECASE)
+    else:
+        text = style + text
+    if re.search(r"</body>", text, flags=re.IGNORECASE):
+        text = re.sub(r"</body>", script + "\n</body>", text, count=1, flags=re.IGNORECASE)
+    else:
+        text += script
+    return text.encode("utf-8")
+
+
+if not getattr(app, "_pf2_live_preview_route_added", False):
+    @app.get("/pf2/live-preview/{project_id}/{file_path:path}")
+    def _pf2_live_preview_endpoint(project_id: str, file_path: str, preview: str = "", light: str = "", focus: str = ""):
+        headers = _pf2_live_preview_headers()
+        pid = pf2_text(project_id)
+        safe_path = _pf2_safe_preview_file_path(file_path)
+        if not pid or not safe_path:
+            return Response(
+                content=_pf2_live_preview_message_html("表示できません", "プレビューの指定が正しくありません。"),
+                status_code=404,
+                media_type="text/html",
+                headers=headers,
+            )
+        p = pf2_local_get_project(pid)
+        if not p:
+            return Response(
+                content=_pf2_live_preview_message_html("案件が見つかりません", "保存済みの案件を開くと、ここに実際のページが表示されます。"),
+                status_code=404,
+                media_type="text/html",
+                headers=headers,
+            )
+        try:
+            active_preview_job_id = pf2_active_job_id_for_project(p)
+            preview_project = pf2_apply_job_to_project(p, pf2_job_from_project(p, active_preview_job_id))
+            files = build_pageflowai2_site_files(preview_project)
+        except Exception:
+            return Response(
+                content=_pf2_live_preview_message_html("プレビューを作成できません", "入力内容に確認が必要な項目があります。保存内容を確認してからもう一度開いてください。"),
+                status_code=200,
+                media_type="text/html",
+                headers=headers,
+            )
+        target_path = safe_path
+        if target_path.endswith("/"):
+            target_path = f"{target_path}index.html"
+        if target_path not in files and not target_path.endswith("/index.html"):
+            alt_path = f"{target_path.rstrip('/')}/index.html"
+            if alt_path in files:
+                target_path = alt_path
+        if target_path not in files:
+            if target_path.endswith(".html"):
+                return Response(
+                    content=_pf2_live_preview_message_html("まだページがありません", "職種名や会社紹介を入力して保存すると、ここに実際のページが表示されます。"),
+                    status_code=200,
+                    media_type="text/html",
+                    headers=headers,
+                )
+            return Response(content=b"", status_code=404, media_type="text/plain", headers=headers)
+        media_type = mimetypes.guess_type(target_path)[0] or "application/octet-stream"
+        content = _pf2_apply_live_preview_mode(files[target_path], media_type=media_type, preview=preview, light=light, focus=focus)
+        return Response(content=content, media_type=media_type, headers=headers)
+
+    app._pf2_live_preview_route_added = True
+
+
 def build_site_zip_filename(p: dict, *, dt: Optional[datetime] = None) -> str:
     """書き出しZIPのファイル名を生成する。
 
@@ -19419,7 +22295,7 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section:first-child{
   gap:0 !important;
 }
 .pv-layout-260218 .pv-job-hero-media{
-  min-height:clamp(420px, 72svh, 760px) !important;
+  min-height:clamp(220px, 40svh, 340px) !important;
   border:0 !important;
   border-radius:0 !important;
   box-shadow:none !important;
@@ -19430,52 +22306,69 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section:first-child{
   height:100% !important;
 }
 .pv-layout-260218 .pv-job-hero-card{
-  margin:-98px 16px 18px;
-  padding:22px !important;
-  border-radius:28px;
+  margin:-44px 14px 16px;
+  padding:16px !important;
+  border-radius:20px;
   background:rgba(255,255,255,.90);
-  box-shadow:0 22px 60px rgba(15,23,42,.16);
+  box-shadow:0 14px 36px rgba(15,23,42,.14);
 }
 .pv-layout-260218.pv-dark .pv-job-hero-card{
   background:rgba(15,23,42,.86);
 }
 .pv-layout-260218 .pv-job-title{
-  font-size:clamp(2rem, 8vw, 3.25rem) !important;
-  line-height:1.12 !important;
-  letter-spacing:-.045em;
+  font-size:clamp(1.28rem, 5.2vw, 1.72rem) !important;
+  line-height:1.28 !important;
+  letter-spacing:0;
+}
+.pv-layout-260218 .pv-section-title{
+  font-size:clamp(1.24rem, 5.4vw, 1.55rem) !important;
+  line-height:1.28 !important;
+  letter-spacing:0 !important;
+  word-break:keep-all !important;
+  overflow-wrap:anywhere !important;
+}
+.pv-layout-260218 .pv-section-en,
+.pv-layout-260218 .pv-section-subtitle{
+  font-size:.66rem !important;
+  letter-spacing:.16em !important;
 }
 .pv-layout-260218 .pv-job-lead,
 .pv-layout-260218 .pv-job-summary,
 .pv-layout-260218 .pv-job-note,
 .pv-layout-260218 .pv-job-meta-value{
-  line-height:1.9 !important;
+  font-size:.92rem !important;
+  line-height:1.72 !important;
 }
 .pv-layout-260218 .pv-job-section-nav{
   display:flex !important;
   overflow-x:auto;
   scroll-snap-type:x mandatory;
-  gap:10px;
-  padding-bottom:8px;
+  gap:8px;
+  padding-bottom:6px;
 }
 .pv-layout-260218 .pv-job-nav-btn{
   flex:0 0 auto;
-  min-width:144px;
-  min-height:46px !important;
+  min-width:112px;
+  min-height:38px !important;
+  padding:8px 10px !important;
+  font-size:.82rem !important;
   border-radius:999px !important;
   background:rgba(255,255,255,.70) !important;
   box-shadow:none !important;
 }
 .pv-layout-260218 .pv-job-highlight-grid{
-  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  grid-template-columns:1fr !important;
+  gap:10px !important;
 }
 .pv-layout-260218 .pv-job-highlight,
 .pv-layout-260218 .pv-job-card,
 .pv-layout-260218 .pv-job-faq-item,
 .pv-layout-260218 .pv-job-list-item{
-  border-radius:22px !important;
+  padding:14px !important;
+  border-radius:16px !important;
   background:rgba(255,255,255,.72) !important;
   border:1px solid var(--pf-line) !important;
-  box-shadow:0 12px 30px rgba(15,23,42,.07) !important;
+  box-shadow:0 8px 22px rgba(15,23,42,.06) !important;
 }
 .pv-layout-260218.pv-dark .pv-job-highlight,
 .pv-layout-260218.pv-dark .pv-job-card,
@@ -19485,6 +22378,8 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section:first-child{
   border-color:rgba(255,255,255,.12) !important;
 }
 .pv-layout-260218 .pv-job-pill{
+  padding:6px 9px !important;
+  font-size:.76rem !important;
   background:rgba(var(--pv-accent-rgb,30,94,255),.10) !important;
   color:var(--pf-primary) !important;
 }
@@ -19495,7 +22390,34 @@ body.pv-page-body > #pv-root.pv-shell .pv-main > .pv-section:first-child{
   }
   .pv-layout-260218 .pv-job-hero-card{
     margin:28px 28px 28px -82px;
+    padding:28px !important;
+    border-radius:28px;
     align-self:center;
+  }
+  .pv-layout-260218 .pv-job-hero-media{
+    min-height:clamp(420px, 56vh, 680px) !important;
+  }
+  .pv-layout-260218 .pv-job-title{
+    font-size:clamp(2rem, 3.2vw, 3.1rem) !important;
+    line-height:1.12 !important;
+    letter-spacing:-.025em;
+  }
+  .pv-layout-260218 .pv-section-title{
+    font-size:clamp(1.72rem, 7vw, 3.1rem) !important;
+    line-height:1.16 !important;
+    letter-spacing:-.04em !important;
+  }
+  .pv-layout-260218 .pv-section-en,
+  .pv-layout-260218 .pv-section-subtitle{
+    font-size:.74rem !important;
+    letter-spacing:.22em !important;
+  }
+  .pv-layout-260218 .pv-job-lead,
+  .pv-layout-260218 .pv-job-summary,
+  .pv-layout-260218 .pv-job-note,
+  .pv-layout-260218 .pv-job-meta-value{
+    font-size:1rem !important;
+    line-height:1.9 !important;
   }
   .pv-layout-260218 .pv-job-section-nav{
     display:grid !important;
@@ -20207,7 +23129,7 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
     indeed_url = str(recruitment.get("indeed_url") or "").strip()
     apply_href = apply_url or (f"mailto:{email}" if email else "#")
     apply_label = "今すぐ応募する" if apply_url else ("メールで応募する" if email else "応募導線を入力")
-    indeed_button_html = f'<a class="job-action job-action-light" href="{_esc(indeed_url)}" target="_blank" rel="noopener">Indeedで見る</a>' if indeed_url else ""
+    indeed_button_html = f'<a class="job-action job-action-light" href="{_esc(indeed_url)}" target="_blank" rel="noopener">Indeed求人ページを開く</a>' if indeed_url else ""
     work_ready = any(str(recruitment.get(k) or "").strip() for k in ("work_summary", "work_details", "daily_flow"))
     conditions_ready = any(str(recruitment.get(k) or "").strip() for k in ("employment_types", "work_location", "work_hours", "salary_note", "holidays", "benefits", "conditions"))
 
@@ -20324,7 +23246,7 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
       <dl>{rows_html}</dl>
     </section>
     <aside class="job-panel">
-      <h3>Google / Indeed 連携チェック</h3>
+        <h3>Google / Indeed 向けデータ確認</h3>
       <div class="job-status-wrap">{_status_badges(required_for_google)}</div>
       <div class="job-status-wrap">{_status_badges(required_for_indeed)}</div>
       <div class="job-link-list">
@@ -20336,7 +23258,7 @@ def render_recruitment_page_preview(p: dict, mode: str = "pc", *, root_id: Optio
   </main>
   <nav class="job-sticky" aria-label="求人固定CTA">
     <a class="job-action job-action-main" href="{_esc(apply_href)}">{_esc(apply_label)}</a>
-    <a class="job-action job-action-light" href="#">{'連携チェックOK' if enabled else '表示OFF確認'}</a>
+      <a class="job-action job-action-light" href="#">{'データ項目確認' if enabled else '表示OFF確認'}</a>
   </nav>
   <footer class="job-footer">{_esc(PRODUCT_NAME)} {_esc(APP_RELEASE_VERSION)} / dedicated recruitment page preview</footer>
 </div>
@@ -20858,7 +23780,7 @@ def render_main(u: User) -> None:
                                         bind_dict_input(recruitment, "見出し", "title", hint="例：求人情報")
                                         bind_dict_input(recruitment, "ひとこと説明", "lead", textarea=True, hint="募集の概要や一言メッセージを書きます")
                                         bind_dict_input(recruitment, "応募先URL（任意）", "apply_url", hint="例：https://example.com/recruit/apply")
-                                        bind_dict_input(recruitment, "Indeed掲載URL（任意）", "indeed_url", hint="例：https://jp.indeed.com/viewjob?jk=...")
+                                        bind_dict_input(recruitment, "Indeed求人URL（任意）", "indeed_url", hint="例：https://jp.indeed.com/viewjob?jk=...")
                                         bind_dict_input(recruitment, "募集終了日（任意）", "valid_through", hint="例：2026-12-31")
 
                                         ui.label("画像（任意 / 1枚）").classes("text-body1 q-mt-sm")
@@ -20906,7 +23828,7 @@ def render_main(u: User) -> None:
 
                                     with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card q-mb-sm").props("flat bordered"):
                                         ui.label("2. まず知りたいポイント").classes("text-subtitle1")
-                                        ui.label("応募者がスマホで最初に確認する条件です。求人ページ上部のカードとIndeed feedの品質に効きます。").classes("cvhb-muted q-mb-sm")
+                                        ui.label("応募者がスマホで最初に確認する条件です。求人ページ上部のカードとIndeed XML Feedに反映します。").classes("cvhb-muted q-mb-sm")
                                         bind_dict_input(recruitment, "募集形態・働き方", "employment_types", hint="例：パート / 週2日から / 夜勤なし")
                                         bind_dict_input(recruitment, "勤務地", "work_location", hint="例：大阪市住吉区南住吉1-4-2")
                                         bind_dict_input(recruitment, "勤務時間", "work_hours", hint="例：9:00〜18:00 / 週2日から相談可")
@@ -20957,15 +23879,15 @@ def render_main(u: User) -> None:
                                     profile = philosophy.get("company_profile") if isinstance(philosophy.get("company_profile"), dict) else {}
                                     site_base = _public_site_base_url(_project_public_site_url(p, step2, profile))
                                     with ui.card().classes("q-pa-sm rounded-borders w-full cvhb-edit-card").props("flat bordered"):
-                                        ui.label("連携チェック").classes("text-subtitle1")
+                                        ui.label("媒体向けデータ確認").classes("text-subtitle1")
                                         ui.label("Google求人検索: 会社名 / 仕事内容 / 勤務条件 / 応募導線が揃うと構造化データとして出力されます。").classes("cvhb-muted")
-                                        ui.label("Indeed: 公開URL / 会社名 / メール / 住所が揃うと feed XML の品質が上がります。").classes("cvhb-muted")
+                                        ui.label("Indeed: 公開URL / 会社名 / メール / 住所が揃うと XML Feed の必須項目確認に進めます。").classes("cvhb-muted")
                                         if site_base:
                                             ui.label(f"求人ページURL: {_public_page_url(site_base, RECRUITMENT_PAGE_PATH)}").classes("cvhb-muted text-caption q-mt-sm")
                                             ui.label(f"JobPosting JSON: {_public_url(site_base, RECRUITMENT_JOBPOSTING_JSON_PATH)}").classes("cvhb-muted text-caption")
                                             ui.label(f"Indeed feed: {_public_url(site_base, RECRUITMENT_INDEED_FEED_PATH)}").classes("cvhb-muted text-caption")
                                         else:
-                                            ui.label("本番公開URLが未設定です。Step6の公開設定、または会社概要のURLを設定すると外部連携URLを確定できます。").classes("text-warning text-caption q-mt-sm")
+                                            ui.label("本番公開URLが未設定です。Step6の公開設定、または会社概要のURLを設定すると媒体向けデータ用URLを確認できます。").classes("text-warning text-caption q-mt-sm")
 
 
                                 @ui.refreshable
@@ -21809,7 +24731,7 @@ def render_main(u: User) -> None:
                                                     if current_block == "recruitment":
                                                         with ui.card().classes("q-pa-sm rounded-borders bg-blue-1").props("flat bordered"):
                                                             ui.label("求人ページの編集は、左の作成ステップ「4. 求人ページ」に統合しました。").classes("text-subtitle1")
-                                                            ui.label("完成求人ページとGoogle/Indeed連携に必要な項目が増えたため、重複入力を避けてStep4だけで管理します。").classes("cvhb-muted")
+                                                            ui.label("完成求人ページとGoogle/Indeed向けデータに必要な項目が増えたため、重複入力を避けてStep4だけで管理します。").classes("cvhb-muted")
 
                                                     if current_block == "news":
                                                         ui.label("お知らせ").classes("text-subtitle1 q-mb-sm")
@@ -23446,7 +26368,7 @@ def help_page():
 1) 目的：誰に、何が伝わればOK？  
 2) 変更：どこを、どう変える？  
 3) 理由：なぜ良くなる？（1行でOK）  
-4) 確認：お客様に確認が必要なこと（写真・住所・掲載OKなど）  
+4) 確認：お客様に確認が必要なこと（写真・住所・公開可否など）  
 """
             )
 
@@ -23520,7 +26442,7 @@ PACK_FIELD_DEFS = [
     {"key": "recruitment_title", "label": "求人見出し", "required": "表示する時だけ", "example": "求人情報"},
     {"key": "recruitment_lead", "label": "求人のひとこと説明", "required": "表示する時だけ", "example": "現在、一緒に働く仲間を募集しています。ご興味のある方はお気軽にご連絡ください。"},
     {"key": "recruitment_apply_url", "label": "応募先URL", "required": "任意", "example": "https://example.com/recruit/apply"},
-    {"key": "recruitment_indeed_url", "label": "Indeed掲載URL", "required": "任意", "example": "https://jp.indeed.com/viewjob?jk=..."},
+    {"key": "recruitment_indeed_url", "label": "Indeed求人URL", "required": "任意", "example": "https://jp.indeed.com/viewjob?jk=..."},
     {"key": "recruitment_valid_through", "label": "募集終了日", "required": "任意", "example": "2026-12-31"},
     {"key": "recruitment_employment_types", "label": "募集形態・働き方", "required": "表示する時だけ", "example": "パート / 週2日から / 夜勤なし"},
     {"key": "recruitment_work_location", "label": "勤務地", "required": "任意", "example": "大阪市住吉区南住吉1-4-2"},
@@ -24792,6 +27714,3511 @@ def build_project_from_pageflow_pack_zip(zip_bytes: bytes, actor: Optional[User]
     }
     return p, summary
 
+
+PF2_STATE_DESCRIPTIONS = {
+    PF2_JOB_STATE_NOT_STARTED: "必須項目の入力がほとんどありません。",
+    PF2_JOB_STATE_EDITING: "必須項目の入力を進めています。",
+    PF2_JOB_STATE_REVIEW_REQUIRED: "必須項目は入力済みです。確認が必要な項目があります。",
+    PF2_JOB_STATE_EXPORT_READY: "求人ページと公開用ファイルを作成できる状態です。媒体での掲載・審査・検索結果表示を示すものではありません。",
+    PF2_JOB_STATE_PREPARED: "公開用ファイルを作成しました。媒体・自社サイトでの実際の公開は、お客様の操作が必要です。",
+}
+
+PF2_DEMO_JOBS = [
+    {
+        "title": "生活支援スタッフ",
+        "service": "共同生活援助",
+        "state": PF2_JOB_STATE_REVIEW_REQUIRED,
+        "action": "入力補助文を確認",
+        "media": "未生成",
+        "updated": "2026-05-28 01:10",
+    },
+    {
+        "title": "送迎ドライバー",
+        "service": "生活介護",
+        "state": PF2_JOB_STATE_EDITING,
+        "action": "勤務時間を入力",
+        "media": "要修正",
+        "updated": "2026-05-27 22:40",
+    },
+    {
+        "title": "訪問介護スタッフ",
+        "service": "訪問介護",
+        "state": PF2_JOB_STATE_EXPORT_READY,
+        "action": "公開用ファイルを作成",
+        "media": "未生成",
+        "updated": "2026-05-27 20:18",
+    },
+]
+
+PF2_EDITOR_TABS = [
+    ("基本情報", "職種名、サービス種別、勤務地"),
+    ("給与・働き方", "給与、勤務時間、休日、契約期間"),
+    ("仕事内容・職場の魅力", "仕事内容、1日の流れ、安心材料"),
+    ("応募・見学", "応募方法、連絡先、見学相談"),
+    ("写真・見え方", "求人ページ画像とスマホ確認"),
+    ("公開用ファイル", "求人ページと外部向け情報"),
+    ("公開前チェック", "抜けや矛盾の確認"),
+]
+
+PF2_WIZARD_QUESTIONS = [
+    "施設・サービス種別はどれに近いですか？",
+    "日々の支援で大切にしていることは何ですか？",
+    "募集する職種と主な業務は何ですか？",
+    "新しく入る方に安心してほしいことは何ですか？",
+    "応募者が不安に思いそうなことは何ですか？",
+]
+
+PF2_WIZARD_EFFECT_NOTES = [
+    "求人を見る人が、どんな場所の仕事か最初に分かります。",
+    "施設らしさが、求人の雰囲気として伝わります。",
+    "仕事内容の下書きに使います。細かい条件はあとで入力できます。",
+    "応募前の不安を下げる一文に使います。",
+    "よくある不安に答える説明やFAQに使います。",
+]
+
+PF2_WIZARD_TARGET_NOTES = [
+    "求人ページ上部のサービス種別と仕事内容の導入",
+    "仕事内容・職場の魅力の説明",
+    "仕事内容と1日の流れの下書き",
+    "新人サポートと安心材料の説明",
+    "採用FAQと応募前の不安を減らす説明",
+]
+
+PF2_FIRST_START_OPTIONS = [
+    ("visibility", "架空サンプル求人を見る", "実在する法人、施設、取引先、職員、利用者の情報は使わないサンプルです。"),
+    ("fact_check", "5つの質問で下書きを作る", "分かるところを選ぶだけで、仕事内容や安心材料のたたき台を作ります。"),
+    ("edit_note", "ゼロから新規作成する", "慣れている利用者向けに、求人編集画面から直接入力します。"),
+]
+
+PF2_WIZARD_OPTIONS = [
+    ("施設・サービス種別", ["共同生活援助", "就労継続支援", "生活介護", "訪問介護", "放課後等デイサービス", "介護施設", "その他", "未確認", "該当なし", "あとで考える"]),
+    ("支援で大切にしていること", ["自立支援", "穏やかな生活", "生活リズムづくり", "ご家族との連携", "地域とのつながり", "チーム支援", "医療職との連携", "未確認", "該当なし", "あとで考える"]),
+    ("職種と主な業務", ["生活支援", "介助", "送迎", "記録", "相談", "レクリエーション", "個別支援計画補助", "事務", "未確認", "該当なし", "あとで考える"]),
+    ("安心してもらえること", ["先輩が同行", "研修がある", "相談しやすい責任者", "記録テンプレート", "資格取得支援", "未確認", "該当なし", "あとで考える"]),
+    ("応募者からよく聞かれる不安", ["未経験", "ブランク", "体力面", "人間関係", "記録やパソコン", "夜勤やシフト", "資格", "未確認", "該当なし", "あとで考える"]),
+]
+
+PF2_HOMEPAGE_TABS = [
+    ("会社基本", "会社名、所在地、問い合わせ先"),
+    ("トップページ", "ファーストビュー、主要導線"),
+    ("会社紹介", "理念、支援方針、写真"),
+    ("事業内容", "サービス、対象、支援内容"),
+    ("求人ページへのリンク設定", "求人一覧・詳細への導線"),
+    ("問い合わせ・ポリシー", "問い合わせ、個人情報、利用規約"),
+    ("プレビュー・公開用ファイル", "会社ページと求人ページをまとめて確認"),
+]
+
+PF2_FUTURE_CRAFT_QUESTIONS = [
+    ("business_summary", "どんな事業・サービスのホームページですか", "例: 地域密着の共同生活援助、訪問介護、放課後等デイサービス"),
+    ("main_audience", "一番届けたい相手は誰ですか", "例: 求職者、利用者のご家族、相談支援専門員、地域の方"),
+    ("first_message", "トップで最初に伝えたい一言は何ですか", "例: 安心して働ける職場、見学しやすい事業所"),
+    ("about_strength", "会社紹介で、見た人に安心してほしいことは何ですか", "例: チーム支援、研修、相談しやすさ、地域連携"),
+    ("service_outline", "主なサービス・事業内容は何ですか", "例: 生活支援、記録、送迎、相談、ご家族との連携"),
+    ("recruitment_goal", "求人導線で求職者にしてほしい行動は何ですか", "例: 見学予約、応募、問い合わせ、仕事内容の確認"),
+    ("visual_mood", "見た目の印象はどれに近いですか", "例: 安心、信頼、親しみ、清潔、落ち着き"),
+    ("avoid_mood", "避けたい印象は何ですか", "例: 派手すぎる、冷たい、難しそう、テンプレ感"),
+    ("image_policy", "使いたい写真・素材の方針は何ですか", "例: 施設外観、スタッフの手元、明るい室内、イラスト中心"),
+    ("contact_note", "問い合わせ前の不安を減らす一言は何ですか", "例: 見学だけでも相談できます、未経験の方も質問できます"),
+]
+
+PF2_FUTURE_CRAFT_EFFECT_NOTES = {
+    "business_summary": "トップと事業内容の土台になります。",
+    "main_audience": "誰に向けた言葉にするかを決めます。",
+    "first_message": "最初に見える見出しに使います。",
+    "about_strength": "会社紹介の本文と安心材料になります。",
+    "service_outline": "事業内容の本文とカードに使います。",
+    "recruitment_goal": "求人ページへの案内文に使います。",
+    "visual_mood": "色や余白、言葉の温度感を決めます。",
+    "avoid_mood": "合わない雰囲気を避けるために使います。",
+    "image_policy": "どんな写真を置くと伝わりやすいかを決めます。",
+    "contact_note": "問い合わせ前に安心できる一文に使います。",
+}
+
+PF2_FUTURE_CRAFT_TARGET_NOTES = {
+    "business_summary": "トップページ、事業内容",
+    "main_audience": "トップページ、会社紹介、求人ページへの案内",
+    "first_message": "トップページ見出し",
+    "about_strength": "会社紹介、安心材料",
+    "service_outline": "事業内容本文、サービス項目",
+    "recruitment_goal": "求人ページへのリンク文言、求人導線の説明文",
+    "visual_mood": "デザイン案、見出しの雰囲気",
+    "avoid_mood": "デザイン案、言葉の温度感",
+    "image_policy": "画像と素材、メイン画像方針",
+    "contact_note": "問い合わせボタン周辺、アクセス・問い合わせ補足",
+}
+
+PF2_FUTURE_CRAFT_PROPOSALS = [
+    {
+        "key": "photo_trust",
+        "name": "Care Trust Journal",
+        "theme": "写真で信頼を伝える",
+        "color": "green",
+        "bg_strength": "weak",
+        "bg_motion": "weak",
+        "ui_strength": "medium",
+        "ui_motion": "weak",
+        "summary": "落ち着いた余白と写真で、家族や求職者が安心して読める構成。",
+        "section_order": "トップ、会社紹介、事業内容、求人導線、問い合わせ",
+        "image_strategy": "実際の施設、手元、明るい室内の写真を大きく使う",
+    },
+    {
+        "key": "mission_network",
+        "name": "Mission Network",
+        "theme": "理念とチーム感を伝える",
+        "color": "blue",
+        "bg_strength": "medium",
+        "bg_motion": "medium",
+        "ui_strength": "medium",
+        "ui_motion": "medium",
+        "summary": "支援方針とチームのつながりを整理し、採用導線へ自然につなげる構成。",
+        "section_order": "トップ、理念、チーム支援、サービス、求人導線、問い合わせ",
+        "image_strategy": "人物を特定しすぎない写真と、チーム感のある素材を組み合わせる",
+    },
+    {
+        "key": "friendly_guide",
+        "name": "Friendly Guide",
+        "theme": "はじめてでも分かりやすい",
+        "color": "orange",
+        "bg_strength": "medium",
+        "bg_motion": "weak",
+        "ui_strength": "strong",
+        "ui_motion": "weak",
+        "summary": "カード型で情報を小分けにし、スマホで迷わず読める構成。",
+        "section_order": "トップ、安心材料、サービス、よくある不安、求人導線、問い合わせ",
+        "image_strategy": "写真が少なくても成立するよう、カードと余白で読みやすくする",
+    },
+]
+
+PF2_ASSIST_FIELD_RULES = {
+    "homepage": {
+        "catch_copy": {
+            "label": "トップページ見出し",
+            "placement": "スマホの最初の一画面で読まれる短い見出し。会社名の横ではなく、ページの主語になる言葉。",
+            "format": "1行。全角28文字前後。採用成果や媒体掲載を約束しない。",
+            "questions": ["一番届けたい相手は誰ですか", "最初に安心してほしいことは何ですか", "避けたい印象はありますか"],
+            "region": True,
+        },
+        "hero_sub_catch": {
+            "label": "トップページ補足文",
+            "placement": "見出しの直下で、誰に何を伝えるページかを補足する本文。",
+            "format": "1から2文。スマホで読みやすく、具体的な行動を1つだけ含める。",
+            "questions": ["見学、問い合わせ、求人確認のどれに進んでほしいですか", "初めて見る人の不安は何ですか", "地域名を入れたいですか"],
+            "region": True,
+        },
+        "about_body": {
+            "label": "会社紹介本文",
+            "placement": "会社紹介セクション。理念よりも、日々の現場で大切にしている事実を伝える。",
+            "format": "2から4文。抽象的な美辞麗句だけにしない。",
+            "questions": ["日々の支援で大切にしていることは何ですか", "新人や見学者に見てほしい場面は何ですか", "チームの雰囲気はどんな感じですか"],
+            "region": True,
+        },
+        "about_title": {
+            "label": "会社紹介見出し",
+            "placement": "会社紹介セクションの短い見出し。",
+            "format": "1行。12文字前後。難しい理念語だけにしない。",
+            "questions": ["会社紹介で最初に伝えたいことは何ですか", "やわらかい見出しと堅実な見出しのどちらが近いですか", "地域性を入れますか"],
+            "region": True,
+        },
+        "about_points": {
+            "label": "大切にしていること",
+            "placement": "会社紹介の箇条書き。読み飛ばしても強みが残る短い項目。",
+            "format": "1行に1項目。3から5項目。各項目は短く。",
+            "questions": ["支援方針で外せないことは何ですか", "職員同士で大切にしていることは何ですか", "求職者に安心してほしい制度はありますか"],
+            "region": False,
+        },
+        "services_body": {
+            "label": "事業内容本文",
+            "placement": "事業内容セクション。サービス名だけでなく、何を支える事業かを説明する。",
+            "format": "2から3文。対象者の個人情報や医療情報に踏み込まない。",
+            "questions": ["主なサービスは何ですか", "利用者さんの日常で支えていることは何ですか", "関係機関や地域との関わりはありますか"],
+            "region": True,
+        },
+        "services_title": {
+            "label": "事業内容見出し",
+            "placement": "事業内容セクションの見出し。",
+            "format": "1行。10文字前後。提供内容が分かる表現。",
+            "questions": ["主なサービス名をそのまま出しますか", "利用者・家族・求職者の誰に分かりやすくしたいですか", "専門用語を避けますか"],
+            "region": False,
+        },
+        "services_items": {
+            "label": "サービス項目",
+            "placement": "事業内容のカード。タイトルと本文を分けて表示する。",
+            "format": "1行ずつ「タイトル｜本文」。3項目まで。",
+            "questions": ["サービスを3つに分けるなら何ですか", "各サービスで一番伝えたいことは何ですか", "専門用語を避けたい項目はありますか"],
+            "region": False,
+        },
+        "recruitment_lead": {
+            "label": "求人導線の説明文",
+            "placement": "会社ページから求人ページへ進む直前の導線。応募を煽らず、仕事内容確認へ自然につなげる。",
+            "format": "1から2文。応募増加や上位表示を約束しない。",
+            "questions": ["求職者にまず何を確認してほしいですか", "見学や問い合わせは受け付けていますか", "未経験やブランクの不安に触れますか"],
+            "region": True,
+        },
+        "recruitment_link_label": {
+            "label": "求人ページへのリンク文言",
+            "placement": "会社ページから求人ページへ移動するボタン・リンクの文言。",
+            "format": "1行。8から14文字。煽らず分かりやすく。",
+            "questions": ["求人一覧、採用情報、募集職種のどれに近いですか", "見学導線も含めますか", "やわらかい表現にしますか"],
+            "region": False,
+        },
+        "contact_button_text": {
+            "label": "問い合わせボタン文言",
+            "placement": "問い合わせへ進むボタンの短い文言。",
+            "format": "1行。8から14文字。過度に急かさない。",
+            "questions": ["問い合わせ、見学相談、応募相談のどれが近いですか", "初回相談を軽く見せたいですか", "採用向けと一般向けのどちらを優先しますか"],
+            "region": False,
+        },
+        "access_notes": {
+            "label": "アクセス・問い合わせ補足",
+            "placement": "問い合わせ前の不安を下げる補足欄。地域・交通・相談しやすさを短く伝える。",
+            "format": "1から2文。実在しない交通情報やランドマークを作らない。",
+            "questions": ["問い合わせ前に伝えたい安心材料は何ですか", "見学だけでも相談できますか", "地域名や最寄り情報は入力済みですか"],
+            "region": True,
+        },
+    },
+    "job": {
+        "title": {
+            "label": "職種名",
+            "placement": "求人一覧とページ冒頭に表示。職種が一目で分かる短い名称。",
+            "format": "1行。雇用条件、給与、上位表示、応募増加を含めない。",
+            "questions": ["職種名は何ですか", "未経験歓迎など安全に言える補足はありますか", "サービス種別を入れますか"],
+            "region": True,
+        },
+        "job_description": {
+            "label": "業務内容",
+            "placement": "求人本文の仕事内容。求職者が1日の仕事を想像できるようにする。",
+            "format": "3から5文。給与、勤務時間、休日、勤務地、応募条件は書かない。",
+            "questions": ["毎日行う業務は何ですか", "週に数回だけ行う業務は何ですか", "記録や送迎など、伝えておきたい業務はありますか"],
+            "region": True,
+        },
+        "appeal_text": {
+            "label": "職場の魅力・安心材料",
+            "placement": "仕事内容の前後で読む安心材料。強みを盛るのではなく、事実から伝える。",
+            "format": "2から4文。必ず、絶対、保証などの断定を避ける。",
+            "questions": ["新しく入る人が安心できることは何ですか", "最初の1か月のサポートはありますか", "職場の相談体制はどうなっていますか"],
+            "region": True,
+        },
+        "day_flow": {
+            "label": "1日の流れ",
+            "placement": "時系列で働くイメージを作る欄。",
+            "format": "時刻 + 内容を1行ずつ。入力済み勤務時間と矛盾しない。",
+            "questions": ["出勤後に最初にすることは何ですか", "午前と午後の主な業務は何ですか", "記録や申し送りはいつ行いますか"],
+            "region": False,
+        },
+        "ideal_candidate": {
+            "label": "求める人物像",
+            "placement": "応募条件ではなく、人柄や向いている姿勢を伝える欄。",
+            "format": "2から3文。年齢、性別、家庭状況など差別につながる条件を書かない。",
+            "questions": ["どんな姿勢の人が合いますか", "経験より大切にしたいことは何ですか", "チームで働く上で必要なことは何ですか"],
+            "region": False,
+        },
+        "application_method": {
+            "label": "応募方法",
+            "placement": "応募前の次の行動を示す欄。連絡先そのものは入力済み情報を使う。",
+            "format": "1から3文。未入力の電話番号やメールアドレスを作らない。",
+            "questions": ["応募、見学、問い合わせのどれを先にしてほしいですか", "見学だけでも受け付けますか", "返信までの目安を入れますか"],
+            "region": False,
+        },
+    },
+}
+
+PF2_FIELD_EFFECT_NOTES = {
+    ("homepage", "catch_copy"): "最初に見える一文です。何のページかすぐ伝わります。",
+    ("homepage", "hero_sub_catch"): "見出しだけでは足りない安心材料を短く添えます。",
+    ("homepage", "about_title"): "会社紹介を読み始めやすくします。",
+    ("homepage", "about_body"): "会社の考え方や雰囲気を、初めて見る人に伝えます。",
+    ("homepage", "about_points"): "大切にしていることを、読み飛ばしても残る形にします。",
+    ("homepage", "services_title"): "事業内容の場所だとすぐ分かる見出しです。",
+    ("homepage", "services_body"): "何を支える事業かを、専門用語に寄りすぎず伝えます。",
+    ("homepage", "services_items"): "サービスをカードに分け、スマホで読みやすくします。",
+    ("homepage", "recruitment_link_label"): "会社ページから求人ページへ迷わず進めるボタン名です。",
+    ("homepage", "recruitment_lead"): "求人を見る前の不安を下げ、仕事内容確認へつなげます。",
+    ("homepage", "contact_button_text"): "問い合わせへ進むボタンを分かりやすくします。",
+    ("homepage", "access_notes"): "見学や相談前に知っておきたいことを短く添えます。",
+    ("job", "title"): "求人一覧で最初に見られる名前です。",
+    ("job", "job_description"): "どんな仕事をするか、具体的に書く欄です。",
+    ("job", "appeal_text"): "職場の雰囲気や、働きやすいポイントを書く欄です。",
+    ("job", "day_flow"): "働く1日の流れを具体的に見せます。",
+    ("job", "ideal_candidate"): "条件ではなく、向いている姿勢を伝えます。",
+    ("job", "application_method"): "応募・見学・問い合わせの次の動きを迷わせない欄です。",
+}
+
+PF2_OUTPUT_STEPS = [
+    "生成されたファイルの内容を確認する",
+    "お客様のWebサーバへ公開用ファイルを設置する。設置できない場合は、ホームページ管理担当の事業者に相談する",
+    "必要に応じて外部求人サービス側の管理画面で公開手順を確認する",
+    "検索向けの情報がページ表示と一致しているか確認する",
+    "媒体側の掲載・審査結果を各媒体の管理画面で確認する",
+]
+
+PF2_MEDIA_OUTPUT_ITEMS = [
+    ("求人ページ", RECRUITMENT_PAGE_PATH, "求職者がスマホで読む求人ページです。"),
+    ("検索向けの求人情報", RECRUITMENT_JOBPOSTING_JSON_PATH, "求人ページの内容を検索エンジンが読める形式にします。"),
+    ("外部求人サービス向けの求人情報", RECRUITMENT_INDEED_FEED_PATH, "外部求人サービスが読み取るためのファイルです。掲載や順位を示すものではありません。"),
+    ("サイトマップ", SITE_SITEMAP_PATH, "公開したページの場所を検索エンジンへ伝えるためのファイルです。"),
+    ("robots設定", SITE_ROBOTS_PATH, "検索エンジンが参照する基本設定です。"),
+]
+
+PF2_ROLE_CARDS = [
+    ("管理者", "設定、公開用ファイル作成、入力補助設定、確認の記録を確認できます。"),
+    ("編集者", "求人を作る、求人編集、プレビュー、公開前チェックを行えます。"),
+    ("閲覧者", "求人一覧、プレビュー、作成したファイルの記録を確認できます。編集と出力はできません。"),
+]
+
+PF2_ROLE_LABELS = {
+    "admin": "管理者",
+    "editor": "編集者",
+    "viewer": "閲覧者",
+}
+
+PF2_ROLE_PERMISSIONS = {
+    "admin": {
+        "view",
+        "create",
+        "edit",
+        "field_assist",
+        "public_check",
+        "upload",
+        "export",
+        "settings",
+        "audit_view",
+        "log_delete",
+    },
+    "editor": {
+        "view",
+        "create",
+        "edit",
+        "field_assist",
+        "public_check",
+        "upload",
+        "export",
+    },
+    "viewer": {
+        "view",
+    },
+}
+
+PF2_AUDIT_LOG_ITEMS = [
+    "入力補助時の入力内容",
+    "最初の下書きと確認後の文章",
+    "検出された危険語・数値",
+    "人間確認者と確認時刻",
+    "公開用ファイル作成時の確認項目",
+]
+
+PF2_EXPORT_TYPE_LABELS = {
+    "zip_pack": "公開用ファイル",
+    "homepage_zip_pack": "会社ページ用ファイル",
+    "job_lp_html": "求人ページ",
+    "company_page_html": "会社ページ",
+    "google_jobposting_jsonld": "検索向け情報",
+    "indeed_xml": "外部求人サービス向け情報",
+    "sitemap": "サイト確認用の補助ファイル",
+    "robots": "サイト確認用の補助ファイル",
+    "pageflow_pack": "入力用ファイル",
+}
+
+PF2_AUDIT_ACTION_LABELS = {
+    "public_check_run": "公開前チェックを実行",
+    "gate8_e2e_checked": "一連の動作確認を実行",
+    "pf2_local_export_generated": "公開用ファイルを作成",
+    "pf2_local_homepage_export_generated": "会社ページ用ファイルを作成",
+    "pf2_future_craft_answers_applied": "会社ページの質問内容を反映",
+    "pf2_homepage_design_applied": "会社ページのデザイン案を適用",
+    "pf2_job_field_updated": "求人内容を更新",
+    "pf2_public_check_run": "公開前チェックを実行",
+    "pf2_job_wizard_applied": "求人の質問内容を反映",
+    "pf2_sample_job_created": "架空サンプル求人を作成",
+    "pf2_ai_logs_deleted": "入力補助の記録を削除",
+    "pf2_ai_draft_confirmed": "入力補助文を確認",
+    "pf2_api_job_seed_applied": "求人の下書きを反映",
+    "pf2_api_homepage_seed_applied": "会社ページの下書きを反映",
+    "pf2_homepage_image_cleared": "会社ページ画像を外す",
+    "pf2_field_assist_applied": "入力欄の補助文を反映",
+}
+
+
+def pf2_export_type_label(value: object) -> str:
+    key = pf2_text(value)
+    return PF2_EXPORT_TYPE_LABELS.get(key, key or "作成したファイル")
+
+
+def pf2_audit_action_label(value: object) -> str:
+    key = pf2_text(value)
+    return PF2_AUDIT_ACTION_LABELS.get(key, key or "確認記録")
+
+PF2_GATE4_CHECKS = [
+    "凍結した目的・制約と画面が一致している",
+    "初回利用者が求人0件から止まらずに始められる",
+    "Today画面で次にやる1つが明確に分かる",
+    "5つの質問がPIIを誘導しない",
+    "求人入力で、労働条件と入力補助文の境界が分かる",
+    "権限別表示方針が見える",
+    "媒体掲載・採用成功を保証する表現がない",
+    "PC/スマホで大きな表示崩れがない",
+]
+
+PF2_GATE6_CHECKS = [
+    "デザイントークンが定義されている",
+    "PC/スマホのレイアウト基準が明確である",
+    "ボタン、パネル、ステート、警告のコンポーネント基準がある",
+    "文言仕様が採用成功・媒体掲載を保証しない",
+    "スマホで横スクロールが出ない",
+    "キーボードフォーカスが見える",
+    "reduced-motionに対応している",
+]
+
+PF2_GATE7_CHECKS = [
+    "data.pageflowai2拡張領域へ非破壊に保存できる",
+    "5段階ステート判定を画面で確認できる",
+    "公開前チェックの通過状態を画面で確認できる",
+    "AI post-generation scanの通過と危険検出を画面で確認できる",
+    "5つの質問のPII注意確認を画面で確認できる",
+    "媒体向けデータのローカル整合チェックを画面で確認できる",
+    "作成したファイルの記録と確認記録を保存できる",
+]
+
+PF2_GATE8_CHECKS = [
+    "架空求人データで初回導線から作成したファイルの記録まで一連の流れを検証できる",
+    "求人ページ、検索向け情報、外部求人サービス向け情報、sitemap、robotsを同時生成できる",
+    "5段階ステートが出力可能から公開準備済へ進む条件を検証できる",
+    "AI疑似出力の安全検査が危険文を止める",
+    "公開ページに禁止表現や実在顧客情報が混ざらない",
+]
+
+PF2_GATE9_CHECKS = [
+    "利用者が次にやることを迷わない",
+    "顧客自身が入力・確認・公開する責任境界が崩れていない",
+    "法令・PII・AIログ・媒体表現のHard Stopに反していない",
+    "販売文言が採用成功や媒体掲載を約束していない",
+    "外部公開、外部AI API、媒体アカウント操作は追加確認まで停止する",
+]
+
+
+def inject_pageflowai2_styles() -> None:
+    ui.add_head_html("""
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --pf2-bg: #f5f7fb;
+    --pf2-ink: #18202f;
+    --pf2-muted: #667085;
+    --pf2-line: #d8dee8;
+    --pf2-panel: #ffffff;
+    --pf2-green: #18794e;
+    --pf2-teal: #0f766e;
+    --pf2-blue: #1d4ed8;
+    --pf2-amber: #a15c07;
+    --pf2-rose: #b42318;
+    --pf2-sidebar-w: 160px;
+    --pf2-preview-w: 393px;
+    --pf2-preview-h: 852px;
+  }
+  html:has(.pf2-page),
+  html:has(.pf2-page) body {
+    width: 100vw;
+    height: 100dvh;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+  html:has(.pf2-page) #q-app,
+  html:has(.pf2-page) .q-layout,
+  html:has(.pf2-page) .q-page-container,
+  html:has(.pf2-page) .q-page,
+  html:has(.pf2-page) .nicegui-content {
+    width: 100vw !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+  .pf2-page {
+    width: 100vw;
+    max-width: none;
+    height: 100dvh;
+    min-height: 100dvh;
+    background: var(--pf2-bg);
+    color: var(--pf2-ink);
+    font-family: "Noto Sans JP", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+    letter-spacing: 0;
+    overflow: hidden;
+    scroll-behavior: auto;
+  }
+  .pf2-page *,
+  .pf2-page *::before,
+  .pf2-page *::after {
+    box-sizing: border-box;
+  }
+  .pf2-page :focus-visible {
+    outline: 3px solid #73b7ff;
+    outline-offset: 3px;
+  }
+  .pf2-shell {
+    display: grid;
+    grid-template-columns: var(--pf2-sidebar-w) minmax(0, 1fr);
+    gap: 10px;
+    width: 100vw;
+    max-width: none !important;
+    height: 100dvh;
+    margin: 0;
+    padding: 14px 0;
+    overflow: hidden;
+  }
+  .pf2-sidebar {
+    border-right: 1px solid var(--pf2-line);
+    padding: 4px 10px 0 10px;
+    position: sticky;
+    top: 18px;
+    align-self: start;
+  }
+  .pf2-brand {
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.15;
+    margin-bottom: 4px;
+  }
+  .pf2-subbrand {
+    color: var(--pf2-muted);
+    font-size: 11px;
+    margin-bottom: 20px;
+  }
+  .pf2-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 8px;
+    border-radius: 8px;
+    border: 0;
+    background: transparent;
+    color: #344054;
+    font-size: 13px;
+    font-weight: 650;
+    text-decoration: none;
+    width: 100%;
+  }
+  .pf2-nav-item:hover {
+    background: #f2f7f5;
+    color: var(--pf2-teal);
+  }
+  .pf2-nav-item.is-active {
+    background: #e7f1ee;
+    color: var(--pf2-teal);
+  }
+  .pf2-main {
+    min-width: 0;
+    min-height: 0;
+    height: calc(100dvh - 36px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .pf2-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 18px;
+    flex: 0 0 auto;
+  }
+  .pf2-main:has(.pf2-content-view-jobs) .pf2-topbar,
+  .pf2-main:has(.pf2-content-view-homepage) .pf2-topbar {
+    margin-bottom: 8px;
+    align-items: center;
+    min-height: 54px;
+  }
+  .pf2-main:has(.pf2-content-view-jobs) .pf2-title,
+  .pf2-main:has(.pf2-content-view-homepage) .pf2-title {
+    font-size: 22px;
+    line-height: 1.22;
+  }
+  .pf2-main:has(.pf2-content-view-jobs) .pf2-lead,
+  .pf2-main:has(.pf2-content-view-homepage) .pf2-lead {
+    display: none;
+  }
+  .pf2-main:has(.pf2-content-view-jobs) .pf2-topbar .q-btn,
+  .pf2-main:has(.pf2-content-view-homepage) .pf2-topbar .q-btn {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  .pf2-main-content {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+  .pf2-kicker {
+    color: var(--pf2-teal);
+    font-size: 13px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+  .pf2-title {
+    font-size: 30px;
+    font-weight: 850;
+    line-height: 1.2;
+    margin: 0;
+  }
+  .pf2-lead {
+    color: var(--pf2-muted);
+    font-size: 14px;
+    line-height: 1.75;
+    margin-top: 8px;
+    max-width: 760px;
+  }
+  .pf2-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(300px, .8fr);
+    gap: 16px;
+    min-width: 0;
+  }
+  .pf2-panel {
+    background: var(--pf2-panel);
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    padding: 18px;
+    min-width: 0;
+  }
+  .pf2-panel-title {
+    font-size: 16px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+  .pf2-panel-note {
+    color: var(--pf2-muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .pf2-homepage-group {
+    border: 1px solid #e4e7ec;
+    border-radius: 8px;
+    background: #fbfcfd;
+    padding: 14px;
+    margin-top: 12px;
+  }
+  .pf2-homepage-group > .pf2-panel-title {
+    font-size: 15px;
+  }
+  .pf2-action-title {
+    font-size: 22px;
+    font-weight: 850;
+    line-height: 1.35;
+    margin-top: 10px;
+  }
+  .pf2-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .pf2-btn-primary {
+    background: var(--pf2-teal) !important;
+    color: white !important;
+    border-radius: 8px !important;
+    min-height: 40px;
+    font-weight: 800;
+  }
+  .pf2-btn-soft {
+    border: 1px solid var(--pf2-line) !important;
+    border-radius: 8px !important;
+    color: #344054 !important;
+    min-height: 40px;
+    font-weight: 750;
+  }
+  .pf2-state-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(132px, 1fr));
+    gap: 10px;
+    margin: 18px 0;
+  }
+  .pf2-state {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    padding: 12px;
+    background: #fff;
+    min-height: 116px;
+  }
+  .pf2-state-count {
+    font-size: 24px;
+    font-weight: 850;
+    line-height: 1;
+  }
+  .pf2-state-label {
+    font-size: 13px;
+    font-weight: 800;
+    margin-top: 6px;
+  }
+  .pf2-state-desc {
+    color: var(--pf2-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    margin-top: 6px;
+  }
+  .pf2-list {
+    display: grid;
+    gap: 8px;
+  }
+  .pf2-job-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.4fr) 120px 160px 140px 150px;
+    gap: 12px;
+    align-items: center;
+    min-height: 58px;
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fff;
+  }
+  .pf2-job-title {
+    font-size: 14px;
+    font-weight: 850;
+  }
+  .pf2-job-meta {
+    color: var(--pf2-muted);
+    font-size: 12px;
+  }
+  .pf2-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .pf2-pill-not_started { color: #475467; background: #f2f4f7; border-color: #e4e7ec; }
+  .pf2-pill-editing { color: var(--pf2-amber); background: #fff6e8; border-color: #f6d7a7; }
+  .pf2-pill-review_required { color: #9f3a12; background: #fff0e8; border-color: #f7c5ad; }
+  .pf2-pill-export_ready { color: var(--pf2-blue); background: #edf4ff; border-color: #bdd5ff; }
+  .pf2-pill-prepared { color: var(--pf2-green); background: #eaf6ef; border-color: #b7dec7; }
+  .pf2-section {
+    margin-top: 16px;
+  }
+  .pf2-main-content .pf2-route-section {
+    display: none;
+  }
+  .pf2-content-view-home .pf2-view-home,
+  .pf2-content-view-jobs .pf2-view-jobs,
+  .pf2-content-view-homepage .pf2-view-homepage,
+  .pf2-content-view-history .pf2-view-history,
+  .pf2-content-view-settings .pf2-view-settings {
+    display: block;
+  }
+  .pf2-content-view-jobs,
+  .pf2-content-view-homepage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, calc(var(--pf2-preview-w) + 30px));
+    grid-template-rows: minmax(0, 1fr);
+    gap: 12px;
+    align-items: stretch;
+    height: 100%;
+    overflow-y: hidden;
+    overflow-x: hidden;
+    padding-right: 0;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+  }
+  .pf2-scroll-column {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 8px;
+    scrollbar-gutter: stable;
+    scrollbar-width: auto;
+    overscroll-behavior: contain;
+  }
+  .pf2-scroll-column::-webkit-scrollbar {
+    width: 12px;
+  }
+  .pf2-scroll-column::-webkit-scrollbar-track {
+    background: #edf1f7;
+    border-radius: 999px;
+  }
+  .pf2-scroll-column::-webkit-scrollbar-thumb {
+    background: #9aa8ba;
+    border-radius: 999px;
+    border: 3px solid #edf1f7;
+  }
+  .pf2-scroll-column > .pf2-route-section:first-child {
+    margin-top: 0;
+  }
+  .pf2-content-view-jobs .pf2-route-section:not(.pf2-preview-route),
+  .pf2-content-view-homepage .pf2-route-section:not(.pf2-preview-route) {
+    grid-column: 1;
+    min-width: 0;
+  }
+  .pf2-content-view-jobs .pf2-view-homepage.pf2-preview-route,
+  .pf2-content-view-homepage .pf2-view-jobs.pf2-preview-route {
+    display: none !important;
+  }
+  .pf2-content-view-jobs .pf2-view-jobs.pf2-preview-route,
+  .pf2-content-view-homepage .pf2-view-homepage.pf2-preview-route {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    padding: 10px;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: calc(100dvh - 118px);
+    max-height: calc(100dvh - 118px);
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .pf2-preview-route > .pf2-panel-title,
+  .pf2-preview-route > .pf2-panel-note,
+  .pf2-preview-route > .q-btn {
+    flex: 0 0 auto;
+  }
+  .pf2-preview-route > .pf2-panel-title {
+    display: none;
+  }
+  .pf2-preview-route > .pf2-panel-note {
+    display: none;
+  }
+  .pf2-preview-route > .q-btn {
+    display: none;
+  }
+  .pf2-content-view-homepage #pf2-homepage .pf2-edit-grid {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+  .pf2-content-view-jobs #pf2-jobs .pf2-edit-grid {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+  .pf2-content-view-jobs #pf2-jobs .pf2-edit-grid,
+  .pf2-content-view-homepage #pf2-homepage .pf2-edit-grid {
+    align-items: start;
+  }
+  .pf2-content-view-jobs .pf2-route-section:not(.pf2-preview-route) .pf2-grid:has(.pf2-phone-preview) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pf2-content-view-jobs .pf2-route-section:not(.pf2-preview-route) .pf2-phone-preview {
+    display: none;
+  }
+  .pf2-launch-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .pf2-launch {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 14px;
+    min-height: 122px;
+  }
+  .pf2-launch strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+  .pf2-edit-grid {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) 280px;
+    gap: 14px;
+    min-width: 0;
+    align-items: start;
+  }
+  .pf2-editor-content {
+    min-width: 0;
+    min-height: max(1040px, calc(100dvh - 64px));
+    align-self: start;
+  }
+  .pf2-editor-content > .pf2-job-panel:first-child,
+  .pf2-editor-content > .pf2-homepage-group:first-child,
+  .pf2-editor-content > .pf2-panel:first-child,
+  .pf2-editor-content > .pf2-warning:first-child {
+    margin-top: 0 !important;
+  }
+  .pf2-editor-content > .pf2-route-section.pf2-panel {
+    margin-top: 0;
+  }
+  .pf2-tabs {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+  }
+  .pf2-tab {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px;
+  }
+  .pf2-tab-button {
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+  }
+  .pf2-tab-button:hover {
+    border-color: #9ac8bf;
+    background: #f5fbf9;
+  }
+  .pf2-tab-button:focus-visible {
+    outline: 3px solid #73b7ff;
+    outline-offset: 2px;
+  }
+  .pf2-tab.is-active {
+    border-color: #9ac8bf;
+    background: #eef7f5;
+  }
+  .pf2-tab strong {
+    font-size: 13px;
+  }
+  .pf2-tab span {
+    display: block;
+    color: var(--pf2-muted);
+    font-size: 11px;
+    line-height: 1.45;
+    margin-top: 3px;
+  }
+  .pf2-field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 12px;
+  }
+  .pf2-assist-field {
+    display: grid;
+    gap: 6px;
+    align-content: start;
+  }
+  .pf2-mini-help {
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.55;
+    margin: -2px 0 2px;
+  }
+  .pf2-assist-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: -2px;
+  }
+  .pf2-assist-scope {
+    color: #667085;
+    font-size: 11px;
+    line-height: 1.45;
+    margin-top: -2px;
+  }
+  .pf2-assist-actions .q-btn {
+    min-height: 30px;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .pf2-field {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fbfcfe;
+    padding: 10px;
+    min-height: 72px;
+  }
+  .pf2-field label {
+    display: block;
+    color: var(--pf2-muted);
+    font-size: 11px;
+    font-weight: 800;
+    margin-bottom: 6px;
+  }
+  .pf2-field div {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .pf2-wizard-bot {
+    display: grid;
+    gap: 12px;
+  }
+  .pf2-wizard-card {
+    border: 1px solid #bdd7d1;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #f7fbfa 0%, #ffffff 100%);
+    padding: 14px;
+  }
+  .pf2-wizard-progress {
+    display: inline-flex;
+    width: fit-content;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid #bdd7d1;
+    background: #eef7f5;
+    color: #0f766e;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 4px 10px;
+  }
+  .pf2-wizard-question {
+    color: #111827;
+    font-size: 18px;
+    font-weight: 900;
+    line-height: 1.45;
+    margin: 8px 0 4px;
+  }
+  .pf2-wizard-target {
+    border-left: 3px solid #4a90d9;
+    color: #344054;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.5;
+    padding: 4px 0 4px 8px;
+  }
+  .pf2-wizard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .pf2-wizard-summary {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .pf2-wizard-summary-item {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    color: #344054;
+    min-height: 54px;
+    padding: 8px;
+  }
+  .pf2-wizard-summary-item strong {
+    display: block;
+    color: #111827;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  .pf2-wizard-summary-item span {
+    display: block;
+    color: #667085;
+    font-size: 11px;
+    line-height: 1.35;
+    margin-top: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pf2-checklist {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .pf2-check {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 8px;
+    color: #344054;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .pf2-check-mark {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--pf2-line);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--pf2-green);
+    font-size: 12px;
+    font-weight: 900;
+  }
+  .pf2-media-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 118px;
+    gap: 8px;
+    align-items: center;
+    min-height: 42px;
+    border-bottom: 1px solid #edf0f5;
+  }
+  .pf2-media-row:last-child {
+    border-bottom: 0;
+  }
+  .pf2-warning {
+    border: 1px solid #f4c7a1;
+    background: #fff8f0;
+    color: #7a3c08;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+  .pf2-screen-map {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .pf2-map-step {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px;
+    min-height: 84px;
+  }
+  .pf2-map-step b {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .pf2-map-step span {
+    color: var(--pf2-muted);
+    display: block;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .pf2-screen-tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid #b9d6d0;
+    background: #eef7f5;
+    color: var(--pf2-teal);
+    font-size: 11px;
+    font-weight: 850;
+    margin-bottom: 8px;
+  }
+  .pf2-choice {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 14px;
+    min-height: 138px;
+  }
+  .pf2-choice-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #e7f1ee;
+    color: var(--pf2-teal);
+    margin-bottom: 10px;
+  }
+  .pf2-question-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .pf2-question-card {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 12px;
+  }
+  .pf2-question-number {
+    color: var(--pf2-teal);
+    font-size: 12px;
+    font-weight: 850;
+    margin-bottom: 6px;
+  }
+  .pf2-option-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .pf2-option-chip {
+    border: 1px solid #d0d7e2;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #344054;
+    font-size: 11px;
+    font-weight: 750;
+    line-height: 1;
+    padding: 7px 8px;
+  }
+  .pf2-dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .pf2-metric {
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 14px;
+    min-height: 96px;
+  }
+  .pf2-metric strong {
+    display: block;
+    font-size: 24px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .pf2-guide-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .pf2-guide-item {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    border: 1px solid var(--pf2-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px;
+  }
+  .pf2-guide-number {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--pf2-teal);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 850;
+  }
+  .pf2-phone-preview {
+    border: 6px solid #1f2937;
+    border-radius: 28px;
+    background: #fff;
+    width: min(100%, var(--pf2-preview-w));
+    aspect-ratio: 393 / 852;
+    min-height: 0;
+    padding: 16px 12px;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+    min-width: 0;
+    max-width: var(--pf2-preview-w);
+    margin: 0 auto;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+  }
+  .pf2-preview-route .pf2-phone-preview {
+    width: min(100%, var(--pf2-preview-w));
+    max-width: var(--pf2-preview-w);
+    flex: 0 0 auto;
+  }
+  .pf2-preview-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 8;
+    max-width: calc(100% - 18px);
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .12s ease;
+  }
+  .pf2-preview-route:hover .pf2-preview-actions,
+  .pf2-preview-route:focus-within .pf2-preview-actions {
+    opacity: .98;
+    pointer-events: auto;
+  }
+  .pf2-preview-actions .q-btn {
+    min-height: 28px;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 0 7px;
+  }
+  .pf2-preview-light-note {
+    color: #667085;
+    font-size: 11px;
+    line-height: 1.55;
+    margin: 6px 0 0;
+  }
+  .pf2-preview-frame {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+  .pf2-clean-upload .q-uploader {
+    width: 100%;
+    min-height: 52px;
+    border: 1px dashed #b8c7d9;
+    border-radius: 8px;
+    background: #f8fbff;
+    box-shadow: none;
+    overflow: hidden;
+  }
+  .pf2-clean-upload .q-uploader__header {
+    min-height: 52px;
+    background: #f8fbff !important;
+    color: var(--pf2-blue) !important;
+    border-radius: 8px;
+  }
+  .pf2-clean-upload .q-uploader__title,
+  .pf2-clean-upload .q-uploader__subtitle,
+  .pf2-clean-upload .q-uploader__list,
+  .pf2-clean-upload .q-uploader__header-content .col.column.justify-center,
+  .pf2-clean-upload .q-uploader__header .q-btn__content {
+    display: none !important;
+  }
+  .pf2-clean-upload .q-uploader__header::before {
+    content: "画像を選ぶ";
+    display: inline-flex;
+    align-items: center;
+    min-height: 52px;
+    padding-left: 14px;
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 850;
+  }
+  .pf2-clean-upload .q-uploader__header .q-btn {
+    color: #1d4ed8 !important;
+  }
+  .pf2-clean-upload .q-uploader__header .q-btn .q-icon,
+  .pf2-clean-upload .q-uploader__header .q-btn .material-icons {
+    display: none !important;
+  }
+  .pf2-clean-upload .q-uploader__header .q-btn::after {
+    content: "+";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: #e8f1ff;
+    color: #1d4ed8;
+    font-size: 18px;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .pf2-image-upload-panel {
+    padding: 14px;
+  }
+  .pf2-image-upload-panel .pf2-dashboard-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .pf2-image-upload-panel .pf2-metric {
+    min-height: 82px;
+    padding: 10px;
+  }
+  .pf2-image-upload-panel .pf2-clean-upload .q-uploader,
+  .pf2-image-upload-panel .pf2-clean-upload .q-uploader__header {
+    min-height: 38px;
+  }
+  .pf2-image-upload-panel .pf2-clean-upload .q-uploader__header::before {
+    min-height: 38px;
+    padding-left: 10px;
+    font-size: 12px;
+  }
+  .pf2-phone-preview::before {
+    content: "";
+    display: block;
+    width: 82px;
+    height: 5px;
+    border-radius: 999px;
+    background: #111827;
+    opacity: .92;
+    margin: 0 auto 14px;
+  }
+  .pf2-phone-preview.pf2-generated-preview {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+    background: #fff;
+    width: min(100%, var(--pf2-preview-w));
+    height: 100%;
+    max-height: 100%;
+    flex: 1 1 auto;
+  }
+  .pf2-phone-preview.pf2-generated-preview::before {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    margin: 0;
+  }
+  .pf2-generated-iframe {
+    display: block;
+    width: var(--pf2-preview-w);
+    height: var(--pf2-viewport-h, var(--pf2-preview-h));
+    border: 0;
+    background: #fff;
+  }
+  .pf2-phone-stage {
+    --pf2-phone-scale: 1;
+    --pf2-viewport-h: 852px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    margin: 0 auto;
+    position: relative;
+    background: #fff;
+  }
+  .pf2-phone-viewport {
+    width: var(--pf2-preview-w);
+    height: var(--pf2-viewport-h, var(--pf2-preview-h));
+    transform: scale(var(--pf2-phone-scale));
+    transform-origin: top left;
+    background: #fff;
+  }
+  .pf2-phone-preview h3 {
+    font-size: 18px;
+    line-height: 1.35;
+    margin: 0 0 8px;
+  }
+  .pf2-phone-preview p {
+    color: #475467;
+    font-size: 12px;
+    line-height: 1.65;
+    margin: 0 0 10px;
+  }
+  .pf2-gate {
+    border: 1px solid #b7dec7;
+    background: #f0fbf4;
+    color: #14532d;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pf2-page *,
+    .pf2-page *::before,
+    .pf2-page *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+  @media (max-width: 1100px) {
+    .pf2-shell, .pf2-grid, .pf2-edit-grid,
+    .pf2-content-view-jobs, .pf2-content-view-homepage,
+    .pf2-content-view-homepage #pf2-homepage .pf2-edit-grid,
+    .pf2-content-view-jobs #pf2-jobs .pf2-edit-grid { grid-template-columns: 1fr; }
+    .pf2-content-view-jobs .pf2-preview-route,
+    .pf2-content-view-homepage .pf2-preview-route { grid-column: 1; grid-row: auto; position: static; }
+    .pf2-phone-preview { width: min(100%, 393px); max-width: 393px; }
+    .pf2-sidebar { border-right: 0; border-bottom: 1px solid var(--pf2-line); padding: 0 0 16px; position: static; }
+    .pf2-state-grid, .pf2-launch-grid, .pf2-screen-map, .pf2-question-grid, .pf2-dashboard-grid, .pf2-wizard-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pf2-job-row { grid-template-columns: 1fr 120px; }
+  }
+  @media (max-width: 680px) {
+    html:has(.pf2-page),
+    html:has(.pf2-page) body {
+      height: auto;
+      min-height: 100dvh;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+    }
+    .pf2-page {
+      height: auto;
+      min-height: 100dvh;
+      overflow: visible;
+    }
+    .pf2-shell {
+      width: 100%;
+      height: auto;
+      min-height: 100dvh;
+      overflow: visible;
+      padding: 14px;
+      gap: 10px;
+    }
+    .pf2-main {
+      height: auto;
+      overflow: visible;
+    }
+    .pf2-main-content {
+      overflow: visible;
+    }
+    .pf2-content-view-jobs,
+    .pf2-content-view-homepage {
+      display: block;
+      height: auto;
+      overflow: visible;
+    }
+    .pf2-scroll-column {
+      height: auto;
+      overflow: visible;
+      padding-right: 0;
+    }
+    .pf2-content-view-jobs .pf2-view-jobs.pf2-preview-route,
+    .pf2-content-view-homepage .pf2-view-homepage.pf2-preview-route {
+      grid-column: 1;
+      grid-row: auto;
+      position: static;
+      height: min(760px, 100dvh);
+      max-height: min(760px, 100dvh);
+      margin-top: 12px;
+    }
+    .pf2-content-view-homepage #pf2-homepage .pf2-edit-grid,
+    .pf2-content-view-jobs #pf2-jobs .pf2-edit-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .pf2-sidebar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      border: 1px solid var(--pf2-line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+    }
+    .pf2-sidebar .q-separator,
+    .pf2-sidebar .pf2-checklist {
+      display: none !important;
+    }
+    .pf2-sidebar > .pf2-nav-item {
+      min-height: 34px;
+      padding: 0 8px;
+      font-size: 12px;
+    }
+    .pf2-brand,
+    .pf2-subbrand {
+      flex-basis: 100%;
+    }
+    .pf2-brand { font-size: 18px; margin-bottom: 0; }
+    .pf2-subbrand { margin-bottom: 6px; }
+    .pf2-topbar { flex-direction: column; }
+    .pf2-title { font-size: 24px; }
+    .pf2-state-grid, .pf2-launch-grid, .pf2-field-grid, .pf2-screen-map, .pf2-question-grid, .pf2-dashboard-grid, .pf2-wizard-summary { grid-template-columns: 1fr; }
+    .pf2-job-row { grid-template-columns: 1fr; }
+  }
+</style>
+<script>
+(() => {
+  if (window.__pf2PhoneScaleReady) return;
+  window.__pf2PhoneScaleReady = true;
+  function updatePhoneScale() {
+    const isNarrowEditor = window.matchMedia('(max-width: 680px)').matches;
+    document.querySelectorAll('.pf2-preview-route').forEach((route) => {
+      if (getComputedStyle(route).display === 'none') return;
+      const container = route.closest('.pf2-main-content');
+      const top = Math.max(0, route.getBoundingClientRect().top);
+      const bottomGap = 12;
+      const containerH = container ? container.clientHeight : 0;
+      const h = isNarrowEditor
+        ? Math.max(560, Math.min(760, window.innerHeight - 24))
+        : Math.max(360, (containerH || (window.innerHeight - top - bottomGap)));
+      route.style.height = h + 'px';
+      route.style.maxHeight = h + 'px';
+    });
+    document.querySelectorAll('.pf2-preview-route .pf2-phone-preview.pf2-generated-preview').forEach((phone) => {
+      const route = phone.closest('.pf2-preview-route');
+      if (!route) return;
+      const frame = phone.closest('.pf2-preview-frame') || route;
+      const frameRect = frame.getBoundingClientRect();
+      const availableH = Math.max(260, frameRect.height - 8);
+      const availableW = Math.max(220, frameRect.width - 2);
+      const nextWidth = Math.max(220, Math.min(393, availableW, availableH * 393 / 852));
+      const nextHeight = Math.max(320, Math.min(852, nextWidth * 852 / 393));
+      phone.style.width = nextWidth + 'px';
+      phone.style.height = nextHeight + 'px';
+      phone.dataset.previewFit = nextWidth < 320 ? 'compact' : 'readable';
+    });
+    document.querySelectorAll('.pf2-phone-stage').forEach((stage) => {
+      const baseW = 393;
+      const width = Math.max(1, stage.clientWidth || baseW);
+      const height = Math.max(1, stage.clientHeight || 640);
+      const scale = Math.min(1, width / baseW);
+      const viewportH = Math.max(640, Math.floor(height / Math.max(scale, 0.01)));
+      stage.style.setProperty('--pf2-phone-scale', String(scale));
+      stage.style.setProperty('--pf2-viewport-h', viewportH + 'px');
+    });
+  }
+  const observer = new ResizeObserver(updatePhoneScale);
+  const scrollViewsSelector = '.pf2-content-view-jobs, .pf2-content-view-homepage';
+  function scrollKeyForView(view) {
+    const viewClass = Array.from(view.classList || []).find((name) => name.indexOf('pf2-content-view-') === 0) || 'pf2-content-view';
+    return '__pf2CentralScroll:' + location.pathname + ':' + viewClass;
+  }
+  function isVisiblePf2View(view) {
+    const rect = view.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && getComputedStyle(view).display !== 'none';
+  }
+  function rememberCentralScroll(view) {
+    const views = view ? [view] : Array.from(document.querySelectorAll(scrollViewsSelector));
+    views.forEach((candidate) => {
+      if (!(candidate instanceof Element) || !isVisiblePf2View(candidate)) return;
+      const column = candidate.querySelector(':scope > .pf2-scroll-column');
+      if (!column) return;
+      try {
+        sessionStorage.setItem(scrollKeyForView(candidate), String(Math.max(0, Math.round(column.scrollTop || 0))));
+      } catch (err) {
+        // sessionStorage can be unavailable in strict browser settings; scroll preservation is best effort.
+      }
+    });
+  }
+  function restoreCentralScroll() {
+    document.querySelectorAll(scrollViewsSelector).forEach((view) => {
+      if (!isVisiblePf2View(view)) return;
+      const column = view.querySelector(':scope > .pf2-scroll-column');
+      if (!column) return;
+      let stored = null;
+      try {
+        stored = sessionStorage.getItem(scrollKeyForView(view));
+      } catch (err) {
+        stored = null;
+      }
+      if (stored === null) return;
+      const top = Math.max(0, Number(stored) || 0);
+      const max = Math.max(0, column.scrollHeight - column.clientHeight);
+      const next = Math.min(top, max);
+      if (Math.abs((column.scrollTop || 0) - next) > 2) {
+        column.scrollTop = next;
+      }
+    });
+  }
+  function scheduleCentralScrollRestore() {
+    window.requestAnimationFrame(() => {
+      restoreCentralScroll();
+      window.requestAnimationFrame(restoreCentralScroll);
+      window.setTimeout(restoreCentralScroll, 80);
+      window.setTimeout(restoreCentralScroll, 220);
+    });
+  }
+  function wrapScrollableColumns() {
+    document.querySelectorAll('.pf2-content-view-jobs, .pf2-content-view-homepage').forEach((view) => {
+      const columns = Array.from(view.querySelectorAll(':scope > .pf2-scroll-column'));
+      let scrollColumn = columns[0] || null;
+      const directSections = Array.from(view.querySelectorAll(':scope > .pf2-route-section:not(.pf2-preview-route)'));
+      if (!scrollColumn) {
+        if (!directSections.length) return;
+        scrollColumn = document.createElement('div');
+        scrollColumn.className = 'pf2-scroll-column';
+        view.insertBefore(scrollColumn, directSections[0]);
+      }
+      columns.slice(1).forEach((column) => {
+        Array.from(column.children).forEach((child) => {
+          if (child.classList && child.classList.contains('pf2-route-section') && !child.classList.contains('pf2-preview-route')) {
+            scrollColumn.appendChild(child);
+          }
+        });
+        if (!column.children.length) column.remove();
+      });
+      directSections.forEach((section) => scrollColumn.appendChild(section));
+    });
+  }
+  function normalizeJobEditorPanels() {
+    const jobRoot = document.getElementById('pf2-jobs');
+    if (!jobRoot) return;
+    const editGrid = jobRoot.querySelector(':scope > .pf2-edit-grid');
+    if (!editGrid) return;
+    let content = editGrid.querySelector(':scope > .pf2-editor-content');
+    if (!content) {
+      const children = Array.from(editGrid.children);
+      content = children.find((child) => child instanceof Element && !child.classList.contains('pf2-tabs')) || null;
+      if (content) content.classList.add('pf2-editor-content');
+    }
+    if (!content) return;
+    Array.from(jobRoot.querySelectorAll(':scope > .pf2-job-panel')).forEach((panel) => {
+      content.appendChild(panel);
+    });
+    const scrollColumn = jobRoot.closest('.pf2-scroll-column');
+    if (!scrollColumn) return;
+    Array.from(scrollColumn.querySelectorAll(':scope > .pf2-route-section.pf2-view-jobs.pf2-job-panel:not(.pf2-preview-route)')).forEach((panel) => {
+      content.appendChild(panel);
+    });
+  }
+  function attach() {
+    wrapScrollableColumns();
+    normalizeJobEditorPanels();
+    document.querySelectorAll('.pf2-phone-stage').forEach((stage) => observer.observe(stage));
+    updatePhoneScale();
+    scheduleCentralScrollRestore();
+  }
+  if (!window.__pf2LayoutMutationBridgeReady) {
+    window.__pf2LayoutMutationBridgeReady = true;
+    const mutationObserver = new MutationObserver(() => {
+      window.requestAnimationFrame(attach);
+    });
+    if (document.body) {
+      mutationObserver.observe(document.body, { childList: true, subtree: true });
+    } else {
+      document.addEventListener('DOMContentLoaded', () => mutationObserver.observe(document.body, { childList: true, subtree: true }), { once: true });
+    }
+  }
+  if (!window.__pf2CentralWheelBridgeReady) {
+    window.__pf2CentralWheelBridgeReady = true;
+    document.addEventListener('pointerdown', () => rememberCentralScroll(), { capture: true });
+    document.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Tab') rememberCentralScroll();
+    }, { capture: true });
+    document.addEventListener('wheel', function(ev) {
+      const target = ev.target instanceof Element ? ev.target : null;
+      if (!target) return;
+      if (target.closest('.q-menu, .q-dialog, .pf2-preview-route, .pf2-phone-preview')) return;
+      const col = target.closest('.pf2-scroll-column');
+      if (!col) return;
+      const max = Math.max(0, col.scrollHeight - col.clientHeight);
+      if (max <= 0) return;
+      const delta = Number(ev.deltaY || 0);
+      if (!delta) return;
+      const before = col.scrollTop;
+      const next = Math.max(0, Math.min(max, before + delta));
+      if (next !== before) {
+        col.scrollTop = next;
+        const view = col.closest(scrollViewsSelector);
+        if (view) rememberCentralScroll(view);
+        ev.preventDefault();
+      }
+    }, { passive: false, capture: true });
+  }
+  window.addEventListener('resize', updatePhoneScale);
+  document.addEventListener('DOMContentLoaded', attach);
+  setInterval(attach, 1000);
+})();
+</script>
+""")
+
+
+def _pf2_state_count(state: str) -> int:
+    return sum(1 for job in PF2_DEMO_JOBS if str(job.get("state")) == state)
+
+
+def _pf2_pill(state: str) -> None:
+    state_key = str(state or PF2_JOB_STATE_NOT_STARTED)
+    ui.label(PF2_JOB_STATE_LABELS.get(state_key, "未開始")).classes(f"pf2-pill pf2-pill-{state_key}")
+
+
+def _pf2_scroll_button(label: str, target_id: str, icon_name: str = "arrow_downward") -> None:
+    safe_target = re.sub(r"[^a-zA-Z0-9_-]", "", str(target_id or ""))
+    ui.button(
+        label,
+        icon=icon_name,
+        on_click=lambda t=safe_target: ui.run_javascript(
+            f"document.getElementById('{t}')?.scrollIntoView({{behavior:'smooth', block:'start'}})"
+        ),
+    ).props("outline no-caps").classes("pf2-btn-soft")
+
+
+def _pf2_screen_tag(text: str) -> None:
+    ui.label(text).classes("pf2-screen-tag")
+
+
+def _pf2_section_title(tag: str, title: str, note: str = "") -> None:
+    _pf2_screen_tag(tag)
+    ui.label(title).classes("pf2-panel-title")
+    if note:
+        ui.label(note).classes("pf2-panel-note")
+
+
+def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
+    active_view = active_view if active_view in {"home", "jobs", "homepage", "history", "settings"} else "home"
+    state = {
+        "download_url": pf2_text(app.storage.user.get("pf2_last_download_url")),
+        "export_path": pf2_text(app.storage.user.get("pf2_last_export_path")),
+        "homepage_download_url": pf2_text(app.storage.user.get("pf2_last_homepage_download_url")),
+        "homepage_export_path": pf2_text(app.storage.user.get("pf2_last_homepage_export_path")),
+    }
+
+    def _active_project_id() -> str:
+        project = pf2_local_ensure_active_project()
+        store_project = pf2_local_set_active_project(pf2_text(project.get("project_id")))
+        if store_project:
+            project = store_project
+        app.storage.user["pf2_active_project_id"] = pf2_text(project.get("project_id"))
+        return pf2_text(project.get("project_id"))
+
+    @ui.refreshable
+    def live_panel():
+        active_pid = pf2_text(app.storage.user.get("pf2_active_project_id")) or _active_project_id()
+        project = pf2_local_get_project(active_pid) or pf2_local_ensure_active_project()
+        app.storage.user["pf2_active_project_id"] = pf2_text(project.get("project_id"))
+        job_id = pf2_job_id_for_project(project)
+        job = pf2_job_from_project(project, job_id)
+        public_check = pf2_public_check_job(job)
+        job["public_check"] = public_check
+        job["main_state"] = pf2_compute_job_state(job)
+        ext = pf2_ensure_extension(project)
+        homepage = ext.get("homepage") if isinstance(ext.get("homepage"), dict) else {}
+        settings = ext.get("settings") if isinstance(ext.get("settings"), dict) else {}
+        blocks_ = public_check.get("blocks") if isinstance(public_check.get("blocks"), list) else []
+        warnings = public_check.get("warnings") if isinstance(public_check.get("warnings"), list) else []
+        step2 = project.get("data", {}).get("step2", {})
+        publish = project.get("data", {}).get("publish", {})
+        page_blocks = project.get("data", {}).get("blocks", {}) if isinstance(project.get("data", {}).get("blocks"), dict) else {}
+        hero_block = page_blocks.get("hero") if isinstance(page_blocks.get("hero"), dict) else {}
+        philosophy_block = page_blocks.get("philosophy") if isinstance(page_blocks.get("philosophy"), dict) else {}
+        services_block = philosophy_block.get("services") if isinstance(philosophy_block.get("services"), dict) else {}
+        contact_block = page_blocks.get("contact") if isinstance(page_blocks.get("contact"), dict) else {}
+        access_block = page_blocks.get("access") if isinstance(page_blocks.get("access"), dict) else {}
+        recruitment_block = page_blocks.get("recruitment") if isinstance(page_blocks.get("recruitment"), dict) else {}
+        hp_hero_image = pf2_text(homepage.get("hero_image_url")) or pf2_text(hero_block.get("hero_image_url"))
+        hp_about_image = pf2_text(homepage.get("about_image_url")) or pf2_text(philosophy_block.get("image_url"))
+        hp_services_image = pf2_text(homepage.get("services_image_url")) or pf2_text(services_block.get("image_url"))
+        service_items_block = services_block.get("items") if isinstance(services_block.get("items"), list) else []
+        service_items_text = "\n".join(
+            f"{pf2_text(item.get('title'))}｜{pf2_text(item.get('body'))}".strip("｜")
+            for item in service_items_block
+            if isinstance(item, dict) and (pf2_text(item.get("title")) or pf2_text(item.get("body")))
+        )
+        interview_answers = homepage.get("interview") if isinstance(homepage.get("interview"), dict) else {}
+        selected_design_key = pf2_text(homepage.get("selected_design_key"))
+        assist_state = {"target": "", "field_key": "", "mode": "ask", "current": ""}
+        assist_widgets: dict[str, object] = {}
+        pf2_user = current_user()
+        local_role = pf2_effective_role(settings, pf2_user)
+
+        def _role_guard(action: str, label: str = "この操作") -> bool:
+            if pf2_role_allows(local_role, action):
+                return True
+            ui.notify(f"{PF2_ROLE_LABELS.get(local_role, '閲覧者')}は{label}を実行できません", type="negative")
+            return False
+
+        def _save_project_field(key: str, value: object) -> None:
+            if not _role_guard("edit", "案件情報の編集"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            p[key] = pf2_text(value)
+            pf2_local_save_project(p, active=True)
+
+        def _save_step2_field(key: str, value: object) -> None:
+            if not _role_guard("edit", "会社情報の編集"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            data = p.setdefault("data", {})
+            s2 = data.setdefault("step2", {})
+            s2[key] = pf2_text(value)
+            if key == "site_url":
+                profile = data.setdefault("blocks", {}).setdefault("philosophy", {}).setdefault("company_profile", {})
+                profile["site_url"] = pf2_text(value)
+            pf2_local_save_project(p, active=True)
+
+        def _save_publish_field(key: str, value: object) -> None:
+            if not _role_guard("edit", "公開URLの編集"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            data = p.setdefault("data", {})
+            pub = data.setdefault("publish", {})
+            pub[key] = pf2_text(value)
+            pf2_local_save_project(p, active=True)
+
+        def _save_homepage_field(key: str, value: object) -> None:
+            if not _role_guard("edit", "会社ページの編集"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            data = p.setdefault("data", {})
+            blocks = data.setdefault("blocks", {})
+            hero = blocks.setdefault("hero", {})
+            philosophy = blocks.setdefault("philosophy", {})
+            services = philosophy.setdefault("services", {})
+            contact = blocks.setdefault("contact", {})
+            access = blocks.setdefault("access", {})
+            recruitment = blocks.setdefault("recruitment", {})
+            ext2 = pf2_ensure_extension(p)
+            page = ext2.setdefault("homepage", {})
+            text_value = pf2_text(value)
+            page[key] = text_value
+            if key == "hero_sub_catch":
+                hero["sub_catch"] = text_value
+            elif key == "hero_image_url":
+                hero["hero_image_url"] = text_value
+            elif key == "about_title":
+                philosophy["title"] = text_value
+            elif key == "about_body":
+                philosophy["body"] = text_value
+            elif key == "about_points":
+                philosophy["points"] = [line.strip() for line in text_value.splitlines() if line.strip()]
+            elif key == "services_title":
+                services["title"] = text_value
+            elif key == "services_body":
+                services["lead"] = text_value
+            elif key == "services_items":
+                items = []
+                for line in text_value.splitlines():
+                    raw = line.strip()
+                    if not raw:
+                        continue
+                    if "｜" in raw:
+                        title, body = raw.split("｜", 1)
+                    elif "|" in raw:
+                        title, body = raw.split("|", 1)
+                    else:
+                        title, body = raw, ""
+                    items.append({"title": title.strip(), "body": body.strip()})
+                services["items"] = items
+            elif key == "recruitment_link_label":
+                recruitment["enabled"] = True
+                recruitment["title"] = text_value or "採用情報"
+            elif key == "recruitment_lead":
+                recruitment["enabled"] = True
+                recruitment["lead"] = text_value
+            elif key == "contact_button_text":
+                contact["button_text"] = text_value or "お問い合わせ"
+            elif key == "access_notes":
+                access["notes"] = text_value
+            pf2_local_save_project(p, active=True)
+
+        def _save_homepage_question(key: str, value: object) -> None:
+            if not _role_guard("edit", "会社ページ質問の編集"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            page = pf2_ensure_extension(p).setdefault("homepage", {})
+            interview = page.setdefault("interview", {})
+            interview[key] = pf2_text(value)
+            pf2_local_save_project(p, active=True)
+
+        def _homepage_question_step_key() -> str:
+            return f"pf2_homepage_question_step_{active_pid}"
+
+        def _homepage_question_step() -> int:
+            try:
+                raw = int(app.storage.user.get(_homepage_question_step_key(), 0) or 0)
+            except Exception:
+                raw = 0
+            return max(0, min(raw, len(PF2_FUTURE_CRAFT_QUESTIONS) - 1))
+
+        def _set_homepage_question_step(step: int) -> None:
+            app.storage.user[_homepage_question_step_key()] = max(0, min(int(step), len(PF2_FUTURE_CRAFT_QUESTIONS) - 1))
+            live_panel.refresh()
+
+        def _homepage_editor_tab_key() -> str:
+            return f"pf2_homepage_editor_tab_{active_pid}"
+
+        def _homepage_editor_tab() -> int:
+            try:
+                raw = int(app.storage.user.get(_homepage_editor_tab_key(), 0) or 0)
+            except Exception:
+                raw = 0
+            return max(0, min(raw, len(PF2_HOMEPAGE_TABS) - 1))
+
+        def _set_homepage_editor_tab(tab: int) -> None:
+            try:
+                selected = int(tab)
+            except Exception:
+                selected = 0
+            app.storage.user[_homepage_editor_tab_key()] = max(0, min(selected, len(PF2_HOMEPAGE_TABS) - 1))
+            live_panel.refresh()
+
+        def _apply_future_craft_answers() -> None:
+            if not _role_guard("edit", "会社ページ質問の反映"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            ext2 = pf2_ensure_extension(p)
+            page = ext2.setdefault("homepage", {})
+            answers = page.get("interview") if isinstance(page.get("interview"), dict) else {}
+            business = pf2_text(answers.get("business_summary"))
+            audience = pf2_text(answers.get("main_audience"))
+            first_message = pf2_text(answers.get("first_message"))
+            about_strength = pf2_text(answers.get("about_strength"))
+            service_outline = pf2_text(answers.get("service_outline"))
+            recruitment_goal = pf2_text(answers.get("recruitment_goal"))
+            visual_mood = pf2_text(answers.get("visual_mood"))
+            contact_note = pf2_text(answers.get("contact_note"))
+            if first_message:
+                p.setdefault("data", {}).setdefault("step2", {})["catch_copy"] = first_message
+            seed = {
+                "hero_sub_catch": f"{audience or '必要な方'}に、{business or '事業内容'}を分かりやすく伝えます。",
+                "about_title": "私たちについて",
+                "about_body": about_strength or "事業所の考え方や大切にしている支援を、地域の方に分かりやすく伝えます。",
+                "about_points": "\n".join([x for x in [visual_mood, "スマホで読みやすい情報整理", "事業内容が分かる構成"] if x]),
+                "services_title": "事業内容",
+                "services_body": service_outline or business or "提供しているサービスや支援内容を整理して掲載します。",
+                "services_items": "\n".join([
+                    f"{business or '主なサービス'}｜{service_outline or '日々の支援内容を分かりやすく紹介します。'}",
+                    f"安心材料｜{about_strength or '相談しやすい体制や支援方針を伝えます。'}",
+                    f"求人導線｜{recruitment_goal or '見学・応募・問い合わせへ進みやすくします。'}",
+                ]),
+                "recruitment_link_label": "採用情報",
+                "recruitment_lead": recruitment_goal or "仕事内容や働き方を確認し、見学や応募へ進めます。",
+                "contact_button_text": "お問い合わせ",
+                "access_notes": contact_note or "見学や応募前の相談も受け付けています。",
+            }
+            for key, value in seed.items():
+                page[key] = value
+            data = p.setdefault("data", {})
+            blocks = data.setdefault("blocks", {})
+            hero = blocks.setdefault("hero", {})
+            philosophy = blocks.setdefault("philosophy", {})
+            services = philosophy.setdefault("services", {})
+            contact = blocks.setdefault("contact", {})
+            access = blocks.setdefault("access", {})
+            recruitment = blocks.setdefault("recruitment", {})
+            hero["sub_catch"] = seed["hero_sub_catch"]
+            philosophy["title"] = seed["about_title"]
+            philosophy["body"] = seed["about_body"]
+            philosophy["points"] = [line for line in seed["about_points"].splitlines() if line]
+            services["title"] = seed["services_title"]
+            services["lead"] = seed["services_body"]
+            services["items"] = []
+            for line in seed["services_items"].splitlines():
+                if "｜" in line:
+                    title, body = line.split("｜", 1)
+                else:
+                    title, body = line, ""
+                services["items"].append({"title": title.strip(), "body": body.strip()})
+            recruitment["enabled"] = True
+            recruitment["title"] = seed["recruitment_link_label"]
+            recruitment["lead"] = seed["recruitment_lead"]
+            contact["button_text"] = seed["contact_button_text"]
+            access["notes"] = seed["access_notes"]
+            p = pf2_append_audit_log(p, "pf2_future_craft_answers_applied", target_type="homepage", target_id=pf2_text(p.get("project_id")))
+            pf2_local_save_project(p, active=True)
+            ui.notify("質問入力をページ内容へ反映しました", type="positive")
+            live_panel.refresh()
+
+        def _apply_design_proposal(key: str) -> None:
+            if not _role_guard("edit", "デザイン案の適用"):
+                return
+            proposal = next((item for item in PF2_FUTURE_CRAFT_PROPOSALS if item.get("key") == key), None)
+            if not proposal:
+                ui.notify("デザイン案が見つかりません", type="negative")
+                return
+            p = pf2_local_get_project(active_pid) or project
+            data = p.setdefault("data", {})
+            step1 = data.setdefault("step1", {})
+            step1["primary_color"] = proposal["color"]
+            step1["bg_strength"] = proposal["bg_strength"]
+            step1["bg_motion"] = proposal["bg_motion"]
+            step1["ui_strength"] = proposal["ui_strength"]
+            step1["ui_motion"] = proposal["ui_motion"]
+            step1["industry"] = step1.get("industry") or "福祉・介護"
+            step1["template_id"] = step1.get("template_id") or "welfare_v1"
+            step1["design_profile_id"] = build_completed_hp_design_profile(step1).get("profile_id", "")
+            page = pf2_ensure_extension(p).setdefault("homepage", {})
+            page["selected_design_key"] = key
+            page["selected_design_name"] = proposal["name"]
+            page["selected_design_summary"] = proposal["summary"]
+            p = pf2_append_audit_log(p, "pf2_homepage_design_applied", target_type="homepage", target_id=key, metadata={"name": proposal["name"]})
+            pf2_local_save_project(p, active=True)
+            ui.notify(f"{proposal['name']} を適用しました", type="positive")
+            live_panel.refresh()
+
+        def _save_pf2_setting(key: str, value: object) -> None:
+            if key == "local_role" and not HELP_MODE:
+                ui.notify("本番ではログイン権限を使用します", type="warning")
+                return
+            if key != "local_role" and not _role_guard("settings", "設定変更"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            ext2 = pf2_ensure_extension(p)
+            opts = ext2.setdefault("settings", {})
+            opts[key] = pf2_normalize_role(value) if key == "local_role" else (value if isinstance(value, bool) else pf2_text(value))
+            pf2_local_save_project(p, active=True)
+            live_panel.refresh()
+
+        def _save_job_field(key: str, value: object) -> None:
+            if not _role_guard("edit", "求人の編集"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            j = pf2_job_from_project(p, job_id)
+            old_value = j.get(key)
+            next_value = value if isinstance(value, bool) else pf2_text(value)
+            j[key] = next_value
+            if key in PF2_JOB_CONTENT_FIELDS and pf2_text(old_value) != pf2_text(next_value):
+                j["mobile_preview_checked_at"] = ""
+                j["last_public_check_at"] = ""
+                j["export_pack_generated_at"] = ""
+                if key in {"job_description", "appeal_text", "day_flow", "ideal_candidate", "application_method"}:
+                    j["ai_draft_human_confirmed_at"] = ""
+            j["public_check"] = pf2_public_check_job(j)
+            p = pf2_apply_job_to_project(p, j)
+            p = pf2_append_audit_log(p, "pf2_job_field_updated", target_type="job", target_id=job_id, metadata={"field": key})
+            pf2_local_save_project(p, active=True)
+
+        def _select_project(pid: str) -> None:
+            selected = pf2_local_set_active_project(pid)
+            if selected:
+                app.storage.user["pf2_active_project_id"] = pf2_text(selected.get("project_id"))
+                state["download_url"] = ""
+                state["export_path"] = ""
+                state["homepage_download_url"] = ""
+                state["homepage_export_path"] = ""
+                app.storage.user.pop("pf2_last_download_url", None)
+                app.storage.user.pop("pf2_last_export_path", None)
+                app.storage.user.pop("pf2_last_homepage_download_url", None)
+                app.storage.user.pop("pf2_last_homepage_export_path", None)
+            live_panel.refresh()
+
+        def _new_project() -> None:
+            if not _role_guard("create", "求人の新規作成"):
+                return
+            p = pf2_local_create_project("新しい求人")
+            app.storage.user["pf2_active_project_id"] = pf2_text(p.get("project_id"))
+            state["download_url"] = ""
+            state["export_path"] = ""
+            state["homepage_download_url"] = ""
+            state["homepage_export_path"] = ""
+            app.storage.user.pop("pf2_last_download_url", None)
+            app.storage.user.pop("pf2_last_export_path", None)
+            app.storage.user.pop("pf2_last_homepage_download_url", None)
+            app.storage.user.pop("pf2_last_homepage_export_path", None)
+            ui.notify("新しい求人を作成しました", type="positive")
+            live_panel.refresh()
+
+        def _save_now() -> None:
+            if not _role_guard("edit", "保存"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            j = pf2_job_from_project(p, job_id)
+            j["public_check"] = pf2_public_check_job(j)
+            p = pf2_apply_job_to_project(p, j)
+            pf2_local_save_project(p, active=True)
+            ui.notify("保存しました", type="positive")
+            live_panel.refresh()
+
+        def _run_public_check() -> None:
+            if not _role_guard("public_check", "公開前チェック"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            j = pf2_job_from_project(p, job_id)
+            j["last_public_check_at"] = now_jst_iso()
+            public_check = pf2_public_check_job(j)
+            try:
+                preview_project = pf2_apply_job_to_project(p, j)
+                preview_files = build_pageflowai2_site_files(preview_project)
+                try:
+                    jobposting = json.loads(preview_files.get(RECRUITMENT_JOBPOSTING_JSON_PATH, b"{}").decode("utf-8", errors="replace"))
+                except Exception:
+                    jobposting = {}
+                indeed_xml = preview_files.get(RECRUITMENT_INDEED_FEED_PATH, b"").decode("utf-8", errors="replace")
+                media_check = pf2_check_media_alignment(j, jobposting=jobposting, indeed_xml=indeed_xml)
+                public_check.setdefault("blocks", []).extend(media_check.get("blocks") if isinstance(media_check.get("blocks"), list) else [])
+                public_check.setdefault("warnings", []).extend(media_check.get("warnings") if isinstance(media_check.get("warnings"), list) else [])
+                public_check["media_alignment"] = media_check
+            except Exception:
+                public_check.setdefault("warnings", []).append({
+                    "field": "media_alignment",
+                    "label": "検索向け情報",
+                    "message": "検索向け情報とページ表示の一致確認を実行できませんでした",
+                })
+            j["public_check"] = public_check
+            p = pf2_apply_job_to_project(p, j)
+            p = pf2_append_public_check_run(p, job_id, j["public_check"])
+            p = pf2_append_audit_log(p, "pf2_public_check_run", target_type="job", target_id=job_id, metadata={
+                "block_count": len(j["public_check"].get("blocks", [])),
+                "warning_count": len(j["public_check"].get("warnings", [])),
+            })
+            pf2_local_save_project(p, active=True)
+            if j["public_check"].get("blocks"):
+                ui.notify("確認が必要な項目があります", type="warning")
+            else:
+                ui.notify("公開前チェックを実行しました", type="positive")
+            live_panel.refresh()
+
+        def _mark_mobile_checked() -> None:
+            if not _role_guard("edit", "スマホ表示確認"):
+                return
+            _save_job_field("mobile_preview_checked_at", now_jst_iso())
+            ui.notify("スマホ表示を確認済みにしました", type="positive")
+            live_panel.refresh()
+
+        def _job_wizard_answer() -> dict:
+            p = pf2_local_get_project(active_pid) or project
+            ext2 = pf2_ensure_extension(p)
+            answers = ext2.get("wizard_answers") if isinstance(ext2.get("wizard_answers"), dict) else {}
+            item = answers.get(job_id) if isinstance(answers.get(job_id), dict) else {}
+            return item
+
+        def _save_job_wizard_answer(key: str, value: object) -> None:
+            if not _role_guard("edit", "5つの質問の編集"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            ext2 = pf2_ensure_extension(p)
+            answers = ext2.setdefault("wizard_answers", {})
+            item = answers.get(job_id) if isinstance(answers.get(job_id), dict) else {}
+            item[key] = pf2_text(value)
+            item["job_id"] = job_id
+            item["pii_warning_confirmed"] = True
+            item["updated_at"] = now_jst_iso()
+            answers[job_id] = item
+            pf2_local_save_project(p, active=True)
+
+        def _job_wizard_step_key() -> str:
+            return f"pf2_job_wizard_step_{active_pid}_{job_id}"
+
+        def _job_wizard_step() -> int:
+            try:
+                raw = int(app.storage.user.get(_job_wizard_step_key(), 0) or 0)
+            except Exception:
+                raw = 0
+            return max(0, min(raw, len(PF2_JOB_WIZARD_KEYS) - 1))
+
+        def _set_job_wizard_step(step: int) -> None:
+            app.storage.user[_job_wizard_step_key()] = max(0, min(int(step), len(PF2_JOB_WIZARD_KEYS) - 1))
+            live_panel.refresh()
+
+        def _job_editor_tab_key() -> str:
+            return f"pf2_job_editor_tab_{active_pid}_{job_id}"
+
+        def _job_editor_tab() -> int:
+            try:
+                raw = int(app.storage.user.get(_job_editor_tab_key(), 0) or 0)
+            except Exception:
+                raw = 0
+            return max(0, min(raw, len(PF2_EDITOR_TABS) - 1))
+
+        def _set_job_editor_tab(tab: int) -> None:
+            try:
+                selected = int(tab)
+            except Exception:
+                selected = 0
+            app.storage.user[_job_editor_tab_key()] = max(0, min(selected, len(PF2_EDITOR_TABS) - 1))
+            live_panel.refresh()
+
+        def _apply_job_wizard_answer() -> None:
+            if not _role_guard("edit", "5つの質問の反映"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            ext2 = pf2_ensure_extension(p)
+            answers = ext2.get("wizard_answers") if isinstance(ext2.get("wizard_answers"), dict) else {}
+            item = answers.get(job_id) if isinstance(answers.get(job_id), dict) else {}
+            item["pii_warning_confirmed"] = True
+            validation = pf2_validate_wizard_answer(item)
+            if validation.get("blocks"):
+                ui.notify("5つの質問に確認が必要な内容があります", type="negative")
+                return
+            j = pf2_job_from_project(p, job_id)
+            seed = pf2_job_seed_from_wizard_answer(item)
+            for key, value in seed.items():
+                if pf2_text(value):
+                    j[key] = value
+            j["mobile_preview_checked_at"] = ""
+            j["last_public_check_at"] = ""
+            j["export_pack_generated_at"] = ""
+            j["ai_draft_human_confirmed_at"] = ""
+            p = pf2_apply_job_to_project(p, j)
+            p = pf2_append_audit_log(p, "pf2_job_wizard_applied", target_type="job", target_id=job_id, metadata={"warning_count": len(validation.get("warnings", []))})
+            pf2_local_save_project(p, active=True)
+            ui.notify("5つの質問から下書きを入れました", type="positive")
+            live_panel.refresh()
+
+        def _create_sample_project() -> None:
+            if not _role_guard("create", "サンプル求人の作成"):
+                return
+            p = pf2_local_create_project("架空サンプル求人")
+            sample_job_id = pf2_job_id_for_project(p)
+            sample_job = pf2_job_from_project(p, sample_job_id)
+            sample_job.update({
+                "title": "生活支援スタッフ",
+                "employment_type": "正社員",
+                "workplace": "架空市サンプル町1-2-3",
+                "workplace_change_scope": "変更範囲なし",
+                "job_description": "共同生活援助の現場で、食事準備、生活支援、記録、申し送りをチームで分担します。",
+                "job_change_scope": "変更範囲なし",
+                "salary_note": "月給200,000円から",
+                "salary_breakdown": "基本給180,000円、処遇改善手当20,000円",
+                "working_hours": "9:00-18:00",
+                "break_time": "60分",
+                "holidays": "週休2日",
+                "trial_period": "3か月",
+                "social_insurance": "法定通り加入",
+                "passive_smoking_policy": "屋内禁煙",
+                "appeal_text": "架空データです。入職後は先輩が同行し、日々の流れを確認しながら仕事を覚える想定です。",
+                "day_flow": "9:00 出勤・申し送り\n10:00 生活支援\n12:00 休憩\n14:00 記録・活動支援\n17:00 振り返り\n18:00 退勤",
+                "ideal_candidate": "利用者さんの生活ペースを大切にし、チームで落ち着いて対応できる方を想定しています。",
+                "application_method": "見学や応募について、問い合わせフォームから相談する想定です。",
+                "contract_period_type": "no_fixed_term",
+            })
+            p.setdefault("data", {}).setdefault("step2", {}).update({
+                "company_name": "架空サンプル法人",
+                "email": "sample@example.test",
+                "phone": "03-0000-0000",
+                "address": "架空市サンプル町1-2-3",
+            })
+            p = pf2_apply_job_to_project(p, sample_job)
+            p = pf2_append_audit_log(p, "pf2_sample_job_created", target_type="job", target_id=sample_job_id)
+            p = pf2_local_save_project(p, active=True)
+            app.storage.user["pf2_active_project_id"] = pf2_text(p.get("project_id"))
+            ui.notify("架空サンプル求人を作成しました", type="positive")
+            live_panel.refresh()
+
+        def _clear_ai_logs() -> None:
+            if not _role_guard("log_delete", "入力補助の記録削除"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            ext2 = pf2_ensure_extension(p)
+            ext2["ai_drafts"] = {}
+            p = pf2_append_audit_log(p, "pf2_ai_logs_deleted", target_type="settings", target_id=pf2_text(p.get("project_id")))
+            pf2_local_save_project(p, active=True)
+            ui.notify("この案件の入力補助の記録を削除しました", type="positive")
+            live_panel.refresh()
+
+        def _confirm_ai_draft(original_text: str, edited_text: str, checks: dict, low_edit_accepted: bool) -> None:
+            if not _role_guard("edit", "入力補助文の確認"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            j = pf2_job_from_project(p, job_id)
+            allowed_numbers = pf2_extract_number_tokens(" ".join([
+                pf2_text(j.get("salary_note")),
+                pf2_text(j.get("working_hours")),
+                pf2_text(j.get("holidays")),
+                pf2_text(j.get("trial_period")),
+                pf2_text(j.get("appeal_text")),
+                pf2_text(j.get("day_flow")),
+            ]))
+            edited_body = pf2_text(edited_text)
+            original_body = pf2_text(original_text) or edited_body
+            scan = pf2_scan_ai_draft(edited_body, allowed_numbers=allowed_numbers)
+            if not edited_body:
+                ui.notify("確認後の文章を入力してください", type="warning")
+                return
+            if not scan.get("passed"):
+                ui.notify("入力補助文に確認が必要な表現があります", type="negative")
+                return
+            required_checks = ["scope_ok", "time_ok", "actual_ok", "responsibility_ok"]
+            if not all(bool(checks.get(key)) for key in required_checks):
+                ui.notify("確認項目をすべて確認してください", type="warning")
+                return
+            edit_ratio = pf2_edit_distance_ratio(original_body, edited_body)
+            if edit_ratio < 0.15 and not low_edit_accepted:
+                ui.notify("ほぼ原文のままです。施設の実情に合うか明示確認してください", type="warning")
+                return
+            j["ai_draft_used"] = True
+            j["ai_draft_human_confirmed_at"] = now_jst_iso()
+            ext2 = pf2_ensure_extension(p)
+            draft_id = "draft-" + datetime.now(JST).strftime("%Y%m%d%H%M%S")
+            ext2.setdefault("ai_drafts", {})[draft_id] = {
+                "draft_id": draft_id,
+                "job_id": job_id,
+                "provider": "input_assist",
+                "generated_text": original_body,
+                "edited_text": edited_body,
+                "scan": scan,
+                "confirmation_items": dict(checks),
+                "edit_distance_ratio": edit_ratio,
+                "human_confirmed": True,
+                "human_confirmed_at": j["ai_draft_human_confirmed_at"],
+                "retention_days": PF2_AI_PUBLIC_LOG_RETENTION_DAYS,
+            }
+            p = pf2_apply_job_to_project(p, j)
+            p = pf2_append_audit_log(p, "pf2_ai_draft_confirmed", target_type="job", target_id=job_id, metadata={"draft_id": draft_id})
+            p = pf2_prune_ai_drafts(p)
+            pf2_local_save_project(p, active=True)
+            ui.notify("入力補助文を確認済みにしました", type="positive")
+            live_panel.refresh()
+
+        def _apply_job_seed(seed: dict, source: str) -> None:
+            if not _role_guard("field_assist", "求人入力補助"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            j = pf2_job_from_project(p, job_id)
+            allowed = {"title", "job_description", "appeal_text", "day_flow", "ideal_candidate", "application_method"}
+            for key in allowed:
+                if key in seed:
+                    j[key] = pf2_text(seed.get(key))
+            j["mobile_preview_checked_at"] = ""
+            j["last_public_check_at"] = ""
+            j["export_pack_generated_at"] = ""
+            j["ai_draft_human_confirmed_at"] = ""
+            j["public_check"] = pf2_public_check_job(j)
+            p = pf2_apply_job_to_project(p, j)
+            p = pf2_append_audit_log(p, "pf2_api_job_seed_applied", target_type="job", target_id=job_id, metadata={"source": source})
+            pf2_local_save_project(p, active=True)
+            ui.notify("求人ページの入力欄に下書きを入れました", type="positive")
+            live_panel.refresh()
+
+        def _api_fill_job() -> None:
+            if not _role_guard("field_assist", "求人入力補助"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            j = pf2_job_from_project(p, job_id)
+            ext2 = pf2_ensure_extension(p)
+            opts = ext2.get("settings") if isinstance(ext2.get("settings"), dict) else {}
+            provider = pf2_available_ai_provider(opts)
+            if pf2_ai_provider_ready(provider):
+                result = pf2_call_ai_text(provider, pf2_build_job_seed_prompt(p, j), settings=opts)
+                payload = pf2_json_object_from_text(result.get("text", "")) if result.get("ok") else {}
+                scan_text = "\n".join(pf2_text(payload.get(k)) for k in ["title", "job_description", "appeal_text", "day_flow", "ideal_candidate", "application_method"])
+                scan = pf2_scan_ai_draft(scan_text, allowed_numbers=pf2_extract_number_tokens(" ".join([
+                    pf2_text(j.get("salary_note")),
+                    pf2_text(j.get("working_hours")),
+                    pf2_text(j.get("holidays")),
+                    pf2_text(j.get("trial_period")),
+                ])))
+                if payload and scan.get("passed"):
+                    _apply_job_seed(payload, provider)
+                    return
+                ui.notify("確認が必要な表現があったため、基本の下書きに切り替えました", type="info")
+            else:
+                ui.notify("基本の下書きを入れました。必要に応じて文章を直してください", type="positive")
+            _apply_job_seed(pf2_local_job_seed(j), "local_fallback")
+
+        def _apply_homepage_seed(seed: dict, source: str) -> None:
+            if not _role_guard("field_assist", "会社ページ入力補助"):
+                return
+            if pf2_text(seed.get("catch_copy")):
+                _save_step2_field("catch_copy", pf2_text(seed.get("catch_copy")))
+            for key, value in seed.items():
+                if key == "catch_copy":
+                    continue
+                _save_homepage_field(key, value)
+            p = pf2_local_get_project(active_pid) or project
+            p = pf2_append_audit_log(p, "pf2_api_homepage_seed_applied", target_type="homepage", target_id=pf2_text(p.get("project_id")), metadata={"source": source})
+            pf2_local_save_project(p, active=True)
+            ui.notify("会社ページの入力欄に下書きを入れました", type="positive")
+            live_panel.refresh()
+
+        def _api_fill_homepage() -> None:
+            if not _role_guard("field_assist", "会社ページ入力補助"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            ext2 = pf2_ensure_extension(p)
+            opts = ext2.get("settings") if isinstance(ext2.get("settings"), dict) else {}
+            provider = pf2_available_ai_provider(opts)
+            if pf2_ai_provider_ready(provider):
+                result = pf2_call_ai_text(provider, pf2_build_homepage_seed_prompt(p), settings=opts)
+                payload = pf2_json_object_from_text(result.get("text", "")) if result.get("ok") else {}
+                scan_text = "\n".join(pf2_text(v) for v in payload.values())
+                scan = pf2_scan_ai_draft(scan_text, allowed_numbers=[])
+                if payload and scan.get("passed"):
+                    _apply_homepage_seed(payload, provider)
+                    return
+                ui.notify("確認が必要な表現があったため、基本の下書きに切り替えました", type="info")
+            else:
+                ui.notify("基本の下書きを入れました。必要に応じて文章を直してください", type="positive")
+            _apply_homepage_seed(pf2_local_homepage_seed(p), "local_fallback")
+
+        async def _upload_pf2_image(e, slot: str) -> None:
+            if not _role_guard("upload", "画像アップロード"):
+                return
+            try:
+                if slot in {"logo", "favicon"}:
+                    data_url, fname = await _upload_event_to_data_url(e, max_w=640, max_h=192, force_png=True, fit_mode="contain", trim_transparent=True)
+                else:
+                    data_url, fname = await _upload_event_to_data_url(e, max_w=1280, max_h=720, force_png=False, fit_mode="cover", trim_transparent=False)
+                if not data_url:
+                    ui.notify("画像を読み込めませんでした", type="negative")
+                    return
+                p = pf2_local_get_project(active_pid) or project
+                data = p.setdefault("data", {})
+                step = data.setdefault("step2", {})
+                blocks = data.setdefault("blocks", {})
+                ext2 = pf2_ensure_extension(p)
+                page = ext2.setdefault("homepage", {})
+                short = _short_name(fname)
+                if slot == "logo":
+                    step["logo_url"] = data_url
+                    step["logo_filename"] = short
+                elif slot == "favicon":
+                    step["favicon_url"] = data_url
+                    step["favicon_filename"] = short
+                elif slot == "hero":
+                    blocks.setdefault("hero", {})["hero_image_url"] = data_url
+                    page["hero_image_url"] = data_url
+                    page["hero_image_filename"] = short
+                elif slot == "about":
+                    blocks.setdefault("philosophy", {})["image_url"] = data_url
+                    page["about_image_url"] = data_url
+                    page["about_image_filename"] = short
+                elif slot == "services":
+                    services = blocks.setdefault("philosophy", {}).setdefault("services", {})
+                    services["image_url"] = data_url
+                    page["services_image_url"] = data_url
+                    page["services_image_filename"] = short
+                elif slot == "recruitment":
+                    recruitment = blocks.setdefault("recruitment", {})
+                    recruitment["image_url"] = data_url
+                    recruitment["image_filename"] = short
+                    page["recruitment_image_url"] = data_url
+                    page["recruitment_image_filename"] = short
+                p = pf2_append_audit_log(p, "pf2_homepage_image_uploaded", target_type="homepage", target_id=slot, metadata={"filename": short})
+                pf2_local_save_project(p, active=True)
+                ui.notify("画像を反映しました", type="positive")
+                live_panel.refresh()
+            except Exception as ex:
+                ui.notify(f"画像アップロードに失敗しました: {sanitize_error_text(ex)}", type="negative")
+
+        def _clear_pf2_image(slot: str) -> None:
+            if not _role_guard("edit", "画像の削除"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            data = p.setdefault("data", {})
+            step = data.setdefault("step2", {})
+            blocks = data.setdefault("blocks", {})
+            page = pf2_ensure_extension(p).setdefault("homepage", {})
+            if slot == "logo":
+                step["logo_url"] = ""
+                step["logo_filename"] = ""
+            elif slot == "favicon":
+                step["favicon_url"] = ""
+                step["favicon_filename"] = ""
+            elif slot == "hero":
+                blocks.setdefault("hero", {})["hero_image_url"] = ""
+                page["hero_image_url"] = ""
+                page["hero_image_filename"] = ""
+            elif slot == "about":
+                blocks.setdefault("philosophy", {})["image_url"] = ""
+                page["about_image_url"] = ""
+                page["about_image_filename"] = ""
+            elif slot == "services":
+                services = blocks.setdefault("philosophy", {}).setdefault("services", {})
+                services["image_url"] = ""
+                page["services_image_url"] = ""
+                page["services_image_filename"] = ""
+            elif slot == "recruitment":
+                recruitment = blocks.setdefault("recruitment", {})
+                recruitment["image_url"] = ""
+                recruitment["image_filename"] = ""
+                page["recruitment_image_url"] = ""
+                page["recruitment_image_filename"] = ""
+            else:
+                ui.notify("素材の種類が見つかりません", type="warning")
+                return
+            p = pf2_append_audit_log(p, "pf2_homepage_image_cleared", target_type="homepage", target_id=slot)
+            pf2_local_save_project(p, active=True)
+            ui.notify("画像を外しました", type="positive")
+            live_panel.refresh()
+
+        def _generate_pack() -> None:
+            if not _role_guard("export", "公開用ファイル作成"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            result = pf2_local_export_project(p, job_id)
+            if not result.get("ok"):
+                ui.notify(str(result.get("message") or "公開用ファイルを作成できません"), type="negative")
+                live_panel.refresh()
+                return
+            key = _register_export_zip(result["zip_bytes"], str(result.get("filename") or "pageflowai2.zip"))
+            state["download_url"] = f"/export_zip/{key}"
+            state["export_path"] = str(result.get("zip_path") or "")
+            app.storage.user["pf2_last_download_url"] = state["download_url"]
+            app.storage.user["pf2_last_export_path"] = state["export_path"]
+            ui.notify("公開用ファイルを作成しました", type="positive")
+            live_panel.refresh()
+
+        def _generate_homepage_pack() -> None:
+            if not _role_guard("export", "会社ページ用の公開ファイル作成"):
+                return
+            p = pf2_local_get_project(active_pid) or project
+            result = pf2_local_export_homepage_project(p)
+            if not result.get("ok"):
+                ui.notify(str(result.get("message") or "会社ページ用の公開ファイルを作成できません"), type="negative")
+                live_panel.refresh()
+                return
+            key = _register_export_zip(result["zip_bytes"], str(result.get("filename") or "pageflowai2-homepage.zip"))
+            state["homepage_download_url"] = f"/export_zip/{key}"
+            state["homepage_export_path"] = str(result.get("zip_path") or "")
+            app.storage.user["pf2_last_homepage_download_url"] = state["homepage_download_url"]
+            app.storage.user["pf2_last_homepage_export_path"] = state["homepage_export_path"]
+            ui.notify("会社ページ用の公開ファイルを作成しました", type="positive")
+            live_panel.refresh()
+
+        def _live_preview_url(file_path: str, *, focus: str = "", light: bool = True) -> str:
+            safe_pid = re.sub(r"[^A-Za-z0-9_.-]+", "", active_pid) or "active"
+            safe_path = _pf2_safe_preview_file_path(file_path) or "index.html"
+            version_seed = pf2_text(project.get("updated_at")) or pf2_text(job.get("updated_at")) or now_jst_iso()
+            params = [f"preview=phone", f"light={'1' if light else '0'}"]
+            if focus:
+                params.append(f"focus={quote_plus(re.sub(r'[^a-zA-Z0-9_-]+', '', focus))}")
+            params.append(f"v={quote_plus(version_seed)}")
+            return f"/pf2/live-preview/{safe_pid}/{safe_path}?{'&'.join(params)}"
+
+        def _preview_scroll_js(target: str) -> str:
+            safe_target = re.sub(r"[^a-zA-Z0-9_-]+", "", pf2_text(target))
+            return f"""
+(() => {{
+  const frames = Array.from(document.querySelectorAll('.pf2-generated-iframe')).filter((frame) => frame.offsetParent !== null);
+  const frame = frames[frames.length - 1];
+  if (!frame) return;
+  const doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+  if (!doc) return;
+    const scroller = doc.querySelector('[data-pf2-scroll]') || doc.scrollingElement || doc.documentElement;
+  if ({json.dumps(safe_target)} === 'top') {{
+    if (scroller === doc.scrollingElement || scroller === doc.documentElement) frame.contentWindow.scrollTo(0, 0);
+    else scroller.scrollTop = 0;
+    return;
+  }}
+  const target = ({json.dumps(safe_target)} === 'job-overview'
+    ? (doc.querySelector('#job-overview .pv-job-hero-card') || doc.getElementById('job-overview'))
+    : doc.getElementById({json.dumps(safe_target)})) || doc.querySelector('[data-pf2-preview-focus="job"]');
+  if (target) {{
+    const current = (scroller === doc.scrollingElement || scroller === doc.documentElement) ? (frame.contentWindow.scrollY || scroller.scrollTop || 0) : (scroller.scrollTop || 0);
+    const y = Math.max(0, target.getBoundingClientRect().top + current - 8);
+    if (scroller === doc.scrollingElement || scroller === doc.documentElement) frame.contentWindow.scrollTo(0, y);
+    else scroller.scrollTop = y;
+  }}
+}})()
+"""
+
+        def _preview_controls(src_url: str, *, job_focus: bool = False) -> None:
+            with ui.element("div").classes("pf2-preview-actions"):
+                if job_focus:
+                    ui.button("仕事内容から見る", icon="work_outline", on_click=lambda: ui.run_javascript(_preview_scroll_js("job-overview"))).props("outline dense no-caps")
+                ui.button("ページ上部から見る", icon="vertical_align_top", on_click=lambda: ui.run_javascript(_preview_scroll_js("top"))).props("outline dense no-caps")
+                ui.button("拡大して確認", icon="open_in_new", on_click=lambda url=src_url: ui.run_javascript(f"window.open({json.dumps(url)}, '_blank')")).props("outline dense no-caps")
+
+        def _generated_preview_frame(title: str, file_path: str, *, focus: str = "", light: bool = True) -> None:
+            raw_src = _live_preview_url(file_path, focus=focus, light=light)
+            src = raw_src.replace('"', "%22")
+            safe_title = html.escape(title, quote=True)
+            with ui.element("div").classes("pf2-preview-frame"):
+                _preview_controls(raw_src, job_focus=focus == "job")
+                with ui.element("div").classes("pf2-phone-preview pf2-generated-preview"):
+                    with ui.element("div").classes("pf2-phone-stage"):
+                        with ui.element("div").classes("pf2-phone-viewport"):
+                            ui.element("iframe").classes("pf2-generated-iframe").props(f'src="{src}" title="{safe_title}"')
+
+        def _input(label: str, value: str, on_change, *, hint: str = "", textarea: bool = False):
+            def _commit(widget) -> None:
+                next_value = getattr(widget, "value", "")
+                if pf2_text(next_value) == pf2_text(value):
+                    return
+
+                class _CommitEvent:
+                    def __init__(self, next_value):
+                        self.value = next_value
+
+                on_change(_CommitEvent(next_value))
+                live_panel.refresh()
+
+            if textarea:
+                widget = ui.textarea(label, value=value).props(f"outlined autogrow rows=2 hint=\"{hint}\"").classes("w-full")
+                widget.on("blur", lambda e, widget=widget: _commit(widget))
+                return widget
+            widget = ui.input(label, value=value).props(f"outlined dense hint=\"{hint}\"").classes("w-full")
+            widget.on("blur", lambda e, widget=widget: _commit(widget))
+            widget.on("keydown.enter", lambda e, widget=widget: _commit(widget))
+            return widget
+
+        def _assist_current_value(target: str, field_key: str) -> str:
+            p = pf2_local_get_project(active_pid) or project
+            if target == "job":
+                return pf2_text(pf2_job_from_project(p, job_id).get(field_key))
+            if field_key == "catch_copy":
+                return pf2_text(p.get("data", {}).get("step2", {}).get("catch_copy"))
+            page = pf2_ensure_extension(p).get("homepage") if isinstance(pf2_ensure_extension(p).get("homepage"), dict) else {}
+            return pf2_text(page.get(field_key))
+
+        def _apply_assist_value(target: str, field_key: str, value: str, mode: str, source: str) -> None:
+            if not _role_guard("field_assist", "入力補助結果の反映"):
+                return
+            if not pf2_text(value):
+                ui.notify("反映する文章がありません", type="warning")
+                return
+            if target == "job":
+                _save_job_field(field_key, value)
+            elif target == "homepage" and field_key == "catch_copy":
+                _save_step2_field("catch_copy", value)
+            elif target == "homepage":
+                _save_homepage_field(field_key, value)
+            else:
+                ui.notify("反映先が見つかりません", type="negative")
+                return
+            p = pf2_local_get_project(active_pid) or project
+            p = pf2_append_audit_log(p, "pf2_field_assist_applied", target_type=target, target_id=field_key, metadata={"mode": mode, "source": source})
+            pf2_local_save_project(p, active=True)
+            ui.notify("入力枠へ反映しました", type="positive")
+            live_panel.refresh()
+
+        def _open_assist(target: str, field_key: str, mode: str = "ask") -> None:
+            rule = pf2_assist_rule(target, field_key)
+            if not rule:
+                ui.notify("この入力枠には入力補助の配置ルールがありません", type="warning")
+                return
+            assist_state["target"] = target
+            assist_state["field_key"] = field_key
+            assist_state["mode"] = mode
+            assist_state["current"] = _assist_current_value(target, field_key)
+            assist_body.refresh()
+            assist_dialog.open()
+
+        def _apply_assist_from_dialog() -> None:
+            target = pf2_text(assist_state.get("target"))
+            field_key = pf2_text(assist_state.get("field_key"))
+            mode = pf2_text(assist_state.get("mode")) or "ask"
+            current_widget = assist_widgets.get("current")
+            note_widget = assist_widgets.get("note")
+            current_text = pf2_text(getattr(current_widget, "value", "")) or pf2_text(assist_state.get("current"))
+            note_text = pf2_text(getattr(note_widget, "value", ""))
+            p = pf2_local_get_project(active_pid) or project
+            result = pf2_run_field_assist(p, target=target, field_key=field_key, current_value=current_text, user_note=note_text, mode=mode, settings=settings)
+            if not result.get("ok"):
+                ui.notify(pf2_text(result.get("message")) or "入力補助に失敗しました", type="negative")
+                return
+            p = pf2_record_ai_draft_log(
+                p,
+                job_id=job_id,
+                purpose=f"field_assist:{target}:{field_key}:{mode}",
+                provider=pf2_text(result.get("source")) or "input_assist",
+                input_snapshot={
+                    "target": target,
+                    "field_key": field_key,
+                    "mode": mode,
+                    "current_value": current_text,
+                    "user_note": note_text,
+                },
+                generated_text=pf2_text(result.get("value")),
+                edited_text="",
+                scan=result.get("scan") if isinstance(result.get("scan"), dict) else {},
+                retention_days=PF2_AI_LOG_RETENTION_DAYS,
+            )
+            pf2_local_save_project(p, active=True)
+            assist_dialog.close()
+            _apply_assist_value(target, field_key, pf2_text(result.get("value")), mode, pf2_text(result.get("source")) or "assist")
+
+        def _assist_controls(target: str, field_key: str) -> None:
+            rule = pf2_assist_rule(target, field_key)
+            if not rule:
+                return
+            with ui.element("div").classes("pf2-assist-actions"):
+                ui.button("質問で作る", icon="chat_bubble_outline", on_click=lambda target=target, field_key=field_key: _open_assist(target, field_key, "ask")).props("outline dense no-caps")
+                ui.button("読みやすく整える", icon="auto_fix_high", on_click=lambda target=target, field_key=field_key: _open_assist(target, field_key, "polish")).props("outline dense no-caps")
+                if rule.get("region"):
+                    ui.button("地域らしさを足す", icon="place", on_click=lambda target=target, field_key=field_key: _open_assist(target, field_key, "region")).props("outline dense no-caps")
+
+        def _input_with_assist(label: str, value: str, on_change, *, target: str, field_key: str, hint: str = "", textarea: bool = False) -> None:
+            with ui.element("div").classes("pf2-assist-field"):
+                rule = pf2_assist_rule(target, field_key)
+                effect_note = PF2_FIELD_EFFECT_NOTES.get((pf2_text(target), pf2_text(field_key)), "")
+                if effect_note:
+                    ui.label(effect_note).classes("pf2-mini-help")
+                if rule:
+                    ui.label(f"この欄だけに反映: {pf2_text(rule.get('label')) or label}").classes("pf2-assist-scope")
+                _input(label, value, on_change, hint=hint, textarea=textarea)
+                _assist_controls(target, field_key)
+
+        with ui.dialog() as assist_dialog, ui.card().classes("q-pa-md rounded-borders").style("width:min(720px, 94vw);"):
+            @ui.refreshable
+            def assist_body():
+                target = pf2_text(assist_state.get("target"))
+                field_key = pf2_text(assist_state.get("field_key"))
+                mode = pf2_text(assist_state.get("mode")) or "ask"
+                rule = pf2_assist_rule(target, field_key)
+                label = pf2_text(rule.get("label")) or field_key
+                mode_label = {"ask": "必要なことを聞き出す", "polish": "文章を読みやすく整える", "region": "地域性を自然に反映する"}.get(mode, "入力補助")
+                ui.label(f"{label} の入力補助").classes("pf2-panel-title")
+                ui.label(mode_label).classes("pf2-panel-note")
+                ui.label(f"反映先: {label} だけに反映します。ほかの入力枠や労働条件は変更しません。").classes("pf2-warning q-mt-sm")
+                ui.label("個人名、応募者名、職員名、利用者名、病歴、障害特性、家庭事情、メールアドレス、電話番号は入れないでください。").classes("pf2-mini-help")
+                questions = rule.get("questions") if isinstance(rule.get("questions"), list) else []
+                if questions:
+                    with ui.element("div").classes("pf2-checklist"):
+                        for q in questions:
+                            with ui.element("div").classes("pf2-check"):
+                                ui.label("・").classes("pf2-check-mark")
+                                ui.label(pf2_text(q))
+                assist_widgets["current"] = ui.textarea("現在の入力", value=pf2_text(assist_state.get("current"))).props("outlined autogrow rows=3").classes("w-full q-mt-md")
+                assist_widgets["note"] = ui.textarea("回答・メモ", value="").props("outlined autogrow rows=3 hint=\"質問への回答や、入れたい地域名・雰囲気を書いてください\"").classes("w-full q-mt-sm")
+                with ui.row().classes("q-gutter-sm q-mt-md"):
+                    ui.button("入力枠へ反映", icon="check", on_click=_apply_assist_from_dialog).props("color=primary unelevated no-caps")
+                    ui.button("閉じる", on_click=assist_dialog.close).props("flat no-caps")
+
+            assist_body()
+
+        with ui.element("section").props("id=pf2-home").classes("pf2-section pf2-panel pf2-route-section pf2-view-home"):
+            _pf2_section_title("Today", "今日はこの求人を確認しましょう", "迷ったら、ここに出ている1つだけ進めれば大丈夫です。")
+            next_action = pf2_next_action_for_job(job)
+            is_blank_job = job["main_state"] == PF2_JOB_STATE_NOT_STARTED and not pf2_text(job.get("title"))
+            if is_blank_job:
+                with ui.element("div").classes("pf2-launch-grid q-mt-md"):
+                    for icon_name, title, note, handler, color in [
+                        ("visibility", "架空サンプル求人を見る", "実在する法人・施設・職員・利用者の情報を使わないサンプルです。", _create_sample_project, "outline"),
+                        ("fact_check", "5つの質問で下書きを作る", "分かるところを選ぶだけで、仕事内容や安心材料のたたき台を作ります。", lambda: navigate_to(PF2_VIEW_ROUTES["jobs"]), "primary"),
+                        ("edit_note", "ゼロから新規作成する", "慣れている方向けに、求人編集画面から直接入力します。", lambda: navigate_to(PF2_VIEW_ROUTES["jobs"]), "outline"),
+                    ]:
+                        with ui.element("div").classes("pf2-launch"):
+                            ui.icon(icon_name).classes("pf2-choice-icon")
+                            ui.html(f"<strong>{html.escape(title)}</strong>")
+                            ui.label(note).classes("pf2-job-meta")
+                            ui.button(title, icon=icon_name, on_click=handler).props(("color=primary " if color == "primary" else "outline ") + "no-caps dense").classes("q-mt-sm")
+            else:
+                with ui.element("div").classes("pf2-grid q-mt-md"):
+                    with ui.element("div").classes("pf2-panel"):
+                        ui.label(next_action["label"]).classes("pf2-panel-title")
+                        ui.label(next_action["detail"]).classes("pf2-panel-note")
+                        ui.button(next_action["action_label"], icon="arrow_forward", on_click=lambda route=next_action["route"]: navigate_to(route)).props("color=primary unelevated no-caps").classes("q-mt-md")
+                    with ui.element("div").classes("pf2-panel"):
+                        ui.label("求人の状態").classes("pf2-panel-title")
+                        ui.label(PF2_JOB_STATE_LABELS.get(job["main_state"], "未開始")).classes(f"pf2-pill pf2-pill-{job['main_state']} q-mt-sm")
+                        ui.label(PF2_JOB_STATE_DESCRIPTIONS.get(job["main_state"], "")).classes("pf2-panel-note q-mt-sm")
+
+            projects = pf2_local_list_projects()
+            state_counts = {key: 0 for key in PF2_JOB_STATE_LABELS}
+            for item in projects:
+                item_job = pf2_job_from_project(item, pf2_job_id_for_project(item))
+                state_counts[item_job.get("main_state", PF2_JOB_STATE_NOT_STARTED)] = state_counts.get(item_job.get("main_state", PF2_JOB_STATE_NOT_STARTED), 0) + 1
+            with ui.element("div").classes("pf2-state-grid q-mt-md"):
+                for state_key, label in PF2_JOB_STATE_LABELS.items():
+                    with ui.element("div").classes("pf2-state"):
+                        ui.label(str(state_counts.get(state_key, 0))).classes("pf2-state-count")
+                        ui.label(label).classes("pf2-state-label")
+                        ui.label(PF2_JOB_STATE_DESCRIPTIONS.get(state_key, "")).classes("pf2-state-desc")
+
+            if len(projects) >= 5:
+                dashboard_rows = pf2_dashboard_rows(projects, limit=8)
+                with ui.element("div").classes("pf2-panel q-mt-md"):
+                    ui.label("求人ダッシュボード").classes("pf2-panel-title")
+                    ui.label("求人が5件以上ある場合は、次に確認する求人を複数件まとめて確認できます。").classes("pf2-panel-note")
+                    with ui.element("div").classes("pf2-checklist q-mt-md"):
+                        for row in dashboard_rows:
+                            with ui.element("div").classes("pf2-job-row"):
+                                with ui.element("div"):
+                                    ui.label(row["project_name"]).classes("pf2-job-title")
+                                    ui.label(row["next_action_label"]).classes("pf2-job-meta")
+                                ui.label(PF2_JOB_STATE_LABELS.get(row["state"], "未開始")).classes(f"pf2-pill pf2-pill-{row['state']}")
+                                ui.label(f"確認項目 {row['block_count']}件").classes("pf2-job-meta")
+                                ui.label("公開用ファイルに含めます").classes("pf2-job-meta")
+                                ui.button("開く", on_click=lambda pid=row["project_id"]: _select_project(pid)).props("outline no-caps dense")
+
+            with ui.row().classes("q-gutter-sm q-mt-md"):
+                ui.button("新しい求人を作成", icon="add", on_click=_new_project).props("color=primary unelevated no-caps")
+                ui.button("求人を入力する", icon="edit", on_click=lambda: navigate_to(PF2_VIEW_ROUTES["jobs"])).props("outline no-caps")
+                ui.button("会社ページを作る", icon="language", on_click=lambda: navigate_to(PF2_VIEW_ROUTES["homepage"])).props("outline no-caps")
+                ui.button("公開用ファイルを作成", icon="archive", on_click=_generate_pack).props("color=positive unelevated no-caps")
+
+            if projects:
+                with ui.element("div").classes("pf2-checklist q-mt-md"):
+                    ui.label("求人一覧").classes("pf2-job-title")
+                    for item in projects:
+                        pid = pf2_text(item.get("project_id"))
+                        is_active = pid == active_pid
+                        row_job = pf2_job_from_project(item, pf2_job_id_for_project(item))
+                        with ui.element("div").classes("pf2-job-row"):
+                            with ui.element("div"):
+                                ui.label(pf2_text(item.get("project_name")) or pf2_text(row_job.get("title")) or "名称未設定").classes("pf2-job-title")
+                                ui.label(f"更新: {pf2_text(item.get('updated_at')) or '-'}").classes("pf2-job-meta")
+                            ui.label(PF2_JOB_STATE_LABELS.get(row_job.get("main_state"), "未開始")).classes(f"pf2-pill pf2-pill-{row_job.get('main_state', PF2_JOB_STATE_NOT_STARTED)}")
+                            ui.label(str(len(row_job.get("public_check", {}).get("blocks", [])))).classes("pf2-job-meta")
+                            ui.label("公開用ファイルに含めます").classes("pf2-job-meta")
+                            ui.button("編集中" if is_active else "開く", on_click=lambda pid=pid: _select_project(pid)).props(("color=primary " if is_active else "outline ") + "no-caps dense")
+
+        with ui.element("section").props("id=pf2-company-basic").classes("pf2-section pf2-panel pf2-route-section pf2-view-home pf2-view-jobs"):
+            _pf2_section_title("基本情報", "会社情報", "会社名・連絡先・公開ページURLに使う基本情報です。")
+            with ui.element("div").classes("pf2-field-grid q-mt-md"):
+                _input("管理用の名前", pf2_text(project.get("project_name")), lambda e: _save_project_field("project_name", e.value), hint="例: 生活支援スタッフ採用")
+                _input("会社名", pf2_clean_company_name(step2.get("company_name"), project.get("project_name")), lambda e: _save_step2_field("company_name", e.value), hint="例: 架空サンプル法人")
+                _input("問い合わせ用メール", pf2_text(step2.get("email")), lambda e: _save_step2_field("email", e.value), hint="例: recruit@example.com")
+                _input("電話番号", pf2_text(step2.get("phone")), lambda e: _save_step2_field("phone", e.value), hint="例: 03-0000-0000")
+                _input("所在地", pf2_text(step2.get("address")), lambda e: _save_step2_field("address", e.value), hint="例: 東京都...")
+                _input("公開ページのURL", pf2_text(publish.get("public_site_url")) or pf2_text(step2.get("site_url")), lambda e: (_save_publish_field("public_site_url", e.value), _save_step2_field("site_url", e.value)), hint="例: https://example.com/")
+
+        with ui.element("section").classes("pf2-section pf2-panel pf2-route-section pf2-view-homepage pf2-preview-route"):
+            ui.label("スマホで見える会社ページ").classes("pf2-panel-title")
+            ui.label("保存すると右の画面に反映されます。作成中は動きや地図を止めた軽い表示です。").classes("pf2-panel-note")
+            _generated_preview_frame("スマホで見える会社ページ", "index.html")
+
+        with ui.element("section").classes("pf2-section pf2-panel pf2-route-section pf2-view-jobs pf2-preview-route"):
+            ui.label("求職者に見える求人ページ").classes("pf2-panel-title")
+            ui.label("保存すると右の画面に反映されます。作成中は動きや地図を止めた軽い表示です。").classes("pf2-panel-note")
+            ui.button("この表示を確認しました", icon="smartphone", on_click=_mark_mobile_checked).props("color=primary unelevated no-caps dense").classes("q-mt-sm")
+            _generated_preview_frame("求職者に見える求人ページ", RECRUITMENT_PAGE_PATH, focus="job")
+
+        with ui.element("section").props("id=pf2-homepage").classes("pf2-section pf2-panel pf2-route-section pf2-view-homepage"):
+            _pf2_section_title("会社ページ", "会社の紹介ページを作る", "会社紹介・事業内容・問い合わせを、右側で実際の見え方として確認できます。")
+            with ui.element("div").classes("pf2-warning q-mt-md"):
+                ui.label("何を書けばよいか迷うときは、質問に答えるだけで下書きできます。各欄に入る文章だけを整えます。")
+                ui.button("質問に答えて会社ページの下書きを作る", icon="auto_awesome", on_click=_api_fill_homepage).props("color=primary unelevated no-caps")
+            with ui.element("div").classes("pf2-edit-grid q-mt-md"):
+                homepage_editor_tab = _homepage_editor_tab()
+                with ui.element("div").classes("pf2-tabs"):
+                    for idx, (tab_name, tab_note) in enumerate(PF2_HOMEPAGE_TABS):
+                        tab_button = ui.element("button").props(f"type=button data-testid=pf2-homepage-tab-{idx}").classes("pf2-tab pf2-tab-button" + (" is-active" if idx == homepage_editor_tab else ""))
+                        tab_button.on("click", lambda e, idx=idx: _set_homepage_editor_tab(idx))
+                        with tab_button:
+                            ui.html(f"<strong>{html.escape(tab_name)}</strong><span>{html.escape(tab_note)}</span>")
+                with ui.element("div").classes("pf2-editor-content"):
+                    active_homepage_tab_name = PF2_HOMEPAGE_TABS[homepage_editor_tab][0]
+                    ui.label(active_homepage_tab_name).classes("pf2-panel-title")
+                    ui.label(PF2_HOMEPAGE_TABS[homepage_editor_tab][1]).classes("pf2-panel-note")
+                    if homepage_editor_tab == 0:
+                        with ui.element("div").classes("pf2-homepage-group pf2-homepage-panel-0"):
+                            ui.label("会社基本").classes("pf2-panel-title")
+                            ui.label("会社名・連絡先・公開ページURLを入れます。求人ページと会社ページの両方に使います。").classes("pf2-panel-note")
+                            with ui.element("div").classes("pf2-field-grid q-mt-sm"):
+                                _input("管理用の名前", pf2_text(project.get("project_name")), lambda e: _save_project_field("project_name", e.value), hint="例: 生活支援スタッフ採用")
+                                _input("会社名", pf2_clean_company_name(step2.get("company_name"), project.get("project_name")), lambda e: _save_step2_field("company_name", e.value), hint="例: 架空サンプル法人")
+                                _input("問い合わせ用メール", pf2_text(step2.get("email")), lambda e: _save_step2_field("email", e.value), hint="例: recruit@example.com")
+                                _input("電話番号", pf2_text(step2.get("phone")), lambda e: _save_step2_field("phone", e.value), hint="例: 03-0000-0000")
+                                _input("所在地", pf2_text(step2.get("address")), lambda e: _save_step2_field("address", e.value), hint="例: 東京都...")
+                                _input("公開ページのURL", pf2_text(publish.get("public_site_url")) or pf2_text(step2.get("site_url")), lambda e: (_save_publish_field("public_site_url", e.value), _save_step2_field("site_url", e.value)), hint="例: https://example.com/")
+                    elif homepage_editor_tab == 1:
+                        with ui.element("div").classes("pf2-homepage-group pf2-homepage-panel-1"):
+                            ui.label("トップページ").classes("pf2-panel-title")
+                            ui.label("最初の画面に出る言葉とメイン画像を決めます。ここが会社ページの第一印象です。").classes("pf2-panel-note")
+                            with ui.element("div").classes("pf2-field-grid q-mt-sm"):
+                                _input_with_assist("トップページ見出し", pf2_text(step2.get("catch_copy")), lambda e: _save_step2_field("catch_copy", e.value), target="homepage", field_key="catch_copy", hint="例: 地域で暮らす毎日を支える")
+                                _input_with_assist("トップページ補足文", pf2_text(homepage.get("hero_sub_catch")) or pf2_text(hero_block.get("sub_catch")), lambda e: _save_homepage_field("hero_sub_catch", e.value), target="homepage", field_key="hero_sub_catch", hint="例: 見学・相談を受け付けています")
+                                _input("メイン画像URL", pf2_text(homepage.get("hero_image_url")) or pf2_text(hero_block.get("hero_image_url")), lambda e: _save_homepage_field("hero_image_url", e.value), hint="任意。画像URLを入力")
+                    elif homepage_editor_tab == 2:
+                        with ui.element("div").classes("pf2-homepage-group pf2-homepage-panel-2"):
+                            ui.label("会社紹介").classes("pf2-panel-title")
+                            ui.label("理念を長く書くより、日々大切にしていることを短く伝えます。").classes("pf2-panel-note")
+                            with ui.element("div").classes("pf2-field-grid q-mt-sm"):
+                                _input_with_assist("会社紹介見出し", pf2_text(homepage.get("about_title")) or pf2_text(philosophy_block.get("title")), lambda e: _save_homepage_field("about_title", e.value), target="homepage", field_key="about_title", hint="例: 私たちについて")
+                                _input_with_assist("会社紹介本文", pf2_text(homepage.get("about_body")) or pf2_text(philosophy_block.get("body")), lambda e: _save_homepage_field("about_body", e.value), target="homepage", field_key="about_body", hint="事業所の雰囲気や大切にしていること", textarea=True)
+                                _input_with_assist("大切にしていること", pf2_text(homepage.get("about_points")) or "\n".join(pf2_text(x) for x in philosophy_block.get("points", []) if pf2_text(x)), lambda e: _save_homepage_field("about_points", e.value), target="homepage", field_key="about_points", hint="1行に1つずつ入力", textarea=True)
+                    elif homepage_editor_tab == 3:
+                        with ui.element("div").classes("pf2-homepage-group pf2-homepage-panel-3"):
+                            ui.label("事業内容").classes("pf2-panel-title")
+                            ui.label("何をしている会社か、初めて見る人にも分かる言葉にします。").classes("pf2-panel-note")
+                            with ui.element("div").classes("pf2-field-grid q-mt-sm"):
+                                _input_with_assist("事業内容見出し", pf2_text(homepage.get("services_title")) or pf2_text(services_block.get("title")), lambda e: _save_homepage_field("services_title", e.value), target="homepage", field_key="services_title", hint="例: 事業内容")
+                                _input_with_assist("事業内容本文", pf2_text(homepage.get("services_body")) or pf2_text(services_block.get("lead")), lambda e: _save_homepage_field("services_body", e.value), target="homepage", field_key="services_body", hint="提供サービスや支援内容", textarea=True)
+                                _input_with_assist("サービス項目", pf2_text(homepage.get("services_items")) or service_items_text, lambda e: _save_homepage_field("services_items", e.value), target="homepage", field_key="services_items", hint="1行ずつ「タイトル｜本文」で入力", textarea=True)
+                    elif homepage_editor_tab == 4:
+                        with ui.element("div").classes("pf2-homepage-group pf2-homepage-panel-4"):
+                            ui.label("求人ページへのリンク設定").classes("pf2-panel-title")
+                            ui.label("会社ページを読んだ人が、求人ページへ迷わず進めるようにします。応募を煽る文は使いません。").classes("pf2-panel-note")
+                            with ui.element("div").classes("pf2-field-grid q-mt-sm"):
+                                _input_with_assist("求人ページへのリンク文言", pf2_text(homepage.get("recruitment_link_label")) or pf2_text(recruitment_block.get("title")) or "採用情報", lambda e: _save_homepage_field("recruitment_link_label", e.value), target="homepage", field_key="recruitment_link_label", hint="例: 採用情報")
+                                _input_with_assist("求人導線の説明文", pf2_text(homepage.get("recruitment_lead")) or pf2_text(recruitment_block.get("lead")), lambda e: _save_homepage_field("recruitment_lead", e.value), target="homepage", field_key="recruitment_lead", hint="例: 現在、一緒に働く仲間を募集しています。", textarea=True)
+                    elif homepage_editor_tab == 5:
+                        with ui.element("div").classes("pf2-homepage-group pf2-homepage-panel-5"):
+                            ui.label("問い合わせ・ポリシー").classes("pf2-panel-title")
+                            ui.label("見学や相談の前に、相手が安心できる一言を添えます。").classes("pf2-panel-note")
+                            with ui.element("div").classes("pf2-field-grid q-mt-sm"):
+                                _input_with_assist("問い合わせボタン文言", pf2_text(homepage.get("contact_button_text")) or pf2_text(contact_block.get("button_text")) or "お問い合わせ", lambda e: _save_homepage_field("contact_button_text", e.value), target="homepage", field_key="contact_button_text", hint="例: お問い合わせ")
+                                _input_with_assist("アクセス・問い合わせ補足", pf2_text(homepage.get("access_notes")) or pf2_text(access_block.get("notes")), lambda e: _save_homepage_field("access_notes", e.value), target="homepage", field_key="access_notes", hint="問い合わせ前に伝えたいこと", textarea=True)
+                                _input("ポリシー補足メモ", pf2_text(homepage.get("policy_note")), lambda e: _save_homepage_field("policy_note", e.value), hint="公開ページにはそのまま出しません。必要な注意だけ残せます。", textarea=True)
+                    else:
+                        with ui.element("div").classes("pf2-homepage-group pf2-homepage-panel-6"):
+                            ui.label("プレビュー・公開用ファイル").classes("pf2-panel-title")
+                            ui.label("右側で会社ページの見え方を確認し、問題なければ公開用ファイルを作成します。").classes("pf2-panel-note")
+                            with ui.element("div").classes("pf2-guide-list q-mt-md"):
+                                for idx, item in enumerate(["右側のスマホ表示を確認する", "会社情報・問い合わせ先を確認する", "求人ページへのリンクを確認する", "公開用ファイルを作成する"], start=1):
+                                    with ui.element("div").classes("pf2-guide-item"):
+                                        ui.label(str(idx)).classes("pf2-guide-number")
+                                        ui.label(item)
+                            ui.button("会社ページ用の公開ファイルを作成", icon="archive", on_click=_generate_homepage_pack).props("color=positive unelevated no-caps").classes("q-mt-md")
+            with ui.element("div").classes("pf2-panel pf2-image-upload-panel q-mt-md"):
+                ui.label("画像アップロード").classes("pf2-panel-title")
+                ui.label("ロゴ、メイン画像、会社紹介画像、事業内容画像をアップロードできます。小さなサイト用アイコンも設定できます。").classes("pf2-panel-note")
+                with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                    for upload_label, slot in [
+                        ("ロゴ", "logo"),
+                        ("サイト用の小さなアイコン", "favicon"),
+                        ("メイン画像", "hero"),
+                        ("会社紹介画像", "about"),
+                        ("事業内容画像", "services"),
+                    ]:
+                        async def _upload_handler(e, slot=slot):
+                            await _upload_pf2_image(e, slot)
+                        with ui.element("div").classes("pf2-metric"):
+                            ui.label(upload_label).classes("pf2-job-title")
+                            ui.upload(on_upload=_upload_handler, auto_upload=True).props("accept=image/*").classes("w-full pf2-clean-upload")
+            with ui.element("div").classes("pf2-panel q-mt-md"):
+                ui.label("質問に答えて会社ページの下書きを作る").classes("pf2-panel-title")
+                ui.label("全部を詳しく書かなくても大丈夫です。分かるところだけ入れると、トップ・会社紹介・事業内容・求人ページへの案内に使えます。").classes("pf2-panel-note")
+                homepage_question_step = _homepage_question_step()
+                hp_q_key, hp_q_label, hp_q_hint = PF2_FUTURE_CRAFT_QUESTIONS[homepage_question_step]
+                answered_count = sum(1 for q_key, _q_label, _q_hint in PF2_FUTURE_CRAFT_QUESTIONS if pf2_text(interview_answers.get(q_key)))
+                with ui.element("div").classes("pf2-wizard-bot pf2-homepage-bot q-mt-md"):
+                    with ui.element("div").classes("pf2-wizard-card"):
+                        ui.label(f"質問 {homepage_question_step + 1}/{len(PF2_FUTURE_CRAFT_QUESTIONS)}").classes("pf2-wizard-progress")
+                        ui.label(hp_q_label).classes("pf2-wizard-question")
+                        ui.label(PF2_FUTURE_CRAFT_EFFECT_NOTES.get(hp_q_key, "")).classes("pf2-mini-help")
+                        ui.label(f"反映先: {PF2_FUTURE_CRAFT_TARGET_NOTES.get(hp_q_key, '会社ページの入力欄')}").classes("pf2-wizard-target q-mt-sm")
+                        _input("回答", pf2_text(interview_answers.get(hp_q_key)), lambda e, q_key=hp_q_key: _save_homepage_question(q_key, e.value), hint=hp_q_hint, textarea=True)
+                    with ui.element("div").classes("pf2-wizard-actions"):
+                        hp_prev = ui.button("前の質問", icon="chevron_left", on_click=lambda step=homepage_question_step: _set_homepage_question_step(step - 1)).props("outline no-caps")
+                        if homepage_question_step == 0:
+                            hp_prev.props("disable")
+                        if homepage_question_step < len(PF2_FUTURE_CRAFT_QUESTIONS) - 1:
+                            ui.button("次の質問", icon="chevron_right", on_click=lambda step=homepage_question_step: _set_homepage_question_step(step + 1)).props("color=primary unelevated no-caps")
+                        else:
+                            ui.button("この内容で下書きを入れる", icon="auto_fix_high", on_click=_apply_future_craft_answers).props("color=primary unelevated no-caps")
+                        ui.label(f"回答済み: {answered_count}/{len(PF2_FUTURE_CRAFT_QUESTIONS)}").classes("pf2-job-meta")
+                with ui.row().classes("q-gutter-sm q-mt-md"):
+                    ui.button("この内容で下書きを入れる", icon="auto_fix_high", on_click=_apply_future_craft_answers).props("color=primary unelevated no-caps")
+                    ui.button("質問に答えて自動で下書きする", icon="auto_awesome", on_click=_api_fill_homepage).props("outline no-caps")
+
+            with ui.element("div").classes("pf2-panel q-mt-md"):
+                ui.label("デザイン案 3案比較").classes("pf2-panel-title")
+                ui.label("まず3つの雰囲気から選べます。選んだ案に合わせて、色・余白・見出しの見せ方を整えます。").classes("pf2-panel-note")
+                with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                    for proposal in PF2_FUTURE_CRAFT_PROPOSALS:
+                        key = pf2_text(proposal.get("key"))
+                        is_selected = key == selected_design_key
+                        with ui.element("div").classes("pf2-metric"):
+                            ui.label(pf2_text(proposal.get("name"))).classes("pf2-job-title")
+                            ui.label(pf2_text(proposal.get("theme"))).classes("pf2-pill pf2-pill-prepared q-mt-sm" if is_selected else "pf2-pill pf2-pill-editing q-mt-sm")
+                            ui.label(pf2_text(proposal.get("summary"))).classes("pf2-job-meta q-mt-sm")
+                            ui.label(f"構成: {pf2_text(proposal.get('section_order'))}").classes("pf2-job-meta q-mt-sm")
+                            ui.label(f"画像方針: {pf2_text(proposal.get('image_strategy'))}").classes("pf2-job-meta q-mt-sm")
+                            ui.button("適用済み" if is_selected else "この案を適用", icon="check", on_click=lambda key=key: _apply_design_proposal(key)).props(("color=positive " if is_selected else "outline ") + "no-caps dense").classes("q-mt-sm")
+
+            with ui.element("div").classes("pf2-panel q-mt-md"):
+                ui.label("画像と素材").classes("pf2-panel-title")
+                ui.label("メイン画像、ロゴ、会社紹介画像、事業内容画像をプレビューと公開用ファイルに反映します。小さなサイト用アイコンも設定できます。").classes("pf2-panel-note")
+                material_rows = [
+                    ("ロゴ", "logo", pf2_text(step2.get("logo_url")), pf2_text(step2.get("logo_filename"))),
+                    ("サイト用の小さなアイコン", "favicon", pf2_text(step2.get("favicon_url")), pf2_text(step2.get("favicon_filename"))),
+                    ("メイン画像", "hero", hp_hero_image, pf2_text(homepage.get("hero_image_filename"))),
+                    ("会社紹介画像", "about", hp_about_image, pf2_text(homepage.get("about_image_filename"))),
+                    ("事業内容画像", "services", hp_services_image, pf2_text(homepage.get("services_image_filename"))),
+                    ("求人導線画像", "recruitment", pf2_text(recruitment_block.get("image_url")) or pf2_text(homepage.get("recruitment_image_url")), pf2_text(recruitment_block.get("image_filename")) or pf2_text(homepage.get("recruitment_image_filename"))),
+                ]
+                with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                    for label, slot, src, filename in material_rows:
+                        with ui.element("div").classes("pf2-metric"):
+                            ui.label(label).classes("pf2-job-title")
+                            ui.label(filename or ("設定済み" if src else "未設定")).classes("pf2-job-meta q-mt-sm")
+                            if src:
+                                ui.image(pv_img_src(src, max_w=320, max_h=180, fit_mode="cover")).style("width:100%;height:76px;object-fit:cover;border-radius:8px;margin-top:8px;")
+                                ui.button("外す", icon="close", on_click=lambda slot=slot: _clear_pf2_image(slot)).props("flat dense no-caps").classes("q-mt-sm")
+                            else:
+                                ui.label("上部の画像アップロードから追加できます。").classes("pf2-job-meta q-mt-sm")
+
+            with ui.element("div").classes("pf2-panel q-mt-md"):
+                ui.label("公開用ファイル").classes("pf2-panel-title")
+                ui.label("会社ページ、求人ページ、検索向けの情報をまとめて作成します。掲載・審査・検索結果表示は各媒体側の判断です。").classes("pf2-panel-note")
+                with ui.element("div").classes("pf2-guide-list"):
+                    for idx, item in enumerate(["会社ページを作る", "求人ページも一緒にまとめる", "検索向けの情報も一緒にまとめる", "公開用ファイルとして保存する"], start=1):
+                        with ui.element("div").classes("pf2-guide-item"):
+                            ui.label(str(idx)).classes("pf2-guide-number")
+                            ui.label(item)
+                with ui.row().classes("q-gutter-sm q-mt-md"):
+                    ui.button("会社ページ用の公開ファイルを作成", icon="archive", on_click=_generate_homepage_pack).props("color=positive unelevated no-caps")
+                    if state.get("homepage_download_url"):
+                        ui.button("ファイルをダウンロード", icon="download", on_click=lambda url=state["homepage_download_url"]: ui.run_javascript(f"window.open('{url}', '_blank')")).props("outline no-caps")
+                if state.get("homepage_export_path"):
+                    ui.label(f"保存先: {state.get('homepage_export_path')}").classes("pf2-job-meta q-mt-sm")
+                if state.get("homepage_download_url"):
+                    with ui.element("div").classes("pf2-gate q-mt-md"):
+                        ui.label("公開用ファイルを作成しました。次に行うことを確認してください。")
+                        ui.label("実際の公開、外部求人サービス側の登録・審査・検索結果表示は、お客様の操作と各媒体側の判断が必要です。")
+                        with ui.element("div").classes("pf2-guide-list q-mt-md"):
+                            for idx, item in enumerate(PF2_OUTPUT_STEPS, start=1):
+                                with ui.element("div").classes("pf2-guide-item"):
+                                    ui.label(str(idx)).classes("pf2-guide-number")
+                                    ui.label(item)
+
+        with ui.element("section").props("id=pf2-jobs").classes("pf2-section pf2-panel pf2-route-section pf2-view-jobs"):
+            _pf2_section_title("求人を作る", "必要な情報を順番に入れる", "仕事内容は書きやすく補助できます。給与・勤務時間・休日は実際の条件を確認して入力してください。")
+            with ui.element("div").classes("pf2-edit-grid q-mt-md"):
+                job_editor_tab = _job_editor_tab()
+                with ui.element("div").classes("pf2-tabs"):
+                    for idx, (tab_name, tab_note) in enumerate(PF2_EDITOR_TABS):
+                        state_hint = "現在の入力画面" if idx == job_editor_tab else "選ぶと、この入力画面に切り替わります"
+                        tab_button = ui.element("button").props(f"type=button data-testid=pf2-job-tab-{idx}").classes("pf2-tab pf2-tab-button" + (" is-active" if idx == job_editor_tab else ""))
+                        tab_button.on("click", lambda e, idx=idx: _set_job_editor_tab(idx))
+                        with tab_button:
+                            ui.html(f"<strong>{html.escape(tab_name)}</strong><span>{html.escape(tab_note)}<br>{html.escape(state_hint)}</span>")
+                with ui.element("div").classes("pf2-editor-content"):
+                    with ui.element("div").classes("pf2-warning pf2-job-panel pf2-job-panel-0").style("" if job_editor_tab == 0 else "display:none !important;"):
+                        ui.label("仕事内容や魅力の書き方に迷う欄だけ、質問から下書きを作れます。給与や勤務時間は自分で確認して入力します。")
+                        ui.button("質問に答えて求人の下書きを作る", icon="auto_awesome", on_click=_api_fill_job).props("color=primary unelevated no-caps")
+                    with ui.element("div").classes("pf2-panel q-mt-md pf2-job-panel pf2-job-panel-0").style("" if job_editor_tab == 0 else "display:none !important;"):
+                        ui.label("5つの質問で下書きを作る").classes("pf2-panel-title")
+                        ui.label("個人名、応募者名、職員名、利用者名、病歴、障害特性、家庭事情などは入力しないでください。求人に使える一般的な内容だけで大丈夫です。").classes("pf2-warning q-mt-sm")
+                        wizard_answer = _job_wizard_answer()
+                        current_wizard_step = _job_wizard_step()
+                        wizard_key = PF2_JOB_WIZARD_KEYS[current_wizard_step]
+                        wizard_label, wizard_options = PF2_WIZARD_OPTIONS[current_wizard_step]
+                        wizard_question = PF2_WIZARD_QUESTIONS[current_wizard_step]
+                        wizard_effect = PF2_WIZARD_EFFECT_NOTES[current_wizard_step]
+                        wizard_target = PF2_WIZARD_TARGET_NOTES[current_wizard_step]
+                        with ui.element("div").classes("pf2-wizard-bot q-mt-md"):
+                            with ui.element("div").classes("pf2-wizard-card"):
+                                ui.label(f"質問 {current_wizard_step + 1}/5").classes("pf2-wizard-progress")
+                                ui.label(wizard_question).classes("pf2-wizard-question")
+                                ui.label(wizard_effect).classes("pf2-mini-help")
+                                ui.label(f"反映先: {wizard_target}").classes("pf2-wizard-target q-mt-sm")
+                                ui.select(
+                                    wizard_options,
+                                    value=pf2_text(wizard_answer.get(wizard_key)) or None,
+                                    label=wizard_label,
+                                    on_change=lambda e, key=wizard_key: _save_job_wizard_answer(key, e.value or ""),
+                                ).props("outlined dense").classes("w-full q-mt-md")
+                            with ui.element("div").classes("pf2-wizard-actions"):
+                                prev_button = ui.button("前の質問", icon="chevron_left", on_click=lambda step=current_wizard_step: _set_job_wizard_step(step - 1)).props("outline no-caps")
+                                if current_wizard_step == 0:
+                                    prev_button.props("disable")
+                                if current_wizard_step < len(PF2_JOB_WIZARD_KEYS) - 1:
+                                    ui.button("次の質問", icon="chevron_right", on_click=lambda step=current_wizard_step: _set_job_wizard_step(step + 1)).props("color=primary unelevated no-caps")
+                                else:
+                                    ui.button("この内容で下書きを入れる", icon="auto_fix_high", on_click=_apply_job_wizard_answer).props("color=primary unelevated no-caps")
+                            with ui.element("div").classes("pf2-wizard-summary"):
+                                for idx, (key, (label, _options)) in enumerate(zip(PF2_JOB_WIZARD_KEYS, PF2_WIZARD_OPTIONS), start=1):
+                                    value = pf2_text(wizard_answer.get(key)) or "未入力"
+                                    ui.html(f"<div class='pf2-wizard-summary-item'><strong>{idx}. {html.escape(label)}</strong><span>{html.escape(value)}</span></div>")
+
+                    with ui.element("div").classes("pf2-panel q-mt-md pf2-job-panel pf2-job-panel-0").style("" if job_editor_tab == 0 else "display:none !important;"):
+                        ui.label("1. 基本情報").classes("pf2-panel-title")
+                        with ui.element("div").classes("pf2-field-grid q-mt-md"):
+                            _input_with_assist("職種名", pf2_text(job.get("title")), lambda e: _save_job_field("title", e.value), target="job", field_key="title", hint="例: 生活支援スタッフ")
+                            _input("サービス種別", pf2_text(job.get("service_type")), lambda e: _save_job_field("service_type", e.value), hint="例: 共同生活援助")
+                            ui.select(["正社員", "契約社員", "パート・アルバイト", "業務委託", "その他"], value=pf2_text(job.get("employment_type")) or None, label="雇用形態", on_change=lambda e: _save_job_field("employment_type", e.value or "")).props("outlined dense").classes("w-full")
+                            _input("勤務地", pf2_text(job.get("workplace")), lambda e: _save_job_field("workplace", e.value), hint="例: 東京都...")
+                            _input("就業場所の変更範囲", pf2_text(job.get("workplace_change_scope")), lambda e: _save_job_field("workplace_change_scope", e.value), hint="例: 変更範囲なし / 法人の定める事業所")
+                            _input("応募条件・資格", pf2_text(job.get("qualification_note")), lambda e: _save_job_field("qualification_note", e.value), hint="例: 未経験相談可 / 資格要件", textarea=True)
+
+                    with ui.element("div").classes("pf2-panel q-mt-md pf2-job-panel pf2-job-panel-1").style("" if job_editor_tab == 1 else "display:none !important;"):
+                        ui.label("2. 労働条件").classes("pf2-panel-title")
+                        ui.label("給与・勤務時間・休日は、実際の条件を確認して入力してください。").classes("pf2-panel-note")
+                        with ui.element("div").classes("pf2-field-grid q-mt-md"):
+                            _input("給与", pf2_text(job.get("salary_note")), lambda e: _save_job_field("salary_note", e.value), hint="例: 月給200,000円から")
+                            _input("基本給または給与内訳", pf2_text(job.get("salary_breakdown")), lambda e: _save_job_field("salary_breakdown", e.value), hint="例: 基本給180,000円、処遇改善手当20,000円")
+                            _input("給与形態", pf2_text(job.get("salary_type")), lambda e: _save_job_field("salary_type", e.value), hint="例: 月給 / 時給")
+                            ui.checkbox("固定残業代を含む", value=bool(job.get("fixed_overtime_enabled")), on_change=lambda e: _save_job_field("fixed_overtime_enabled", bool(e.value))).classes("w-full")
+                            _input("固定残業代の対象時間", pf2_text(job.get("fixed_overtime_hours")), lambda e: _save_job_field("fixed_overtime_hours", e.value), hint="固定残業代を含む場合に入力")
+                            _input("固定残業代の金額", pf2_text(job.get("fixed_overtime_amount")), lambda e: _save_job_field("fixed_overtime_amount", e.value), hint="固定残業代を含む場合に入力")
+                            _input("固定残業代を超える時間外労働の扱い", pf2_text(job.get("fixed_overtime_extra_pay_note")), lambda e: _save_job_field("fixed_overtime_extra_pay_note", e.value), hint="例: 超過分は別途支給", textarea=True)
+                            _input("勤務時間", pf2_text(job.get("working_hours")), lambda e: _save_job_field("working_hours", e.value), hint="例: 9:00-18:00")
+                            _input("休憩", pf2_text(job.get("break_time")), lambda e: _save_job_field("break_time", e.value), hint="例: 60分")
+                            _input("休日", pf2_text(job.get("holidays")), lambda e: _save_job_field("holidays", e.value), hint="例: 週休2日")
+                            _input("試用期間", pf2_text(job.get("trial_period")), lambda e: _save_job_field("trial_period", e.value), hint="例: 3か月")
+                            _input("社会保険", pf2_text(job.get("social_insurance")), lambda e: _save_job_field("social_insurance", e.value), hint="例: 法定通り加入")
+                            _input("受動喫煙防止措置", pf2_text(job.get("passive_smoking_policy")), lambda e: _save_job_field("passive_smoking_policy", e.value), hint="例: 屋内禁煙")
+                            ui.select(["無期雇用", "有期契約", "未確認"], value={"no_fixed_term": "無期雇用", "fixed_term": "有期契約", "unknown": "未確認"}.get(pf2_text(job.get("contract_period_type")), "未確認"), label="契約期間区分", on_change=lambda e: _save_job_field("contract_period_type", {"無期雇用": "no_fixed_term", "有期契約": "fixed_term", "未確認": "unknown"}.get(e.value or "未確認", "unknown"))).props("outlined dense").classes("w-full")
+                            _input("契約期間", pf2_text(job.get("contract_period")), lambda e: _save_job_field("contract_period", e.value), hint="有期契約の場合に入力")
+                            _input("契約更新の有無", pf2_text(job.get("contract_renewal")), lambda e: _save_job_field("contract_renewal", e.value), hint="有期契約の場合に入力")
+                            _input("契約更新の判断基準", pf2_text(job.get("contract_renewal_criteria")), lambda e: _save_job_field("contract_renewal_criteria", e.value), hint="有期契約の場合に入力", textarea=True)
+                            _input("更新上限の有無", pf2_text(job.get("contract_renewal_limit")), lambda e: _save_job_field("contract_renewal_limit", e.value), hint="有期契約の場合に入力")
+
+                    with ui.element("div").classes("pf2-panel q-mt-md pf2-job-panel pf2-job-panel-2").style("" if job_editor_tab == 2 else "display:none !important;"):
+                        ui.label("3. 仕事内容・職場の魅力").classes("pf2-panel-title")
+                        with ui.element("div").classes("pf2-field-grid q-mt-md"):
+                            _input_with_assist("業務内容", pf2_text(job.get("job_description")), lambda e: _save_job_field("job_description", e.value), target="job", field_key="job_description", hint="具体的な業務を入力", textarea=True)
+                            _input("業務内容の変更範囲", pf2_text(job.get("job_change_scope")), lambda e: _save_job_field("job_change_scope", e.value), hint="例: 変更範囲なし / 法人の定める業務", textarea=True)
+                            _input_with_assist("職場の魅力・安心材料", pf2_text(job.get("appeal_text")), lambda e: _save_job_field("appeal_text", e.value), target="job", field_key="appeal_text", hint="例: 最初の1か月は先輩が同行します", textarea=True)
+                            _input_with_assist("1日の流れ", pf2_text(job.get("day_flow")), lambda e: _save_job_field("day_flow", e.value), target="job", field_key="day_flow", hint="例: 9:00 出勤...", textarea=True)
+                            _input_with_assist("求める人物像", pf2_text(job.get("ideal_candidate")), lambda e: _save_job_field("ideal_candidate", e.value), target="job", field_key="ideal_candidate", hint="例: チームで落ち着いて対応できる方", textarea=True)
+                            _input("福利厚生・サポート", pf2_text(job.get("benefits")), lambda e: _save_job_field("benefits", e.value), hint="研修、資格取得支援など", textarea=True)
+
+                    with ui.element("div").classes("pf2-panel q-mt-md pf2-job-panel pf2-job-panel-3").style("" if job_editor_tab == 3 else "display:none !important;"):
+                        ui.label("4. 応募・見学").classes("pf2-panel-title")
+                        with ui.element("div").classes("pf2-field-grid q-mt-md"):
+                            _input_with_assist("応募方法", pf2_text(job.get("application_method")), lambda e: _save_job_field("application_method", e.value), target="job", field_key="application_method", hint="例: 応募フォームから応募", textarea=True)
+                            _input("応募URL", pf2_text(job.get("apply_url")), lambda e: _save_job_field("apply_url", e.value), hint="任意。フォームURLなど")
+                            _input("採用担当者名", pf2_text(job.get("contact_name")), lambda e: _save_job_field("contact_name", e.value), hint="任意")
+                            _input("採用連絡メール", pf2_text(job.get("contact_email")), lambda e: _save_job_field("contact_email", e.value), hint="例: recruit@example.com")
+                            _input("採用連絡電話", pf2_text(job.get("contact_phone")), lambda e: _save_job_field("contact_phone", e.value), hint="例: 03-0000-0000")
+
+                    with ui.element("div").classes("pf2-warning q-mt-md pf2-job-panel pf2-job-panel-6").style("" if job_editor_tab == 6 else "display:none !important;"):
+                        ui.label("出力可能は、求人ページと公開用ファイルを作れる状態です。媒体での掲載・審査・検索結果表示を示すものではありません。")
+            async def _upload_recruitment_for_jobs(e):
+                await _upload_pf2_image(e, "recruitment")
+            with ui.element("div").classes("pf2-panel q-mt-md pf2-job-panel pf2-job-panel-4").style("" if job_editor_tab == 4 else "display:none !important;"):
+                ui.label("5. 写真・見え方").classes("pf2-panel-title")
+                ui.label("求人ページの雰囲気を伝える画像をアップロードできます。画像はローカル保存され、公開用ファイルに反映されます。").classes("pf2-panel-note")
+                ui.upload(on_upload=_upload_recruitment_for_jobs, auto_upload=True).props("accept=image/*").classes("w-full pf2-clean-upload")
+                current_recruitment_image = pf2_text(recruitment_block.get("image_url")) or pf2_text(homepage.get("recruitment_image_url"))
+                current_recruitment_filename = pf2_text(recruitment_block.get("image_filename")) or pf2_text(homepage.get("recruitment_image_filename"))
+                if current_recruitment_image:
+                    with ui.element("div").classes("pf2-metric q-mt-md"):
+                        ui.label("現在の求人ページ画像").classes("pf2-job-title")
+                        ui.label(current_recruitment_filename or "設定済み").classes("pf2-job-meta q-mt-sm")
+                        ui.image(pv_img_src(current_recruitment_image, max_w=420, max_h=220, fit_mode="cover")).style("width:100%;max-width:420px;height:120px;object-fit:cover;border-radius:8px;margin-top:8px;")
+                        ui.button("画像を外す", icon="close", on_click=lambda: _clear_pf2_image("recruitment")).props("flat dense no-caps").classes("q-mt-sm")
+                else:
+                    ui.label("まだ求人ページ画像は設定されていません。写真がない場合でも、公開用ファイルは作成できます。").classes("pf2-job-meta q-mt-sm")
+            with ui.element("div").classes("pf2-grid q-mt-md pf2-job-panel pf2-job-panel-4").style("" if job_editor_tab == 4 else "display:none !important;"):
+                with ui.element("div").classes("pf2-panel"):
+                    ui.label("求人ページの確認").classes("pf2-panel-title")
+                    ui.label("右側の画面で、求職者がスマホで見るページを確認できます。PCでは同じ内容が画面幅に合わせて広がります。").classes("pf2-panel-note")
+                    with ui.element("div").classes("pf2-checklist"):
+                        for text in [
+                            "求職者がスマホで読んだときに仕事内容が伝わる",
+                            "給与・勤務時間・休日が入力内容と一致している",
+                            "公開用ファイルは作成対象であり、掲載保証ではない",
+                        ]:
+                            with ui.element("div").classes("pf2-check"):
+                                ui.label("・").classes("pf2-check-mark")
+                                ui.label(text)
+
+        with ui.element("section").classes("pf2-section pf2-panel pf2-route-section pf2-view-jobs pf2-job-panel pf2-job-panel-2").style("" if job_editor_tab == 2 else "display:none !important;"):
+            _pf2_section_title("入力補助文の確認", "使う前の安全確認", "作った文章や貼り付けた文章は、確認が必要な表現を通過した場合だけ確認済みにできます。")
+            with ui.element("div").classes("pf2-grid q-mt-md"):
+                with ui.element("div").classes("pf2-panel"):
+                    ui.label("左: 文章").classes("pf2-panel-title")
+                    ai_original = ui.textarea("最初に作った下書き・貼り付け元", value="").props("outlined autogrow rows=4").classes("w-full q-mt-sm")
+                    ai_edited = ui.textarea("確認後に使う文章", value="").props("outlined autogrow rows=5").classes("w-full q-mt-sm")
+                with ui.element("div").classes("pf2-panel"):
+                    ui.label("右: 確認パネル").classes("pf2-panel-title")
+                    ui.label("ボタン実行時に、入力していない数値、労働条件語、断定・保証表現、比較・優位表現を検出します。").classes("pf2-panel-note")
+                    ai_scope_ok = ui.checkbox("業務内容文は、入力済みの業務内容の変更範囲と矛盾しない", value=False)
+                    ai_time_ok = ui.checkbox("勤務時間に触れる場合、入力済みの勤務時間と矛盾しない", value=False)
+                    ai_actual_ok = ui.checkbox("文章の内容は、実際の施設の状況と一致している", value=False)
+                    ai_responsibility_ok = ui.checkbox("この文章を求人として公開する責任を負える", value=False)
+                    ai_low_edit_ok = ui.checkbox("ほぼ原文のまま使う場合も、施設の実情に合うことを確認した", value=False)
+                    ui.button(
+                        "検査して確認済みにする",
+                        icon="verified",
+                        on_click=lambda: _confirm_ai_draft(
+                            str(ai_original.value or ""),
+                            str(ai_edited.value or ""),
+                            {
+                                "scope_ok": bool(ai_scope_ok.value),
+                                "time_ok": bool(ai_time_ok.value),
+                                "actual_ok": bool(ai_actual_ok.value),
+                                "responsibility_ok": bool(ai_responsibility_ok.value),
+                            },
+                            bool(ai_low_edit_ok.value),
+                        ),
+                    ).props("outline no-caps").classes("q-mt-sm")
+            if pf2_text(job.get("ai_draft_human_confirmed_at")):
+                ui.label(f"入力補助文の確認済み: {pf2_text(job.get('ai_draft_human_confirmed_at'))}").classes("pf2-gate q-mt-md")
+
+        with ui.element("section").classes("pf2-section pf2-panel pf2-route-section pf2-view-jobs pf2-job-panel pf2-job-panel-5").style("" if job_editor_tab == 5 else "display:none !important;"):
+            _pf2_section_title("公開用ファイル", "外部サービス向けの情報", "求人ページと検索向けの情報を作れます。掲載・審査・検索結果表示を示すものではありません。")
+            with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                for label, status, note in [
+                    ("検索エンジン向けの求人情報", "作成対象" if settings.get("google_jobposting_enabled", True) is not False else "作成しない設定", "求人詳細ページの中に、検索エンジンが読める形式の情報を入れます。"),
+                    ("外部求人サービス向けの求人情報", "作成対象" if settings.get("indeed_xml_enabled", True) is not False else "作成しない設定", "外部求人サービスが読み取るための情報を作ります。"),
+                    ("求人ボックス", "将来対応予定", "現時点では生成・公開に対応していません。"),
+                ]:
+                    with ui.element("div").classes("pf2-metric"):
+                        ui.label(label).classes("pf2-job-title")
+                        ui.label(status).classes("pf2-pill pf2-pill-export_ready q-mt-sm")
+                        ui.label(note).classes("pf2-job-meta q-mt-sm")
+            with ui.element("div").classes("pf2-panel q-mt-md"):
+                ui.label("作成されるファイル").classes("pf2-panel-title")
+                ui.label("名前を見れば、どのファイルを確認すればよいか分かるようにしています。").classes("pf2-panel-note")
+                with ui.element("div").classes("pf2-guide-list q-mt-md"):
+                    for idx, (label, path, note) in enumerate(PF2_MEDIA_OUTPUT_ITEMS, start=1):
+                        with ui.element("div").classes("pf2-guide-item"):
+                            ui.label(str(idx)).classes("pf2-guide-number")
+                            with ui.element("div"):
+                                ui.label(f"{label}: {path}").classes("pf2-job-title")
+                                ui.label(note).classes("pf2-job-meta")
+            with ui.element("div").classes("pf2-warning q-mt-md"):
+                ui.label("公開用ファイルを作っても、外部求人サービスへの掲載・審査・検索結果表示は確定しません。公開後は各サービス側の管理画面で確認してください。")
+
+        with ui.element("section").props("id=pf2-output").classes("pf2-section pf2-panel pf2-route-section pf2-view-jobs pf2-job-panel pf2-job-panel-6").style("" if job_editor_tab == 6 else "display:none !important;"):
+            _pf2_section_title("公開前チェック", "作る前に確認する", "抜けや矛盾を確認し、右側の表示を見たうえで公開用ファイルを作成できます。")
+            ui.label(PF2_JOB_STATE_DESCRIPTIONS.get(job["main_state"], "")).classes("pf2-panel-note q-mt-sm")
+            if blocks_:
+                with ui.element("div").classes("pf2-checklist q-mt-md"):
+                    for item in blocks_:
+                        with ui.element("div").classes("pf2-check"):
+                            ui.label("○").classes("pf2-check-mark")
+                            ui.label(f"{item.get('label')}: {item.get('message')}")
+            else:
+                ui.label("公開前チェックのブロック項目はありません。").classes("pf2-gate q-mt-md")
+            if warnings:
+                with ui.element("div").classes("pf2-checklist q-mt-md"):
+                    for item in warnings:
+                        with ui.element("div").classes("pf2-check"):
+                            ui.label("○").classes("pf2-check-mark")
+                            ui.label(f"{item.get('label')}: {item.get('message')}")
+            with ui.row().classes("q-gutter-sm q-mt-md"):
+                ui.button("公開前チェックを実行", icon="fact_check", on_click=_run_public_check).props("outline no-caps")
+                ui.button("公開用ファイルを作成", icon="archive", on_click=_generate_pack).props("color=positive unelevated no-caps")
+            if state.get("download_url"):
+                with ui.element("div").classes("pf2-gate q-mt-md"):
+                    ui.label("公開用ファイルを作成しました。")
+                    ui.label(f"保存先: {state.get('export_path')}")
+                    ui.button("ファイルをダウンロード", icon="download", on_click=lambda url=state["download_url"]: ui.run_javascript(f"window.open('{url}', '_blank')")).props("color=positive unelevated no-caps")
+                    ui.label("外部求人サービス等での掲載・審査・検索結果表示は各媒体側の判断です。")
+                    with ui.element("div").classes("pf2-guide-list q-mt-md"):
+                        for idx, item in enumerate(PF2_OUTPUT_STEPS, start=1):
+                            with ui.element("div").classes("pf2-guide-item"):
+                                ui.label(str(idx)).classes("pf2-guide-number")
+                                ui.label(item)
+
+        with ui.element("section").props("id=pf2-history").classes("pf2-section pf2-panel pf2-route-section pf2-view-history"):
+            _pf2_section_title("作成したファイル", "作成したファイルと確認の記録", "このパソコンで作成した公開用ファイルと、公開前チェック・入力補助確認などの操作履歴を確認できます。")
+            histories = ext.get("export_history") if isinstance(ext.get("export_history"), list) else []
+            audits = ext.get("audit_logs") if isinstance(ext.get("audit_logs"), list) else []
+            public_runs = ext.get("public_check_runs") if isinstance(ext.get("public_check_runs"), list) else []
+            media_artifacts = ext.get("media_artifacts") if isinstance(ext.get("media_artifacts"), list) else []
+            with ui.element("div").classes("pf2-grid q-mt-md"):
+                with ui.element("div").classes("pf2-panel"):
+                    ui.label("直近で作成したファイル").classes("pf2-panel-title")
+                    if histories:
+                        with ui.element("div").classes("pf2-checklist"):
+                            for item in list(reversed(histories[-5:])):
+                                title = pf2_export_type_label(item.get("export_type"))
+                                when = pf2_text(item.get("generated_at")) or "-"
+                                names = ", ".join(pf2_text(name) for name in item.get("file_names", []) if pf2_text(name)) or "-"
+                                with ui.element("div").classes("pf2-check"):
+                                    ui.label("✓").classes("pf2-check-mark")
+                                    ui.label(f"{when} / {title} / {names}")
+                    else:
+                        ui.label("まだ作成したファイルの記録はありません。").classes("pf2-panel-note")
+                with ui.element("div").classes("pf2-panel"):
+                    ui.label("直近の確認記録").classes("pf2-panel-title")
+                    if audits:
+                        with ui.element("div").classes("pf2-checklist"):
+                            for item in list(reversed(audits[-5:])):
+                                action = pf2_audit_action_label(item.get("action"))
+                                when = pf2_text(item.get("created_at")) or pf2_text(item.get("logged_at")) or "-"
+                                target = pf2_text(item.get("target_id")) or "-"
+                                with ui.element("div").classes("pf2-check"):
+                                    ui.label("・").classes("pf2-check-mark")
+                                    ui.label(f"{when} / {action} / {target}")
+                    else:
+                        ui.label("まだ確認記録はありません。").classes("pf2-panel-note")
+            with ui.element("div").classes("pf2-grid q-mt-md"):
+                with ui.element("div").classes("pf2-panel"):
+                    ui.label("公開前チェック履歴").classes("pf2-panel-title")
+                    if public_runs:
+                        with ui.element("div").classes("pf2-checklist"):
+                            for item in list(reversed(public_runs[-5:])):
+                                when = pf2_text(item.get("created_at")) or "-"
+                                blocks_count = int(item.get("block_count") or 0)
+                                warnings_count = int(item.get("warning_count") or 0)
+                                with ui.element("div").classes("pf2-check"):
+                                    ui.label("✓" if blocks_count == 0 else "○").classes("pf2-check-mark")
+                                    ui.label(f"{when} / 確認が必要な項目 {blocks_count}件 / 注意 {warnings_count}件")
+                    else:
+                        ui.label("まだ公開前チェック履歴はありません。").classes("pf2-panel-note")
+                with ui.element("div").classes("pf2-panel"):
+                    ui.label("公開用ファイルの作成履歴").classes("pf2-panel-title")
+                    if media_artifacts:
+                        with ui.element("div").classes("pf2-checklist"):
+                            for item in list(reversed(media_artifacts[-5:])):
+                                when = pf2_text(item.get("created_at")) or "-"
+                                artifact_type = pf2_export_type_label(item.get("artifact_type"))
+                                names = ", ".join(pf2_text(name) for name in item.get("file_names", []) if pf2_text(name)) or "-"
+                                with ui.element("div").classes("pf2-check"):
+                                    ui.label("・").classes("pf2-check-mark")
+                                    ui.label(f"{when} / {artifact_type} / {names}")
+                    else:
+                        ui.label("まだ公開用ファイルの作成履歴はありません。").classes("pf2-panel-note")
+
+        with ui.element("section").props("id=pf2-settings").classes("pf2-section pf2-panel pf2-route-section pf2-view-settings"):
+            _pf2_section_title("設定", "公開用ファイルと入力補助の基本設定", "本番運用と同じ前提で設定を保存します。外部サービス側の操作は、ここでは実行しません。")
+            role_summary = pf2_role_summary(local_role)
+            with ui.element("div").classes("pf2-warning q-mt-md"):
+                ui.label(f"現在の権限: {role_summary['label']}")
+                if HELP_MODE:
+                    ui.label("この確認環境では、下の選択で権限別の見え方を確認できます。本番ではログイン権限から自動判定します。")
+                    ui.select(
+                        {key: value for key, value in PF2_ROLE_LABELS.items()},
+                        value=local_role,
+                        label="確認用の権限",
+                        on_change=lambda e: _save_pf2_setting("local_role", e.value or "admin"),
+                    ).props("outlined dense").classes("w-full q-mt-sm")
+                else:
+                    ui.label("本番ではログイン中のアカウント権限から自動判定します。この画面から権限を変更することはできません。")
+            with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                for role_key, role_label in PF2_ROLE_LABELS.items():
+                    summary = pf2_role_summary(role_key)
+                    note = (
+                        "設定、編集、公開用ファイル作成、確認記録の確認ができます。"
+                        if role_key == "admin"
+                        else "求人・会社ページの編集、公開前チェック、公開用ファイル作成ができます。"
+                        if role_key == "editor"
+                        else "求人一覧、プレビュー、作成したファイルの記録を確認できます。編集と公開用ファイル作成はできません。"
+                    )
+                    with ui.element("div").classes("pf2-metric"):
+                        ui.label(role_label).classes("pf2-job-title")
+                        ui.label(note).classes("pf2-job-meta q-mt-sm")
+                        ui.label(f"編集: {'可' if summary['can_edit'] else '不可'} / ファイル作成: {'可' if summary['can_export'] else '不可'} / 設定: {'可' if summary['can_change_settings'] else '不可'}").classes("pf2-job-meta q-mt-sm")
+            with ui.element("div").classes("pf2-field-grid q-mt-md"):
+                ui.input("作成ファイル名の先頭", value=pf2_text(settings.get("export_prefix")) or "PageFlowAI2", on_change=lambda e: _save_pf2_setting("export_prefix", e.value)).props("outlined dense").classes("w-full")
+                ui.checkbox("検索エンジン向けの求人情報を作る", value=settings.get("google_jobposting_enabled", True) is not False, on_change=lambda e: _save_pf2_setting("google_jobposting_enabled", bool(e.value)))
+                ui.checkbox("外部求人サービス向けの求人情報を作る", value=settings.get("indeed_xml_enabled", True) is not False, on_change=lambda e: _save_pf2_setting("indeed_xml_enabled", bool(e.value)))
+                ui.checkbox("サイト確認用の補助ファイルを作る", value=settings.get("sitemap_robots_enabled", True) is not False, on_change=lambda e: _save_pf2_setting("sitemap_robots_enabled", bool(e.value)))
+                ui.checkbox("入力補助の記録を確認用に保存する", value=settings.get("ai_log_enabled", True) is not False, on_change=lambda e: _save_pf2_setting("ai_log_enabled", bool(e.value)))
+                ui.button("入力補助の記録を削除", icon="delete_outline", on_click=_clear_ai_logs).props("outline no-caps")
+            with ui.element("div").classes("pf2-warning q-mt-md"):
+                ui.label(f"このパソコン内の保存先: {pf2_local_store_path()}")
+                ui.label(f"公開用ファイルの保存先: {pf2_local_export_dir()}")
+                assist_status = "文章を整える補助まで利用できます" if pf2_any_ai_provider_ready(settings) else "基本の下書きで利用できます"
+                ui.label(f"入力補助: {assist_status}")
+                ui.label(f"入力補助の記録保存期間: 通常{PF2_AI_LOG_RETENTION_DAYS}日、公開準備済の求人関連記録は{PF2_AI_PUBLIC_LOG_RETENTION_DAYS}日を上限にします。")
+                ui.label("入力補助に使う秘密情報は、この画面に表示しません。")
+                ui.label("媒体への掲載・審査・検索結果表示は、各媒体側の判断です。PageFlowAI2は求人ページと公開用ファイルの作成までを担当します。")
+
+    live_panel()
+
+
+PF2_VIEW_ROUTES = {
+    "home": "/pf2",
+    "jobs": "/pf2/jobs",
+    "homepage": "/pf2/homepage",
+    "history": "/pf2/history",
+    "settings": "/pf2/settings",
+}
+
+PF2_VIEW_TITLES = {
+    "home": ("PageFlowAI2", "今日やること"),
+    "jobs": ("求人を作る", "入力すると、右に求職者向けの見え方が出ます。"),
+    "homepage": ("会社ページを作る", "会社の紹介・事業内容・問い合わせを、スマホで読みやすく整える"),
+    "history": ("作成したファイル", "作ったファイルと確認の記録を見る"),
+    "settings": ("設定", "使う前の基本設定"),
+}
+
+PF2_VIEW_LEADS = {
+    "home": "今日やることを1つずつ表示します。迷ったら上から進めてください。",
+    "jobs": "中央で求人内容を入れ、右でスマホ表示を確認します。保存すると右画面に反映されます。",
+    "homepage": "会社の紹介文や写真を入れると、右の画面で公開時の見え方を確認できます。",
+    "history": "作ったファイルや確認の記録をあとから見返せます。",
+    "settings": "公開前に必要な名前や保存の設定をまとめます。外部サービスへの操作はここでは行いません。",
+}
+
+
+def render_pageflowai2_preview_page(active_view: str = "home") -> None:
+    active_view = active_view if active_view in PF2_VIEW_ROUTES else "home"
+    if not HELP_MODE and not current_user():
+        navigate_to("/")
+        return
+    inject_pageflowai2_styles()
+    ui.page_title("PageFlowAI2")
+    with ui.element("div").classes("pf2-page"):
+        with ui.element("div").classes(f"pf2-shell pf2-shell-{active_view}"):
+            with ui.element("aside").classes("pf2-sidebar"):
+                ui.label("PageFlowAI2").classes("pf2-brand")
+                ui.label("求人・会社ページ作成").classes("pf2-subbrand")
+                nav_items = [
+                    ("home", "ホーム", "home"),
+                    ("work", "求人を作る", "jobs"),
+                    ("language", "会社ページを作る", "homepage"),
+                    ("history", "作成したファイル", "history"),
+                    ("settings", "設定", "settings"),
+                ]
+                for icon_name, label, view_key in nav_items:
+                    safe_icon = html.escape(re.sub(r"[^a-zA-Z0-9_]", "", icon_name))
+                    safe_label = html.escape(label)
+                    safe_route = html.escape(PF2_VIEW_ROUTES.get(view_key, "/pf2"))
+                    active_class = " is-active" if view_key == active_view else ""
+                    ui.html(
+                        f'<a class="pf2-nav-item{active_class}" href="{safe_route}">'
+                        f'<span class="material-icons text-[18px]">{safe_icon}</span>'
+                        f'<span>{safe_label}</span>'
+                        f'</a>'
+                    )
+
+            with ui.element("main").classes("pf2-main"):
+                with ui.element("div").classes("pf2-topbar"):
+                    with ui.element("div"):
+                        kicker, title = PF2_VIEW_TITLES.get(active_view, PF2_VIEW_TITLES["home"])
+                        ui.label(kicker).classes("pf2-kicker")
+                        ui.label(title).classes("pf2-title")
+                        ui.label(PF2_VIEW_LEADS.get(active_view, PF2_VIEW_LEADS["home"])).classes("pf2-lead")
+                    with ui.row().classes("q-gutter-sm"):
+                        ui.button("求人を入力する", icon="edit", on_click=lambda: navigate_to(PF2_VIEW_ROUTES["jobs"])).props("outline no-caps")
+                        ui.button("会社ページを作る", icon="language", on_click=lambda: navigate_to(PF2_VIEW_ROUTES["homepage"])).props("outline no-caps")
+                        ui.button("作成したファイル", icon="history", on_click=lambda: navigate_to(PF2_VIEW_ROUTES["history"])).props("outline no-caps")
+                        ui.button("設定", icon="settings", on_click=lambda: navigate_to(PF2_VIEW_ROUTES["settings"])).props("outline no-caps")
+
+                with ui.element("div").props("id=pf2-live").classes(f"pf2-main-content pf2-content-view-{active_view}"):
+                    render_pageflowai2_live_mvp(active_view)
+                return
+
+
+@ui.page("/pf2", response_timeout=120.0, reconnect_timeout=120.0)
+def pageflowai2_preview_page():
+    render_pageflowai2_preview_page("home")
+
+
+@ui.page("/pf2/jobs", response_timeout=120.0, reconnect_timeout=120.0)
+def pageflowai2_jobs_page():
+    render_pageflowai2_preview_page("jobs")
+
+
+@ui.page("/pf2/homepage", response_timeout=120.0, reconnect_timeout=120.0)
+def pageflowai2_homepage_page():
+    render_pageflowai2_preview_page("homepage")
+
+
+@ui.page("/pf2/history", response_timeout=120.0, reconnect_timeout=120.0)
+def pageflowai2_history_page():
+    render_pageflowai2_preview_page("history")
+
+
+@ui.page("/pf2/settings", response_timeout=120.0, reconnect_timeout=120.0)
+def pageflowai2_settings_page():
+    render_pageflowai2_preview_page("settings")
+
+
 @ui.page("/projects", response_timeout=120.0, reconnect_timeout=120.0)
 def projects_page():
     inject_global_styles()
@@ -25555,6 +31982,9 @@ async def index():
                             set_current_project(p_demo, u)
                     except Exception:
                         pass
+                    if os.getenv("PF2_ROOT_REPLACES_LEGACY", "1").strip().lower() not in {"0", "false", "no", "off"}:
+                        render_pageflowai2_preview_page("home")
+                        return
                     render_main(u if u else User(id=0, username="help_admin", role="admin"))
                     return
 
@@ -25566,6 +31996,10 @@ async def index():
                 if not u:
                     sync_builder_shell(False)
                     render_login(root_refresh)
+                    return
+
+                if os.getenv("PF2_ROOT_REPLACES_LEGACY", "1").strip().lower() not in {"0", "false", "no", "off"}:
+                    render_pageflowai2_preview_page("home")
                     return
 
                 render_main(u)
@@ -28010,3 +34444,4 @@ if __name__ in {"__main__", "__mp_main__"}:
         port=int(os.getenv("PORT", "8080")),
         show=False,
     )
+
