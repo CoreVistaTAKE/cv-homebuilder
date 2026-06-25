@@ -2584,6 +2584,107 @@ def pf2_sales_ready_zip_diagnostics() -> dict:
     }
 
 
+PF2_UAT_REVIEW_STEPS = [
+    "3件の会社ページデモから公開用ファイルを作る",
+    "3件の求人ページデモから公開用ファイルを作る",
+    "求人ページ、検索向け情報、外部求人サービス向け情報、sitemap、robotsが同じZIPに入ることを確認する",
+    "公開前チェックで、個人情報らしき内容と媒体掲載保証表現が止まることを確認する",
+    "入力補助は未設定でも基本の下書きで止まらず、設定済みでも安全検査後にだけ反映されることを確認する",
+    "公開後は外部求人サービス側の掲載・審査・検索結果表示を各媒体の管理画面で確認する",
+]
+
+
+def pf2_sales_ready_uat_diagnostics(settings: Optional[dict] = None, publish: Optional[dict] = None) -> dict:
+    """Bundle the sales-ready checks that a human should review before sales/UAT."""
+    sales = pf2_sales_ready_demo_diagnostics()
+    zip_diag = pf2_sales_ready_zip_diagnostics()
+    gate8 = pf2_gate8_demo_diagnostics()
+    api_diag = pf2_api_usage_diagnostics(settings or {}, publish or {})
+    route_checks = {
+        "home": PF2_VIEW_ROUTES.get("home") == "/pf2",
+        "jobs": PF2_VIEW_ROUTES.get("jobs") == "/pf2/jobs",
+        "homepage": PF2_VIEW_ROUTES.get("homepage") == "/pf2/homepage",
+        "history": PF2_VIEW_ROUTES.get("history") == "/pf2/history",
+        "settings": PF2_VIEW_ROUTES.get("settings") == "/pf2/settings",
+    }
+    safety_probe_job = {
+        "title": "生活支援スタッフ",
+        "employment_type": "正社員",
+        "workplace": "東京都架空市",
+        "workplace_change_scope": "法人の定める事業所",
+        "job_description": "応募者名と test@example.com を本文に入れた。",
+        "job_change_scope": "法人の定める業務",
+        "salary_note": "月給200,000円から",
+        "working_hours": "9:00-18:00",
+        "break_time": "60分",
+        "holidays": "週休2日",
+        "trial_period": "3か月",
+        "social_insurance": "法定通り加入",
+        "passive_smoking_policy": "屋内禁煙",
+        "application_method": "Indeedで見つかりやすい求人です。",
+        "contract_period_type": "no_fixed_term",
+        "mobile_preview_checked_at": "2026-06-25T10:00:00+09:00",
+        "last_public_check_at": "2026-06-25T10:05:00+09:00",
+    }
+    safety_probe = pf2_public_check_job(safety_probe_job)
+    safety_fields = {pf2_text(item.get("field")) for item in safety_probe.get("blocks", []) if isinstance(item, dict)}
+    rows = [
+        {
+            "id": "company_demo_routes",
+            "label": "会社ページ公開デモ3件",
+            "passed": sales.get("company_demo_count") == 3 and sales.get("all_outputs_present") is True,
+            "detail": f"{sales.get('company_demo_count', 0)}件 / 成果物: {'OK' if sales.get('all_outputs_present') else '要確認'}",
+        },
+        {
+            "id": "job_demo_routes",
+            "label": "求人ページ公開デモ3件",
+            "passed": sales.get("job_demo_count") == 3 and sales.get("all_public_checks_passed") is True,
+            "detail": f"{sales.get('job_demo_count', 0)}件 / 公開前チェック: {'OK' if sales.get('all_public_checks_passed') else '要確認'}",
+        },
+        {
+            "id": "zip_outputs",
+            "label": "会社ページ・求人ページZIP",
+            "passed": zip_diag.get("all_zip_bundles_valid") is True,
+            "detail": f"{zip_diag.get('project_count', 0)}件のデモZIPを検証",
+        },
+        {
+            "id": "media_alignment",
+            "label": "求人ページと媒体向けファイルの整合",
+            "passed": sales.get("all_media_alignment_passed") is True and not gate8.get("banned_found"),
+            "detail": "求人ページ、検索向け情報、外部求人サービス向け情報の重要項目を照合",
+        },
+        {
+            "id": "api_usage",
+            "label": "入力補助と外部連携の使いどころ",
+            "passed": api_diag.get("all_safe_without_key") is True and api_diag.get("external_api_count") == 4 and api_diag.get("local_generation_count") == 2,
+            "detail": f"外部連携 {api_diag.get('external_api_count')}件 / ローカル生成 {api_diag.get('local_generation_count')}件",
+        },
+        {
+            "id": "privacy_media_safety",
+            "label": "個人情報・媒体保証表現の公開前ブロック",
+            "passed": "job_description.pii" in safety_fields and "application_method.media_claim" in safety_fields,
+            "detail": "本文PIIと媒体掲載保証表現を公開前チェックで停止",
+        },
+        {
+            "id": "routes",
+            "label": "利用者が迷わない主要ページ",
+            "passed": all(route_checks.values()),
+            "detail": "ホーム、求人、会社ページ、作成したファイル、設定の5ページ",
+        },
+    ]
+    return {
+        "passed": all(bool(row.get("passed")) for row in rows),
+        "rows": rows,
+        "review_steps": list(PF2_UAT_REVIEW_STEPS),
+        "route_checks": route_checks,
+        "sales_ready": sales,
+        "zip": zip_diag,
+        "gate8": gate8,
+        "api": api_diag,
+        "safety_probe_fields": sorted(safety_fields),
+    }
+
+
 def pf2_local_data_dir() -> Path:
     configured = pf2_text(os.getenv("PF2_LOCAL_DATA_DIR"))
     if configured:
@@ -29108,6 +29209,27 @@ PF2_GATE9_CHECKS = [
 def inject_pageflowai2_styles() -> None:
     ui.add_head_html("""
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+(() => {
+  if (window.__pf2KnownBenignErrorGuard) return;
+  window.__pf2KnownBenignErrorGuard = true;
+  const isKnownMutationObserverNoise = (message) => {
+    const text = String(message || '');
+    return text.includes("Failed to execute 'observe' on 'MutationObserver'") && text.includes('parameter 1 is not of type');
+  };
+  window.addEventListener('error', (event) => {
+    if (isKnownMutationObserverNoise(event.message || (event.error && event.error.message))) {
+      event.preventDefault();
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason || {};
+    if (isKnownMutationObserverNoise(reason.message || reason)) {
+      event.preventDefault();
+    }
+  }, true);
+})();
+</script>
 <style>
   :root {
     --pf2-bg: #f5f7fb;
@@ -30372,14 +30494,11 @@ def inject_pageflowai2_styles() -> None:
   }
   if (!window.__pf2LayoutMutationBridgeReady) {
     window.__pf2LayoutMutationBridgeReady = true;
-    const mutationObserver = new MutationObserver(() => {
+    const scheduleLayoutAttach = () => {
       window.requestAnimationFrame(attach);
-    });
-    if (document.body) {
-      mutationObserver.observe(document.body, { childList: true, subtree: true });
-    } else {
-      document.addEventListener('DOMContentLoaded', () => mutationObserver.observe(document.body, { childList: true, subtree: true }), { once: true });
-    }
+    };
+    scheduleLayoutAttach();
+    window.setInterval(scheduleLayoutAttach, 600);
   }
   if (!window.__pf2CentralWheelBridgeReady) {
     window.__pf2CentralWheelBridgeReady = true;
@@ -32085,6 +32204,23 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
                             ui.label(api_row["purpose"]).classes("pf2-job-meta q-mt-xs")
                             ui.label(api_row["fallback"]).classes("pf2-mini-help q-mt-sm")
                             ui.label(api_row["safety"]).classes("pf2-mini-help q-mt-xs")
+            with ui.element("div").classes("pf2-panel q-mt-md"):
+                uat = pf2_sales_ready_uat_diagnostics(settings, _get_project_publish_settings(project))
+                ui.label("販売前UATチェック").classes("pf2-panel-title")
+                ui.label("販売前に実際に見る項目です。すべてOKなら、デモ作成から公開用ファイル作成までの主要導線を確認できます。").classes("pf2-panel-note")
+                ui.label("販売前確認: OK" if uat.get("passed") else "販売前確認: 要確認").classes(f"pf2-pill pf2-pill-{'export_ready' if uat.get('passed') else 'editing'} q-mt-sm")
+                with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                    for row in uat.get("rows", []):
+                        with ui.element("div").classes("pf2-metric"):
+                            ui.label("OK" if row.get("passed") else "要確認").classes(f"pf2-pill pf2-pill-{'export_ready' if row.get('passed') else 'editing'}")
+                            ui.label(pf2_text(row.get("label"))).classes("pf2-job-title q-mt-sm")
+                            ui.label(pf2_text(row.get("detail"))).classes("pf2-job-meta q-mt-sm")
+                with ui.element("div").classes("pf2-checklist q-mt-md"):
+                    ui.label("UATで実際に確認する順番").classes("pf2-job-title")
+                    for idx, step in enumerate(uat.get("review_steps", []), start=1):
+                        with ui.element("div").classes("pf2-check"):
+                            ui.label(str(idx)).classes("pf2-check-mark")
+                            ui.label(pf2_text(step))
 
     live_panel()
 
