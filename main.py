@@ -31798,6 +31798,11 @@ def pageflowai2_settings_page():
 
 @ui.page("/projects", response_timeout=120.0, reconnect_timeout=120.0)
 def projects_page():
+    """Public replacement entry: old PageFlow projects now opens PageFlowAI2."""
+    render_pageflowai2_preview_page("home")
+
+
+def legacy_projects_page():
     inject_global_styles()
     cleanup_user_storage()
     sync_builder_shell(False)
