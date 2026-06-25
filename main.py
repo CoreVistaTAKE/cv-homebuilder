@@ -1331,6 +1331,146 @@ def pf2_local_homepage_seed(project: Optional[dict] = None) -> dict:
     }
 
 
+def pf2_allowed_job_seed_numbers(job: Optional[dict]) -> list[str]:
+    source = job if isinstance(job, dict) else {}
+    return pf2_extract_number_tokens(" ".join([
+        pf2_text(source.get("salary_note")),
+        pf2_text(source.get("salary_breakdown")),
+        pf2_text(source.get("working_hours")),
+        pf2_text(source.get("break_time")),
+        pf2_text(source.get("holidays")),
+        pf2_text(source.get("trial_period")),
+    ]))
+
+
+def pf2_job_seed_payload_text(payload: Optional[dict]) -> str:
+    item = payload if isinstance(payload, dict) else {}
+    return "\n".join(pf2_text(item.get(k)) for k in ["title", "job_description", "appeal_text", "day_flow", "ideal_candidate", "application_method"])
+
+
+def pf2_homepage_seed_payload_text(payload: Optional[dict]) -> str:
+    item = payload if isinstance(payload, dict) else {}
+    return "\n".join(pf2_text(v) for v in item.values())
+
+
+def pf2_run_job_seed_assist(
+    project: dict,
+    job: dict,
+    *,
+    settings: Optional[dict] = None,
+    caller=None,
+) -> dict:
+    """Run job seed assist with safe local fallback and testable execution."""
+    p = normalize_project(project if isinstance(project, dict) else {})
+    j = job if isinstance(job, dict) else {}
+    settings = settings if isinstance(settings, dict) else {}
+    call = caller or pf2_call_ai_text
+    provider = pf2_available_ai_provider(settings)
+    fallback_seed = pf2_local_job_seed(j)
+    if not pf2_ai_provider_ready(provider):
+        return {
+            "ok": True,
+            "seed": fallback_seed,
+            "source": "local_fallback",
+            "used_external_api": False,
+            "fallback_reason": "not_configured",
+            "message": "基本の下書きを入れました。必要に応じて文章を直してください。",
+            "scan": {},
+        }
+    result = call(provider, pf2_build_job_seed_prompt(p, j), settings=settings)
+    if not isinstance(result, dict) or not result.get("ok"):
+        return {
+            "ok": True,
+            "seed": fallback_seed,
+            "source": "local_fallback",
+            "used_external_api": False,
+            "fallback_reason": "call_failed",
+            "message": "入力補助が一時的に使えないため、基本の下書きを入れました。",
+            "scan": {},
+        }
+    payload = pf2_json_object_from_text(result.get("text", ""))
+    scan = pf2_scan_ai_draft(pf2_job_seed_payload_text(payload), allowed_numbers=pf2_allowed_job_seed_numbers(j))
+    if not payload or not scan.get("passed"):
+        return {
+            "ok": True,
+            "seed": fallback_seed,
+            "source": "local_fallback",
+            "used_external_api": False,
+            "fallback_reason": "safety_scan",
+            "message": "確認が必要な表現があったため、基本の下書きに切り替えました。",
+            "scan": scan,
+        }
+    allowed = {"title", "job_description", "appeal_text", "day_flow", "ideal_candidate", "application_method"}
+    seed = {key: pf2_text(payload.get(key)) for key in allowed if key in payload}
+    return {
+        "ok": True,
+        "seed": seed,
+        "source": "connected_assist",
+        "used_external_api": True,
+        "fallback_reason": "",
+        "message": "入力補助で下書きを作りました。内容を確認してから公開用ファイルを作成してください。",
+        "scan": scan,
+    }
+
+
+def pf2_run_homepage_seed_assist(
+    project: dict,
+    *,
+    settings: Optional[dict] = None,
+    caller=None,
+) -> dict:
+    """Run company page seed assist with safe local fallback and testable execution."""
+    p = normalize_project(project if isinstance(project, dict) else {})
+    settings = settings if isinstance(settings, dict) else {}
+    call = caller or pf2_call_ai_text
+    provider = pf2_available_ai_provider(settings)
+    fallback_seed = pf2_local_homepage_seed(p)
+    if not pf2_ai_provider_ready(provider):
+        return {
+            "ok": True,
+            "seed": fallback_seed,
+            "source": "local_fallback",
+            "used_external_api": False,
+            "fallback_reason": "not_configured",
+            "message": "基本の下書きを入れました。必要に応じて文章を直してください。",
+            "scan": {},
+        }
+    result = call(provider, pf2_build_homepage_seed_prompt(p), settings=settings)
+    if not isinstance(result, dict) or not result.get("ok"):
+        return {
+            "ok": True,
+            "seed": fallback_seed,
+            "source": "local_fallback",
+            "used_external_api": False,
+            "fallback_reason": "call_failed",
+            "message": "入力補助が一時的に使えないため、基本の下書きを入れました。",
+            "scan": {},
+        }
+    payload = pf2_json_object_from_text(result.get("text", ""))
+    scan = pf2_scan_ai_draft(pf2_homepage_seed_payload_text(payload), allowed_numbers=[])
+    if not payload or not scan.get("passed"):
+        return {
+            "ok": True,
+            "seed": fallback_seed,
+            "source": "local_fallback",
+            "used_external_api": False,
+            "fallback_reason": "safety_scan",
+            "message": "確認が必要な表現があったため、基本の下書きに切り替えました。",
+            "scan": scan,
+        }
+    allowed = set(PF2_API_USAGE_POINTS[1]["allowed_fields"])
+    seed = {key: pf2_text(payload.get(key)) for key in allowed if key in payload}
+    return {
+        "ok": True,
+        "seed": seed,
+        "source": "connected_assist",
+        "used_external_api": True,
+        "fallback_reason": "",
+        "message": "入力補助で下書きを作りました。内容を確認してから公開用ファイルを作成してください。",
+        "scan": scan,
+    }
+
+
 def pf2_job_seed_from_wizard_answer(answer: dict) -> dict:
     item = answer if isinstance(answer, dict) else {}
 
@@ -1625,11 +1765,13 @@ def pf2_run_field_assist(
     user_note: str,
     mode: str,
     settings: Optional[dict] = None,
+    caller=None,
 ) -> dict:
     rule = pf2_assist_rule(target, field_key)
     if not rule:
         return {"ok": False, "message": "入力補助の配置ルールがありません", "value": ""}
     settings = settings if isinstance(settings, dict) else {}
+    call = caller or pf2_call_ai_text
     pii_scan = pf2_scan_pii_text(pf2_text(current_value) + "\n" + pf2_text(user_note))
     if not pii_scan.get("passed"):
         return {
@@ -1641,7 +1783,7 @@ def pf2_run_field_assist(
     provider = pf2_available_ai_provider(settings)
     if pf2_ai_provider_ready(provider):
         prompt = pf2_build_field_assist_prompt(project, target=target, field_key=field_key, current_value=current_value, user_note=user_note, mode=mode)
-        result = pf2_call_ai_text(provider, prompt, settings=settings, max_tokens=900)
+        result = call(provider, prompt, settings=settings, max_tokens=900)
         payload = pf2_json_object_from_text(result.get("text", "")) if result.get("ok") else {}
         value = pf2_text(payload.get("value"))
         if value:
@@ -1656,10 +1798,13 @@ def pf2_run_field_assist(
                     "value": value,
                     "followup_questions": payload.get("followup_questions") if isinstance(payload.get("followup_questions"), list) else [],
                     "source": "connected",
+                    "used_external_api": True,
+                    "fallback_reason": "",
                     "scan": scan,
                 }
     fallback = pf2_local_field_assist_value(project, target=target, field_key=field_key, current_value=current_value, user_note=user_note, mode=mode)
-    return {"ok": True, "message": "入力補助で下書きを作りました", **fallback}
+    reason = "not_configured" if not pf2_ai_provider_ready(provider) else "safety_or_call_failed"
+    return {"ok": True, "message": "入力補助で下書きを作りました", "used_external_api": False, "fallback_reason": reason, **fallback}
 
 
 def pf2_gate7_demo_diagnostics() -> dict:
@@ -30842,7 +30987,7 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
             ui.notify("入力補助文を確認済みにしました", type="positive")
             live_panel.refresh()
 
-        def _apply_job_seed(seed: dict, source: str) -> None:
+        def _apply_job_seed(seed: dict, source: str, message: str = "") -> None:
             if not _role_guard("field_assist", "求人入力補助"):
                 return
             p = pf2_local_get_project(active_pid) or project
@@ -30859,7 +31004,7 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
             p = pf2_apply_job_to_project(p, j)
             p = pf2_append_audit_log(p, "pf2_api_job_seed_applied", target_type="job", target_id=job_id, metadata={"source": source})
             pf2_local_save_project(p, active=True)
-            ui.notify("求人ページの入力欄に下書きを入れました", type="positive")
+            ui.notify(message or "基本の下書きを入れました。必要に応じて文章を直してください。", type="positive")
             live_panel.refresh()
 
         def _api_fill_job() -> None:
@@ -30869,26 +31014,10 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
             j = pf2_job_from_project(p, job_id)
             ext2 = pf2_ensure_extension(p)
             opts = ext2.get("settings") if isinstance(ext2.get("settings"), dict) else {}
-            provider = pf2_available_ai_provider(opts)
-            if pf2_ai_provider_ready(provider):
-                result = pf2_call_ai_text(provider, pf2_build_job_seed_prompt(p, j), settings=opts)
-                payload = pf2_json_object_from_text(result.get("text", "")) if result.get("ok") else {}
-                scan_text = "\n".join(pf2_text(payload.get(k)) for k in ["title", "job_description", "appeal_text", "day_flow", "ideal_candidate", "application_method"])
-                scan = pf2_scan_ai_draft(scan_text, allowed_numbers=pf2_extract_number_tokens(" ".join([
-                    pf2_text(j.get("salary_note")),
-                    pf2_text(j.get("working_hours")),
-                    pf2_text(j.get("holidays")),
-                    pf2_text(j.get("trial_period")),
-                ])))
-                if payload and scan.get("passed"):
-                    _apply_job_seed(payload, provider)
-                    return
-                ui.notify("確認が必要な表現があったため、基本の下書きに切り替えました", type="info")
-            else:
-                ui.notify("基本の下書きを入れました。必要に応じて文章を直してください", type="positive")
-            _apply_job_seed(pf2_local_job_seed(j), "local_fallback")
+            result = pf2_run_job_seed_assist(p, j, settings=opts)
+            _apply_job_seed(result.get("seed") if isinstance(result.get("seed"), dict) else {}, pf2_text(result.get("source")) or "local_fallback", pf2_text(result.get("message")))
 
-        def _apply_homepage_seed(seed: dict, source: str) -> None:
+        def _apply_homepage_seed(seed: dict, source: str, message: str = "") -> None:
             if not _role_guard("field_assist", "会社ページ入力補助"):
                 return
             if pf2_text(seed.get("catch_copy")):
@@ -30900,7 +31029,7 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
             p = pf2_local_get_project(active_pid) or project
             p = pf2_append_audit_log(p, "pf2_api_homepage_seed_applied", target_type="homepage", target_id=pf2_text(p.get("project_id")), metadata={"source": source})
             pf2_local_save_project(p, active=True)
-            ui.notify("会社ページの入力欄に下書きを入れました", type="positive")
+            ui.notify(message or "基本の下書きを入れました。必要に応じて文章を直してください。", type="positive")
             live_panel.refresh()
 
         def _api_fill_homepage() -> None:
@@ -30909,19 +31038,8 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
             p = pf2_local_get_project(active_pid) or project
             ext2 = pf2_ensure_extension(p)
             opts = ext2.get("settings") if isinstance(ext2.get("settings"), dict) else {}
-            provider = pf2_available_ai_provider(opts)
-            if pf2_ai_provider_ready(provider):
-                result = pf2_call_ai_text(provider, pf2_build_homepage_seed_prompt(p), settings=opts)
-                payload = pf2_json_object_from_text(result.get("text", "")) if result.get("ok") else {}
-                scan_text = "\n".join(pf2_text(v) for v in payload.values())
-                scan = pf2_scan_ai_draft(scan_text, allowed_numbers=[])
-                if payload and scan.get("passed"):
-                    _apply_homepage_seed(payload, provider)
-                    return
-                ui.notify("確認が必要な表現があったため、基本の下書きに切り替えました", type="info")
-            else:
-                ui.notify("基本の下書きを入れました。必要に応じて文章を直してください", type="positive")
-            _apply_homepage_seed(pf2_local_homepage_seed(p), "local_fallback")
+            result = pf2_run_homepage_seed_assist(p, settings=opts)
+            _apply_homepage_seed(result.get("seed") if isinstance(result.get("seed"), dict) else {}, pf2_text(result.get("source")) or "local_fallback", pf2_text(result.get("message")))
 
         async def _upload_pf2_image(e, slot: str) -> None:
             if not _role_guard("upload", "画像アップロード"):
