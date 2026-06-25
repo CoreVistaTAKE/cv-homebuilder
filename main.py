@@ -672,6 +672,37 @@ PF2_PII_RISK_TERMS = [
     "メールアドレス", "生年月日", "マイナンバー",
 ]
 
+PF2_FORBIDDEN_MEDIA_CLAIM_PARTS = [
+    ("Indeed", "掲載OK"),
+    ("Indeed", "連携OK"),
+    ("Google", "連携OK"),
+    ("媒体", "連携OK"),
+    ("準備", "OK"),
+    ("100%", "達成"),
+    ("応募が", "増えます"),
+    ("採用に", "近づいています"),
+    ("上位表示", "されます"),
+    ("上位表示", "されやすい"),
+    ("Google", "掲載"),
+    ("求人ボックス", "掲載"),
+    ("Indeedに", "最適化"),
+    ("Indeedで", "見つかりやすい"),
+    ("Indeedに", "嫌われにくい"),
+    ("採用", "代行"),
+]
+PF2_FORBIDDEN_MEDIA_CLAIMS = ["".join(parts) for parts in PF2_FORBIDDEN_MEDIA_CLAIM_PARTS]
+
+PF2_PUBLIC_TEXT_SAFETY_FIELDS = [
+    ("title", "職種名"),
+    ("job_description", "業務内容"),
+    ("appeal_text", "職場の魅力"),
+    ("day_flow", "1日の流れ"),
+    ("benefits", "職場の安心材料"),
+    ("qualification_note", "応募資格・必要資格"),
+    ("ideal_candidate", "求める人物像"),
+    ("application_method", "応募方法"),
+]
+
 
 def pf2_text(value: object) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
@@ -770,6 +801,27 @@ def pf2_scan_pii_text(text: object) -> dict:
         "risk_terms": risk_terms,
         "passed": not (emails or phones or risk_terms),
     }
+
+
+def pf2_scan_media_claim_text(text: object) -> dict:
+    body = pf2_text(text)
+    found = [term for term in PF2_FORBIDDEN_MEDIA_CLAIMS if term in body]
+    return {"claims": found, "passed": not found}
+
+
+def pf2_public_text_safety_entries(job: dict) -> list[tuple[str, str, str]]:
+    source = job if isinstance(job, dict) else {}
+    entries: list[tuple[str, str, str]] = []
+    for field, label in PF2_PUBLIC_TEXT_SAFETY_FIELDS:
+        entries.append((field, label, pf2_text(source.get(field))))
+    faq_items = source.get("faq_items")
+    if isinstance(faq_items, list):
+        for idx, item in enumerate(faq_items, start=1):
+            if not isinstance(item, dict):
+                continue
+            entries.append((f"faq_items.{idx}.question", f"採用FAQ {idx} 質問", pf2_text(item.get("question"))))
+            entries.append((f"faq_items.{idx}.answer", f"採用FAQ {idx} 回答", pf2_text(item.get("answer"))))
+    return entries
 
 
 def pf2_edit_distance_ratio(original: object, edited: object) -> float:
@@ -1925,23 +1977,7 @@ def pf2_gate7_demo_diagnostics() -> dict:
     }
 
 
-PF2_E2E_BANNED_TERM_PARTS = [
-    ("Indeed", "掲載OK"),
-    ("Indeed", "連携OK"),
-    ("Google", "連携OK"),
-    ("媒体", "連携OK"),
-    ("準備", "OK"),
-    ("100%", "達成"),
-    ("応募が", "増えます"),
-    ("採用に", "近づいています"),
-    ("上位表示", "されます"),
-    ("上位表示", "されやすい"),
-    ("Google", "掲載"),
-    ("求人ボックス", "掲載"),
-    ("Indeedに", "最適化"),
-    ("Indeedで", "見つかりやすい"),
-    ("Indeedに", "嫌われにくい"),
-    ("採用", "代行"),
+PF2_E2E_BANNED_TERM_PARTS = PF2_FORBIDDEN_MEDIA_CLAIM_PARTS + [
     ("虹", "家"),
     ("Ni", "jiya"),
 ]
@@ -3171,6 +3207,23 @@ def pf2_public_check_job(job: dict) -> dict:
                 blocks_.append({"field": key, "label": label, "message": f"固定残業代を含む場合、{label}が必要です"})
     if bool(job.get("ai_draft_used")) and not pf2_text(job.get("ai_draft_human_confirmed_at")):
         blocks_.append({"field": "ai_draft_human_confirmed_at", "label": "入力補助文の確認", "message": "入力補助で作った文章の確認が未完了です"})
+    for field, label, value in pf2_public_text_safety_entries(job):
+        if not value:
+            continue
+        pii_scan = pf2_scan_pii_text(value)
+        if not pii_scan["passed"]:
+            blocks_.append({
+                "field": f"{field}.pii",
+                "label": label,
+                "message": "個人情報につながる可能性がある表現を削除してください",
+            })
+        claim_scan = pf2_scan_media_claim_text(value)
+        if not claim_scan["passed"]:
+            blocks_.append({
+                "field": f"{field}.media_claim",
+                "label": label,
+                "message": "採用成功、上位表示、媒体掲載を保証するように読める表現を削除してください",
+            })
     if not pf2_text(job.get("mobile_preview_checked_at")):
         warnings.append({"field": "mobile_preview_checked_at", "label": "スマホ表示確認", "message": "スマホ表示の確認が未完了です"})
     return {"blocks": blocks_, "warnings": warnings}
@@ -27447,7 +27500,7 @@ PACK_FIELD_GUIDE = {
     "recruitment_employment_types": {"what": "募集形態を書きます。社員・パート・アルバイトなどです。", "max_chars": 80},
     "recruitment_work_location": {"what": "勤務地を書きます。住所、事業所名、駅からの距離などです。", "max_chars": 120},
     "recruitment_work_hours": {"what": "勤務時間を書きます。シフト、週の勤務日数、相談可否も入れると親切です。", "max_chars": 120},
-    "recruitment_salary_note": {"what": "給与、手当、交通費、賞与などを書きます。Indeedにも使いやすいよう金額を明記してください。", "max_chars": 140},
+    "recruitment_salary_note": {"what": "給与、手当、交通費、賞与などを書きます。求人ページと外部求人サービス向けファイルに同じ内容を反映します。", "max_chars": 140},
     "recruitment_holidays": {"what": "休日、休暇、シフトの考え方を書きます。", "max_chars": 140},
     "recruitment_benefits": {"what": "福利厚生や待遇を書きます。社会保険、研修、資格取得支援などです。", "max_chars": 220, "multiline": True},
     "recruitment_qualification_note": {"what": "必要資格や歓迎条件を書きます。", "max_chars": 180, "multiline": True},
