@@ -2685,25 +2685,57 @@ def pf2_sales_ready_uat_diagnostics(settings: Optional[dict] = None, publish: Op
     }
 
 
+def pf2_can_write_directory(path: Path) -> bool:
+    """Return whether PageFlowAI2 can create files under this directory."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".pf2-write-test-{secrets.token_hex(4)}"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+
+def pf2_runtime_tmp_data_dir() -> Path:
+    base = pf2_text(os.getenv("TMPDIR")) or pf2_text(os.getenv("TEMP")) or pf2_text(os.getenv("TMP")) or "/tmp"
+    return Path(base) / "pageflowai2" / "pf2_local_data"
+
+
+def pf2_first_writable_directory(candidates: list[Path]) -> Path:
+    for candidate in candidates:
+        if pf2_can_write_directory(candidate):
+            return candidate
+    return candidates[-1]
+
+
 def pf2_local_data_dir() -> Path:
     configured = pf2_text(os.getenv("PF2_LOCAL_DATA_DIR"))
+    candidates: list[Path] = []
     if configured:
-        return Path(configured)
-    return Path(__file__).resolve().parents[1] / "pf2_local_data"
+        candidates.append(Path(configured))
+    candidates.append(Path(__file__).resolve().parents[1] / "pf2_local_data")
+    candidates.append(pf2_runtime_tmp_data_dir())
+    return pf2_first_writable_directory(candidates)
 
 
 def pf2_local_store_path() -> Path:
     configured = pf2_text(os.getenv("PF2_LOCAL_STORE_PATH"))
     if configured:
-        return Path(configured)
+        candidate = Path(configured)
+        if pf2_can_write_directory(candidate.parent):
+            return candidate
     return pf2_local_data_dir() / "projects.json"
 
 
 def pf2_local_export_dir() -> Path:
     configured = pf2_text(os.getenv("PF2_LOCAL_EXPORT_DIR"))
+    candidates: list[Path] = []
     if configured:
-        return Path(configured)
-    return pf2_local_data_dir() / "exports"
+        candidates.append(Path(configured))
+    candidates.append(pf2_local_data_dir() / "exports")
+    candidates.append(pf2_runtime_tmp_data_dir() / "exports")
+    return pf2_first_writable_directory(candidates)
 
 
 def pf2_local_load_store() -> dict:
