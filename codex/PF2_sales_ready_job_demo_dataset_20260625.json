@@ -1,0 +1,310 @@
+{
+  "created_at": "2026-06-25",
+  "purpose": "PageFlowAI2 sales-ready job page publication demos",
+  "source_contract": {
+    "project_fields": [
+      "data.blocks.recruitment",
+      "data.pageflowai2.jobs[job_id]",
+      "data.pageflowai2.active_job_id",
+      "data.step2"
+    ],
+    "expected_files": [
+      "recruit.html",
+      "recruitment/index.html",
+      "assets/recruitment.jobposting.json",
+      "feeds/indeed.xml",
+      "assets/recruitment.distribution.json",
+      "sitemap.xml",
+      "robots.txt"
+    ],
+    "expected_public_check": {
+      "block_count": 0,
+      "warning_count_after_mobile_check": 0,
+      "state_before_export": "export_ready",
+      "state_after_export": "prepared"
+    },
+    "privacy_rule": "Do not include real companies, employees, applicants, users, medical details, disability traits, family situations, or identifiable personal information.",
+    "media_rule": "Generate local job page and media-readable files only. Do not imply publication, approval, ranking, or search-result display on Indeed, Google, Kyujinbox, or other media."
+  },
+  "jobs": [
+    {
+      "job_demo_id": "demo-job-01-minori-support",
+      "company_demo_id": "demo-company-01-minori-care",
+      "project_id": "pf2-demo-minori-care",
+      "job_id": "job-minori-support",
+      "data": {
+        "blocks": {
+          "recruitment": {
+            "enabled": true,
+            "title": "生活支援スタッフ",
+            "lead": "生活介護の現場で、日中活動や記録、関係機関との連絡補助をチームで行います。未経験の方も、見学から相談できます。",
+            "employment_types": "正社員",
+            "work_location": "東京都練馬区架空町1-2-3",
+            "work_hours": "9:00から18:00",
+            "salary_note": "月給210,000円から260,000円",
+            "holidays": "週休2日制。シフトにより決定",
+            "benefits": "研修あり。記録や連絡の流れは入職後に確認します。資格取得支援制度あり。",
+            "work_summary": "生活介護の支援、記録、関係機関との連絡補助を行います。",
+            "work_details": "生活介護の現場で、日中活動、食事や排泄の支援、記録、関係機関との連絡補助を行います。利用者さんの生活リズムを大切にしながら、チームで確認して進めます。",
+            "daily_flow": "9:00 朝の確認\n10:00 日中活動の支援\n12:00 昼食支援\n14:00 記録と連絡補助\n17:00 片付けと翌日の確認",
+            "qualification_note": "福祉職の経験がない方も相談できます。普通自動車免許がある方は歓迎します。",
+            "target_person": "人と話すことが好きで、チームで確認しながら進めたい方に向いています。",
+            "application_flow": "応募フォームまたは電話で見学・応募について相談できます。",
+            "apply_url": "contact.html",
+            "faq_items": [
+              {
+                "q": "未経験でも応募できますか？",
+                "a": "仕事内容を見学で確認してから相談できます。入職後は記録や支援の流れを順番に確認します。"
+              },
+              {
+                "q": "見学だけでも相談できますか？",
+                "a": "応募前の見学相談を受け付けています。希望日時を問い合わせからお知らせください。"
+              },
+              {
+                "q": "記録やパソコン作業はありますか？",
+                "a": "日々の記録があります。使う書式や入力方法は入職後に確認します。"
+              }
+            ]
+          }
+        },
+        "pageflowai2": {
+          "active_job_id": "job-minori-support",
+          "jobs": {
+            "job-minori-support": {
+              "service_type": "生活介護・相談支援",
+              "workplace_change_scope": "変更範囲なし",
+              "job_change_scope": "法人の定める生活支援業務",
+              "contract_period_type": "no_fixed_term",
+              "contract_period": "期間の定めなし",
+              "contract_renewal": "",
+              "contract_renewal_criteria": "",
+              "contract_renewal_limit": "",
+              "salary_type": "monthly",
+              "salary_min": 210000,
+              "salary_max": 260000,
+              "salary_breakdown": "基本給200,000円から240,000円、処遇改善手当10,000円から20,000円",
+              "fixed_overtime_enabled": false,
+              "fixed_overtime_hours": "",
+              "fixed_overtime_amount": "",
+              "fixed_overtime_extra_pay_note": "",
+              "break_time": "60分",
+              "trial_period": "3か月。条件変更なし",
+              "social_insurance": "雇用保険、労災保険、健康保険、厚生年金に加入",
+              "passive_smoking_policy": "敷地内禁煙",
+              "contact_name": "採用担当",
+              "ai_draft_used": true,
+              "ai_draft_human_confirmed_at": "2026-06-25T10:00:00+09:00",
+              "mobile_preview_checked_at": "2026-06-25T10:05:00+09:00",
+              "last_public_check_at": "2026-06-25T10:10:00+09:00",
+              "export_pack_generated_at": ""
+            }
+          }
+        }
+      },
+      "api_assist_targets": [
+        "job_description",
+        "appeal_text",
+        "day_flow",
+        "faq_items",
+        "readability_rewrite",
+        "privacy_and_media_expression_scan"
+      ],
+      "expected": {
+        "public_check_blocks": 0,
+        "public_check_warnings": 0,
+        "media_outputs": [
+          "recruitment/index.html",
+          "assets/recruitment.jobposting.json",
+          "feeds/indeed.xml",
+          "assets/recruitment.distribution.json"
+        ]
+      }
+    },
+    {
+      "job_demo_id": "demo-job-02-harukaze-support",
+      "company_demo_id": "demo-company-02-harukaze-home",
+      "project_id": "pf2-demo-harukaze-home",
+      "job_id": "job-harukaze-support",
+      "data": {
+        "blocks": {
+          "recruitment": {
+            "enabled": true,
+            "title": "グループホーム世話人・生活支援員",
+            "lead": "共同生活援助の住まいで、食事準備、夜間の見守り、記録を行います。勤務時間や見学について相談できます。",
+            "employment_types": "パート・アルバイト（有期）",
+            "work_location": "大阪府吹田市架空台4-5-6",
+            "work_hours": "16:00から翌9:00。短時間勤務は応相談",
+            "salary_note": "時給1,250円から1,450円",
+            "holidays": "シフトにより決定",
+            "benefits": "勤務日数は相談できます。記録の書き方や夜間の確認手順は入職後に説明します。",
+            "work_summary": "共同生活援助の住まいで、食事準備、服薬確認、夜間の見守り、記録を行います。",
+            "work_details": "共同生活援助の住まいで、食事準備、服薬確認、夜間の見守り、記録、生活相談の補助を行います。困りごとがある場合は、管理者や関係機関へ共有します。",
+            "daily_flow": "16:00 引き継ぎ\n18:00 夕食準備と見守り\n21:00 夜間確認\n6:30 朝の準備\n9:00 記録と引き継ぎ",
+            "qualification_note": "福祉施設での勤務経験がある方は歓迎します。未経験の方も仕事内容を確認してから相談できます。",
+            "target_person": "落ち着いて見守りができ、必要なことをチームに共有できる方に向いています。",
+            "application_flow": "応募フォームから希望勤務時間と見学希望を送信できます。",
+            "apply_url": "contact.html",
+            "faq_items": [
+              {
+                "q": "夜勤が初めてでも相談できますか？",
+                "a": "夜間の確認手順や記録方法を見学時に確認できます。勤務開始後も流れを順番に確認します。"
+              },
+              {
+                "q": "週何日から相談できますか？",
+                "a": "勤務日数はシフト状況により相談できます。希望は応募フォームでお知らせください。"
+              },
+              {
+                "q": "食事づくりの経験は必要ですか？",
+                "a": "簡単な準備や配膳が中心です。詳しい内容は見学時に確認できます。"
+              }
+            ]
+          }
+        },
+        "pageflowai2": {
+          "active_job_id": "job-harukaze-support",
+          "jobs": {
+            "job-harukaze-support": {
+              "service_type": "共同生活援助",
+              "workplace_change_scope": "同一市内の法人事業所",
+              "job_change_scope": "法人の定める共同生活援助業務",
+              "contract_period_type": "fixed_term",
+              "contract_period": "1年",
+              "contract_renewal": "更新する場合あり",
+              "contract_renewal_criteria": "勤務状況、業務量、本人の希望、事業所の運営状況により判断",
+              "contract_renewal_limit": "更新回数の上限なし",
+              "salary_type": "hourly",
+              "salary_min": 1250,
+              "salary_max": 1450,
+              "salary_breakdown": "時給1,250円から1,450円。深夜時間帯は法定割増を支給",
+              "fixed_overtime_enabled": false,
+              "fixed_overtime_hours": "",
+              "fixed_overtime_amount": "",
+              "fixed_overtime_extra_pay_note": "",
+              "break_time": "120分",
+              "trial_period": "3か月。条件変更なし",
+              "social_insurance": "勤務時間に応じて法定通り加入",
+              "passive_smoking_policy": "屋内禁煙",
+              "contact_name": "採用担当",
+              "ai_draft_used": true,
+              "ai_draft_human_confirmed_at": "2026-06-25T10:20:00+09:00",
+              "mobile_preview_checked_at": "2026-06-25T10:25:00+09:00",
+              "last_public_check_at": "2026-06-25T10:30:00+09:00",
+              "export_pack_generated_at": ""
+            }
+          }
+        }
+      },
+      "api_assist_targets": [
+        "job_description",
+        "appeal_text",
+        "day_flow",
+        "faq_items",
+        "readability_rewrite",
+        "privacy_and_media_expression_scan"
+      ],
+      "expected": {
+        "public_check_blocks": 0,
+        "public_check_warnings": 0,
+        "media_outputs": [
+          "recruitment/index.html",
+          "assets/recruitment.jobposting.json",
+          "feeds/indeed.xml",
+          "assets/recruitment.distribution.json"
+        ]
+      }
+    },
+    {
+      "job_demo_id": "demo-job-03-sora-instructor",
+      "company_demo_id": "demo-company-03-sora-kids",
+      "project_id": "pf2-demo-sora-kids",
+      "job_id": "job-sora-instructor",
+      "data": {
+        "blocks": {
+          "recruitment": {
+            "enabled": true,
+            "title": "児童指導員",
+            "lead": "放課後等デイサービスで、活動準備、見守り、記録、家族や学校との情報共有を行います。",
+            "employment_types": "正社員",
+            "work_location": "愛知県名古屋市架空区そら町7-8-9",
+            "work_hours": "10:00から19:00",
+            "salary_note": "月給230,000円から280,000円",
+            "holidays": "日曜、ほかシフトにより1日",
+            "benefits": "研修あり。活動準備や記録の流れはチームで確認します。送迎補助の相談もできます。",
+            "work_summary": "放課後等デイサービスで、活動準備、見守り、記録、送迎補助を行います。",
+            "work_details": "放課後等デイサービスで、活動準備、子どもたちの見守り、記録、送迎補助、家族や学校との情報共有を行います。活動と休息のバランスを見ながら、チームで支援を振り返ります。",
+            "daily_flow": "10:00 活動準備\n13:00 記録確認\n15:00 子どもたちの受け入れ\n16:00 活動支援\n18:00 送迎補助と記録",
+            "qualification_note": "児童指導員任用資格、保育士、教員免許などをお持ちの方を歓迎します。",
+            "target_person": "子どもの小さな変化をチームで共有しながら支援したい方に向いています。",
+            "application_flow": "応募フォームから見学希望日と連絡先を送信できます。",
+            "apply_url": "contact.html",
+            "faq_items": [
+              {
+                "q": "送迎業務はありますか？",
+                "a": "送迎補助があります。運転の有無や範囲は面談時に確認します。"
+              },
+              {
+                "q": "支援方針を事前に確認できますか？",
+                "a": "会社ページと求人ページで支援の考え方を確認できます。見学時にも質問できます。"
+              },
+              {
+                "q": "ブランクがあっても相談できますか？",
+                "a": "経験や資格の状況を確認しながら相談できます。仕事内容は見学時に確認できます。"
+              }
+            ]
+          }
+        },
+        "pageflowai2": {
+          "active_job_id": "job-sora-instructor",
+          "jobs": {
+            "job-sora-instructor": {
+              "service_type": "放課後等デイサービス",
+              "workplace_change_scope": "変更範囲なし",
+              "job_change_scope": "法人の定める児童支援業務",
+              "contract_period_type": "no_fixed_term",
+              "contract_period": "期間の定めなし",
+              "contract_renewal": "",
+              "contract_renewal_criteria": "",
+              "contract_renewal_limit": "",
+              "salary_type": "monthly",
+              "salary_min": 230000,
+              "salary_max": 280000,
+              "salary_breakdown": "基本給220,000円から260,000円、資格手当10,000円から20,000円",
+              "fixed_overtime_enabled": false,
+              "fixed_overtime_hours": "",
+              "fixed_overtime_amount": "",
+              "fixed_overtime_extra_pay_note": "",
+              "break_time": "60分",
+              "trial_period": "3か月。条件変更なし",
+              "social_insurance": "雇用保険、労災保険、健康保険、厚生年金に加入",
+              "passive_smoking_policy": "敷地内禁煙",
+              "contact_name": "採用担当",
+              "ai_draft_used": true,
+              "ai_draft_human_confirmed_at": "2026-06-25T10:40:00+09:00",
+              "mobile_preview_checked_at": "2026-06-25T10:45:00+09:00",
+              "last_public_check_at": "2026-06-25T10:50:00+09:00",
+              "export_pack_generated_at": ""
+            }
+          }
+        }
+      },
+      "api_assist_targets": [
+        "job_description",
+        "appeal_text",
+        "day_flow",
+        "faq_items",
+        "readability_rewrite",
+        "privacy_and_media_expression_scan"
+      ],
+      "expected": {
+        "public_check_blocks": 0,
+        "public_check_warnings": 0,
+        "media_outputs": [
+          "recruitment/index.html",
+          "assets/recruitment.jobposting.json",
+          "feeds/indeed.xml",
+          "assets/recruitment.distribution.json"
+        ]
+      }
+    }
+  ]
+}

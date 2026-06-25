@@ -1,0 +1,192 @@
+{
+  "created_at": "2026-06-25",
+  "purpose": "PageFlowAI2 sales-ready company page publication demos",
+  "source_contract": {
+    "project_fields": [
+      "data.step2",
+      "data.pageflowai2.homepage",
+      "data.pageflowai2.publish"
+    ],
+    "expected_files": [
+      "index.html",
+      "about.html",
+      "services.html",
+      "service-1.html",
+      "service-2.html",
+      "service-3.html",
+      "recruit.html",
+      "contact.html",
+      "privacy.html",
+      "thanks.html",
+      "robots.txt",
+      "sitemap.xml",
+      "_redirects",
+      "_headers",
+      "assets/site.css",
+      "assets/site.js"
+    ],
+    "privacy_rule": "Do not include real companies, employees, applicants, users, medical details, disability traits, family situations, or identifiable personal information.",
+    "media_rule": "Do not imply publication, approval, ranking, or search-result display on Indeed, Google, Kyujinbox, or other media."
+  },
+  "companies": [
+    {
+      "demo_id": "demo-company-01-minori-care",
+      "design": {
+        "selected_design_key": "photo_trust",
+        "selected_design_name": "Care Trust Journal",
+        "selected_design_summary": "落ち着いた余白と写真で、家族や求職者が安心して読める構成。"
+      },
+      "data": {
+        "step2": {
+          "company_name": "架空みのりケアステーション",
+          "email": "contact+minori@example.jp",
+          "phone": "03-0000-1101",
+          "address": "東京都練馬区架空町1-2-3",
+          "site_url": "https://demo.pageflowai2.local/minori-care/",
+          "catch_copy": "地域で暮らす毎日を、相談しやすく支える。",
+          "hero_image_url": "",
+          "logo_url": "",
+          "favicon_url": ""
+        },
+        "pageflowai2": {
+          "publish": {
+            "public_site_url": "https://demo.pageflowai2.local/minori-care/"
+          },
+          "homepage": {
+            "catch_copy": "地域で暮らす毎日を、相談しやすく支える。",
+            "hero_sub_catch": "生活介護と相談支援の情報を、家族にも求職者にも分かりやすくまとめます。",
+            "about_title": "私たちについて",
+            "about_body": "少人数のチームで、日々の生活リズムと相談しやすさを大切にしています。家族や関係機関との連絡も、無理なく続けられるように整理しています。見学前に知りたい情報を、スマホで確認できる形にまとめます。",
+            "about_points": "見学前に分かる情報を整える\n生活リズムを大切にする\n家族・関係機関と連携する",
+            "services_title": "事業内容",
+            "services_body": "生活介護、相談支援、地域連携の内容を、初めて見る方にも分かる言葉で紹介します。利用までの相談や見学前の確認にも使える構成にします。",
+            "services_items": "生活介護｜日中活動、食事や排泄などの生活支援、余暇活動をチームで行います。\n相談支援｜利用までの流れやサービス調整を、本人と家族の状況に合わせて確認します。\n地域連携｜医療、学校、行政、他事業所との情報共有を大切にします。",
+            "recruitment_link_label": "採用情報",
+            "recruitment_lead": "支援の考え方や一日の流れを確認してから、見学や応募を相談できます。",
+            "contact_button_text": "見学・相談する",
+            "access_notes": "見学は事前予約制です。個人名や詳しい事情は問い合わせフォームに書かず、まず希望日時だけお知らせください。",
+            "hero_image_url": "",
+            "about_image_url": "",
+            "services_image_url": "",
+            "recruitment_image_url": "",
+            "selected_design_key": "photo_trust",
+            "selected_design_name": "Care Trust Journal",
+            "selected_design_summary": "落ち着いた余白と写真で、家族や求職者が安心して読める構成。"
+          }
+        }
+      },
+      "image_policy": {
+        "hero": "明るい外観または地域風景。人物の顔が特定できないもの。",
+        "about": "書類や手元の打ち合わせ風景。個人情報が写らないもの。",
+        "services": "活動テーブルや備品。利用者の顔が写らないもの。",
+        "recruitment": "廊下、記録用品、支援備品など。職員個人が特定されないもの。"
+      }
+    },
+    {
+      "demo_id": "demo-company-02-harukaze-home",
+      "design": {
+        "selected_design_key": "friendly_guide",
+        "selected_design_name": "Friendly Guide",
+        "selected_design_summary": "カード型で情報を小分けにし、スマホで迷わず読める構成。"
+      },
+      "data": {
+        "step2": {
+          "company_name": "架空はるかぜホーム",
+          "email": "contact+harukaze@example.jp",
+          "phone": "06-0000-2202",
+          "address": "大阪府吹田市架空台4-5-6",
+          "site_url": "https://demo.pageflowai2.local/harukaze-home/",
+          "catch_copy": "家庭的な暮らしを、見守りと対話で支える。",
+          "hero_image_url": "",
+          "logo_url": "",
+          "favicon_url": ""
+        },
+        "pageflowai2": {
+          "publish": {
+            "public_site_url": "https://demo.pageflowai2.local/harukaze-home/"
+          },
+          "homepage": {
+            "catch_copy": "家庭的な暮らしを、見守りと対話で支える。",
+            "hero_sub_catch": "共同生活援助の雰囲気、相談先、求人への入口をスマホで読みやすく整理します。",
+            "about_title": "暮らしを支える姿勢",
+            "about_body": "日々の暮らしのペースを尊重しながら、必要な見守りと相談を行います。夜間の確認や記録の流れも、チームで共有できるように整えています。初めて見る方にも、住まいの雰囲気が伝わる会社ページにします。",
+            "about_points": "生活のペースを尊重する\n小さな変化をチームで共有する\n夜間も相談できる体制を整える",
+            "services_title": "支援内容",
+            "services_body": "共同生活援助を中心に、生活相談や地域生活の支援を行います。利用者や家族、求職者が知りたい内容を、短いカードで確認できる構成にします。",
+            "services_items": "共同生活援助｜食事、服薬確認、夜間の見守りなど、日々の暮らしを支えます。\n生活相談｜困りごとや予定を確認し、必要な支援につなげます。\n地域生活の支援｜買い物、通院、地域活動などを無理なく続けられるよう支えます。",
+            "recruitment_link_label": "採用情報",
+            "recruitment_lead": "夜勤や見守りの流れを確認してから、見学・応募の相談ができます。",
+            "contact_button_text": "相談する",
+            "access_notes": "入居者名、病歴、家庭事情などの個別情報は入力せず、まず相談したい内容だけを選んでください。",
+            "hero_image_url": "",
+            "about_image_url": "",
+            "services_image_url": "",
+            "recruitment_image_url": "",
+            "selected_design_key": "friendly_guide",
+            "selected_design_name": "Friendly Guide",
+            "selected_design_summary": "カード型で情報を小分けにし、スマホで迷わず読める構成。"
+          }
+        }
+      },
+      "image_policy": {
+        "hero": "明るい共有スペース。入居者の顔が写らないもの。",
+        "about": "キッチン、廊下、リビングなど生活感が伝わる素材。",
+        "services": "連絡ノート、予定表、日用品など。個人情報が写らないもの。",
+        "recruitment": "夜間見守りや記録を想起できる静かな素材。"
+      }
+    },
+    {
+      "demo_id": "demo-company-03-sora-kids",
+      "design": {
+        "selected_design_key": "mission_network",
+        "selected_design_name": "Mission Network",
+        "selected_design_summary": "支援方針とチームのつながりを整理し、採用導線へ自然につなげる構成。"
+      },
+      "data": {
+        "step2": {
+          "company_name": "架空そらキッズサポート",
+          "email": "contact+sora@example.jp",
+          "phone": "052-0000-3303",
+          "address": "愛知県名古屋市架空区そら町7-8-9",
+          "site_url": "https://demo.pageflowai2.local/sora-kids/",
+          "catch_copy": "子どもの「できた」を、チームで育てる。",
+          "hero_image_url": "",
+          "logo_url": "",
+          "favicon_url": ""
+        },
+        "pageflowai2": {
+          "publish": {
+            "public_site_url": "https://demo.pageflowai2.local/sora-kids/"
+          },
+          "homepage": {
+            "catch_copy": "子どもの「できた」を、チームで育てる。",
+            "hero_sub_catch": "放課後等デイサービスの支援内容、相談窓口、採用情報を一つのページで確認できます。",
+            "about_title": "支援の考え方",
+            "about_body": "小さな成功体験を積み重ねられるよう、活動と休息のバランスを大切にしています。家庭や学校との連携も、必要な範囲で分かりやすく整理します。子どもの個別事情に踏み込みすぎず、事業所の方針が伝わるページにします。",
+            "about_points": "小さな成功体験を積み重ねる\n家庭・学校と連携する\n職員同士で支援を振り返る",
+            "services_title": "サポート内容",
+            "services_body": "発達支援、放課後支援、家族連携の内容を、専門用語に偏らず紹介します。見学前の確認や採用情報への導線も、迷わず進めるようにします。",
+            "services_items": "発達支援｜遊びや活動を通じて、生活スキルやコミュニケーションを支えます。\n放課後支援｜学校後の時間を安心して過ごせるよう、活動と休息のバランスを整えます。\n家族連携｜家庭や学校との情報共有を行い、支援の方向性を確認します。",
+            "recruitment_link_label": "採用情報",
+            "recruitment_lead": "支援方針や活動の流れを読んでから、見学や応募を相談できます。",
+            "contact_button_text": "問い合わせる",
+            "access_notes": "子どもの氏名、学校名、診断名などは入力せず、見学や相談の希望だけを送ってください。",
+            "hero_image_url": "",
+            "about_image_url": "",
+            "services_image_url": "",
+            "recruitment_image_url": "",
+            "selected_design_key": "mission_network",
+            "selected_design_name": "Mission Network",
+            "selected_design_summary": "支援方針とチームのつながりを整理し、採用導線へ自然につなげる構成。"
+          }
+        }
+      },
+      "image_policy": {
+        "hero": "明るい教室、絵本、遊具など。子どもの顔や学校名が写らないもの。",
+        "about": "活動道具やホワイトボード。個別支援計画や名前が写らないもの。",
+        "services": "学習机、教材、玩具など。個人情報がないもの。",
+        "recruitment": "職員用の記録用品、活動準備の様子など。人物特定を避けるもの。"
+      }
+    }
+  ]
+}

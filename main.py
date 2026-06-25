@@ -1241,7 +1241,7 @@ def pf2_dashboard_rows(projects: list[dict], *, limit: int = 20) -> list[dict]:
     for project in projects or []:
         if not isinstance(project, dict):
             continue
-        jid = pf2_job_id_for_project(project)
+        jid = pf2_active_job_id_for_project(project)
         job = pf2_job_from_project(project, jid)
         action = pf2_next_action_for_job(job)
         public_check = job.get("public_check") if isinstance(job.get("public_check"), dict) else pf2_public_check_job(job)
@@ -1737,6 +1737,316 @@ def pf2_gate8_demo_diagnostics() -> dict:
         "audit_logged": bool(ext.get("audit_logs")),
         "banned_found": banned_found,
     }
+
+
+PF2_SALES_READY_COMPANY_DEMO_DATASET = "PF2_sales_ready_company_demo_dataset_20260625.json"
+PF2_SALES_READY_JOB_DEMO_DATASET = "PF2_sales_ready_job_demo_dataset_20260625.json"
+
+
+def pf2_sales_ready_demo_candidate_dirs() -> list[Path]:
+    """Return candidate directories that can carry the bundled demo datasets."""
+    module_dir = Path(__file__).resolve().parent
+    raw_dirs: list[Path] = []
+    env_dir = os.environ.get("PF2_SALES_READY_DEMO_DIR", "").strip()
+    if env_dir:
+        raw_dirs.append(Path(env_dir))
+    raw_dirs.extend([
+        module_dir / "codex",
+        module_dir / "data" / "pageflowai2",
+        Path.cwd() / "codex",
+    ])
+    raw_dirs.extend(parent / "codex" for parent in [module_dir, *module_dir.parents])
+    seen: set[str] = set()
+    dirs: list[Path] = []
+    for item in raw_dirs:
+        key = str(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        dirs.append(item)
+    return dirs
+
+
+def pf2_sales_ready_demo_source_paths() -> dict[str, str]:
+    """Return specification dataset paths for the sales-ready demos."""
+    company_name = PF2_SALES_READY_COMPANY_DEMO_DATASET
+    job_name = PF2_SALES_READY_JOB_DEMO_DATASET
+    dirs = pf2_sales_ready_demo_candidate_dirs()
+    for base in dirs:
+        company_path = base / company_name
+        job_path = base / job_name
+        if company_path.exists() and job_path.exists():
+            return {
+                "company_dataset": str(company_path),
+                "job_dataset": str(job_path),
+            }
+    base = dirs[0] if dirs else Path.cwd()
+    return {
+        "company_dataset": str(base / company_name),
+        "job_dataset": str(base / job_name),
+    }
+
+
+def _pf2_json_clone(value: object) -> object:
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False))
+    except Exception:
+        return value
+
+
+def _pf2_deep_merge_dict(base: dict, overlay: dict) -> dict:
+    merged = _pf2_json_clone(base) if isinstance(base, dict) else {}
+    if not isinstance(merged, dict):
+        merged = {}
+    for key, value in (overlay if isinstance(overlay, dict) else {}).items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _pf2_deep_merge_dict(merged.get(key, {}), value)
+        else:
+            merged[key] = _pf2_json_clone(value)
+    return merged
+
+
+def pf2_load_sales_ready_demo_datasets() -> dict:
+    """Load the Step 2/3 demo datasets without touching the local project store."""
+    paths = pf2_sales_ready_demo_source_paths()
+    result = {
+        "companies": [],
+        "jobs": [],
+        "paths": paths,
+        "loaded": False,
+        "errors": [],
+    }
+    try:
+        company_payload = json.loads(Path(paths["company_dataset"]).read_text(encoding="utf-8"))
+        job_payload = json.loads(Path(paths["job_dataset"]).read_text(encoding="utf-8"))
+        result["companies"] = company_payload.get("companies") if isinstance(company_payload.get("companies"), list) else []
+        result["jobs"] = job_payload.get("jobs") if isinstance(job_payload.get("jobs"), list) else []
+        result["loaded"] = True
+    except Exception as exc:
+        result["errors"].append(str(exc))
+    return result
+
+
+def _pf2_sync_homepage_demo_to_blocks(project: dict) -> dict:
+    p = normalize_project(project if isinstance(project, dict) else {})
+    data = p.setdefault("data", {})
+    ext = pf2_ensure_extension(p)
+    homepage = ext.get("homepage") if isinstance(ext.get("homepage"), dict) else {}
+    blocks = data.setdefault("blocks", {})
+    hero = blocks.setdefault("hero", {})
+    philosophy = blocks.setdefault("philosophy", {})
+    services = philosophy.setdefault("services", {})
+    contact = blocks.setdefault("contact", {})
+    access = blocks.setdefault("access", {})
+    recruitment = blocks.setdefault("recruitment", {})
+    if pf2_text(homepage.get("hero_sub_catch")):
+        hero["sub_catch"] = pf2_text(homepage.get("hero_sub_catch"))
+    if pf2_text(homepage.get("about_title")):
+        philosophy["title"] = pf2_text(homepage.get("about_title"))
+    if pf2_text(homepage.get("about_body")):
+        philosophy["body"] = pf2_text(homepage.get("about_body"))
+    points = _pf2_lines(homepage.get("about_points"), limit=5)
+    if points:
+        philosophy["points"] = points
+    if pf2_text(homepage.get("services_title")):
+        services["title"] = pf2_text(homepage.get("services_title"))
+    if pf2_text(homepage.get("services_body")):
+        services["lead"] = pf2_text(homepage.get("services_body"))
+    service_items = []
+    for line in _pf2_lines(homepage.get("services_items"), limit=3):
+        if "｜" in line:
+            title, body = line.split("｜", 1)
+        else:
+            title, body = line, ""
+        service_items.append({"title": title.strip(), "body": body.strip()})
+    if service_items:
+        services["items"] = service_items
+    if pf2_text(homepage.get("recruitment_link_label")):
+        recruitment["title"] = pf2_text(homepage.get("recruitment_link_label"))
+    if pf2_text(homepage.get("recruitment_lead")):
+        recruitment.setdefault("lead", pf2_text(homepage.get("recruitment_lead")))
+    recruitment["enabled"] = True
+    if pf2_text(homepage.get("contact_button_text")):
+        contact["button_text"] = pf2_text(homepage.get("contact_button_text"))
+    if pf2_text(homepage.get("access_notes")):
+        access["notes"] = pf2_text(homepage.get("access_notes"))
+    return p
+
+
+def pf2_sales_ready_demo_projects() -> list[dict]:
+    """Build the three fictional sales-ready projects from the frozen datasets."""
+    datasets = pf2_load_sales_ready_demo_datasets()
+    companies = {
+        pf2_text(item.get("demo_id")): item
+        for item in datasets.get("companies", [])
+        if isinstance(item, dict) and pf2_text(item.get("demo_id"))
+    }
+    projects: list[dict] = []
+    for job_item in datasets.get("jobs", []):
+        if not isinstance(job_item, dict):
+            continue
+        company = companies.get(pf2_text(job_item.get("company_demo_id")))
+        if not isinstance(company, dict):
+            continue
+        company_data = company.get("data") if isinstance(company.get("data"), dict) else {}
+        job_data = job_item.get("data") if isinstance(job_item.get("data"), dict) else {}
+        step2 = _pf2_json_clone(company_data.get("step2") if isinstance(company_data.get("step2"), dict) else {})
+        if not isinstance(step2, dict):
+            step2 = {}
+        public_url = pf2_text(((company_data.get("pageflowai2") or {}).get("publish") or {}).get("public_site_url")) or pf2_text(step2.get("site_url"))
+        project = normalize_project({
+            "project_id": pf2_text(job_item.get("project_id")) or f"pf2-sales-ready-{len(projects) + 1}",
+            "project_name": f"{pf2_text(step2.get('company_name'))} / {pf2_text((job_data.get('blocks') or {}).get('recruitment', {}).get('title'))}",
+            "created_at": "2026-06-25T10:00:00+09:00",
+            "updated_at": now_jst_iso(),
+            "created_by": "pageflowai2-sales-ready-demo",
+            "updated_by": "pageflowai2-sales-ready-demo",
+            "data": {
+                "step1": {
+                    "primary_color": "green",
+                    "industry": "福祉・介護",
+                    "hero_type": "simple",
+                    "template_id": "welfare_v1",
+                },
+                "step2": step2,
+                "publish": {"public_site_url": public_url},
+                "blocks": _pf2_json_clone(job_data.get("blocks") if isinstance(job_data.get("blocks"), dict) else {}),
+                "pageflowai2": _pf2_deep_merge_dict(
+                    company_data.get("pageflowai2") if isinstance(company_data.get("pageflowai2"), dict) else {},
+                    job_data.get("pageflowai2") if isinstance(job_data.get("pageflowai2"), dict) else {},
+                ),
+            },
+        })
+        ext = pf2_ensure_extension(project)
+        ext["settings"]["google_jobposting_enabled"] = True
+        ext["settings"]["indeed_xml_enabled"] = True
+        ext["settings"]["sitemap_robots_enabled"] = True
+        ext["demo"] = {
+            "kind": "sales_ready",
+            "company_demo_id": pf2_text(company.get("demo_id")),
+            "job_demo_id": pf2_text(job_item.get("job_demo_id")),
+            "source_step": "Step 4",
+            "publication_route": [
+                "会社ページ入力",
+                "求人ページ入力",
+                "スマホプレビュー確認",
+                "公開前チェック",
+                "会社ページ公開用ファイル",
+                "求人ページ公開用ファイル",
+            ],
+        }
+        project = _pf2_sync_homepage_demo_to_blocks(project)
+        jid = pf2_active_job_id_for_project(project)
+        source_job = pf2_job_from_project(project, jid)
+        source_job["public_check"] = pf2_public_check_job(source_job)
+        project = pf2_apply_job_to_project(project, source_job)
+        project = pf2_append_public_check_run(project, jid, source_job["public_check"])
+        project = pf2_append_audit_log(project, "pf2_sales_ready_demo_project_built", target_type="job", target_id=jid, metadata={
+            "company_demo_id": pf2_text(company.get("demo_id")),
+            "job_demo_id": pf2_text(job_item.get("job_demo_id")),
+        })
+        projects.append(normalize_project(project))
+    return projects
+
+
+def pf2_register_sales_ready_demo_projects(*, overwrite: bool = False, active_first: bool = True) -> dict:
+    """Register the three demo projects into the local store and verify reloadability."""
+    demos = pf2_sales_ready_demo_projects()
+    store = pf2_local_load_store()
+    projects = store.get("projects") if isinstance(store.get("projects"), dict) else {}
+    registered: list[str] = []
+    skipped: list[str] = []
+    for project in demos:
+        pid = pf2_text(project.get("project_id"))
+        if not pid:
+            continue
+        if pid in projects and not overwrite:
+            skipped.append(pid)
+            continue
+        projects[pid] = pf2_prune_ai_drafts(project)
+        registered.append(pid)
+    store["projects"] = projects
+    if active_first and demos:
+        store["active_project_id"] = pf2_text(demos[0].get("project_id"))
+    pf2_local_save_store(store)
+    reloaded_ids = [
+        pf2_text((pf2_local_get_project(pid) or {}).get("project_id"))
+        for pid in [pf2_text(p.get("project_id")) for p in demos]
+    ]
+    return {
+        "ok": bool(demos) and all(pid in reloaded_ids for pid in [pf2_text(p.get("project_id")) for p in demos]),
+        "registered": registered,
+        "skipped": skipped,
+        "project_ids": [pf2_text(p.get("project_id")) for p in demos],
+        "reloaded_ids": [pid for pid in reloaded_ids if pid],
+        "store_path": str(pf2_local_store_path()),
+    }
+
+
+def pf2_sales_ready_demo_diagnostics() -> dict:
+    projects = pf2_sales_ready_demo_projects()
+    rows = []
+    for project in projects:
+        jid = pf2_active_job_id_for_project(project)
+        job = pf2_job_from_project(project, jid)
+        check = pf2_public_check_job(job)
+        files = build_pageflowai2_site_files(project)
+        try:
+            jobposting = json.loads(files.get(RECRUITMENT_JOBPOSTING_JSON_PATH, b"{}").decode("utf-8", errors="replace"))
+        except Exception:
+            jobposting = {}
+        indeed_xml = files.get(RECRUITMENT_INDEED_FEED_PATH, b"").decode("utf-8", errors="replace")
+        media_check = pf2_check_media_alignment(job, jobposting=jobposting, indeed_xml=indeed_xml)
+        rows.append({
+            "project_id": pf2_text(project.get("project_id")),
+            "job_id": jid,
+            "state": job.get("main_state"),
+            "public_check_blocks": len(check.get("blocks", [])),
+            "public_check_warnings": len(check.get("warnings", [])),
+            "file_count": len(files),
+            "has_home": "index.html" in files,
+            "has_recruitment": RECRUITMENT_PAGE_PATH in files,
+            "has_jobposting": RECRUITMENT_JOBPOSTING_JSON_PATH in files,
+            "has_indeed_xml": RECRUITMENT_INDEED_FEED_PATH in files,
+            "has_distribution": RECRUITMENT_DISTRIBUTION_JSON_PATH in files,
+            "has_sitemap": SITE_SITEMAP_PATH in files,
+            "has_robots": SITE_ROBOTS_PATH in files,
+            "media_alignment_passed": bool(media_check.get("passed")),
+            "history_ready": bool(pf2_ensure_extension(project).get("public_check_runs")) and bool(pf2_ensure_extension(project).get("audit_logs")),
+        })
+    return {
+        "project_count": len(projects),
+        "company_demo_count": len({pf2_ensure_extension(p).get("demo", {}).get("company_demo_id") for p in projects}),
+        "job_demo_count": len({pf2_ensure_extension(p).get("demo", {}).get("job_demo_id") for p in projects}),
+        "rows": rows,
+        "all_public_checks_passed": all(r["public_check_blocks"] == 0 and r["public_check_warnings"] == 0 for r in rows),
+        "all_outputs_present": all(r["has_home"] and r["has_recruitment"] and r["has_jobposting"] and r["has_indeed_xml"] and r["has_distribution"] and r["has_sitemap"] and r["has_robots"] for r in rows),
+        "all_media_alignment_passed": all(r["media_alignment_passed"] for r in rows),
+        "all_history_ready": all(r["history_ready"] for r in rows),
+    }
+
+
+def pf2_sales_ready_demo_summaries() -> list[dict[str, str]]:
+    summaries: list[dict[str, str]] = []
+    for project in pf2_sales_ready_demo_projects():
+        ext = pf2_ensure_extension(project)
+        demo = ext.get("demo") if isinstance(ext.get("demo"), dict) else {}
+        step2 = project.get("data", {}).get("step2", {}) if isinstance(project.get("data"), dict) else {}
+        homepage = ext.get("homepage") if isinstance(ext.get("homepage"), dict) else {}
+        jid = pf2_active_job_id_for_project(project)
+        job = pf2_job_from_project(project, jid)
+        summaries.append({
+            "project_id": pf2_text(project.get("project_id")),
+            "company_demo_id": pf2_text(demo.get("company_demo_id")),
+            "job_demo_id": pf2_text(demo.get("job_demo_id")),
+            "company_name": pf2_clean_company_name(step2.get("company_name"), project.get("project_name"), fallback="会社名"),
+            "job_title": pf2_text(job.get("title")) or "求人情報",
+            "design_name": pf2_text(homepage.get("selected_design_name")) or "デザイン案",
+            "design_summary": pf2_text(homepage.get("selected_design_summary")) or "スマホで読みやすい会社ページ構成です。",
+            "public_site_url": pf2_text((ext.get("publish") or {}).get("public_site_url")) or pf2_text(step2.get("site_url")),
+            "homepage_goal": pf2_text(homepage.get("hero_sub_catch")) or "会社紹介、事業内容、求人導線を一つにまとめます。",
+        })
+    return summaries
 
 
 def pf2_local_data_dir() -> Path:
@@ -29535,7 +29845,7 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
         active_pid = pf2_text(app.storage.user.get("pf2_active_project_id")) or _active_project_id()
         project = pf2_local_get_project(active_pid) or pf2_local_ensure_active_project()
         app.storage.user["pf2_active_project_id"] = pf2_text(project.get("project_id"))
-        job_id = pf2_job_id_for_project(project)
+        job_id = pf2_active_job_id_for_project(project)
         job = pf2_job_from_project(project, job_id)
         public_check = pf2_public_check_job(job)
         job["public_check"] = public_check
@@ -30034,6 +30344,35 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
             ui.notify("架空サンプル求人を作成しました", type="positive")
             live_panel.refresh()
 
+        def _open_sales_ready_homepage_demo(project_id: str) -> None:
+            if not _role_guard("create", "会社ページデモの読み込み"):
+                return
+            result = pf2_register_sales_ready_demo_projects(overwrite=False, active_first=False)
+            pid = pf2_text(project_id)
+            selected = pf2_local_set_active_project(pid)
+            if not selected:
+                ui.notify("会社ページデモを読み込めませんでした", type="negative")
+                return
+            app.storage.user["pf2_active_project_id"] = pid
+            app.storage.user[f"pf2_homepage_editor_tab_{pid}"] = 0
+            ui.notify("会社ページデモを読み込みました", type="positive")
+            navigate_to(PF2_VIEW_ROUTES["homepage"])
+
+        def _open_sales_ready_job_demo(project_id: str) -> None:
+            if not _role_guard("create", "求人ページデモの読み込み"):
+                return
+            result = pf2_register_sales_ready_demo_projects(overwrite=False, active_first=False)
+            pid = pf2_text(project_id)
+            selected = pf2_local_set_active_project(pid)
+            if not selected:
+                ui.notify("求人ページデモを読み込めませんでした", type="negative")
+                return
+            active_jid = pf2_active_job_id_for_project(selected)
+            app.storage.user["pf2_active_project_id"] = pid
+            app.storage.user[f"pf2_job_editor_tab_{pid}_{active_jid}"] = 0
+            ui.notify("求人ページデモを読み込みました", type="positive")
+            navigate_to(PF2_VIEW_ROUTES["jobs"])
+
         def _clear_ai_logs() -> None:
             if not _role_guard("log_delete", "入力補助の記録削除"):
                 return
@@ -30523,6 +30862,30 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
                             ui.html(f"<strong>{html.escape(title)}</strong>")
                             ui.label(note).classes("pf2-job-meta")
                             ui.button(title, icon=icon_name, on_click=handler).props(("color=primary " if color == "primary" else "outline ") + "no-caps dense").classes("q-mt-sm")
+                demo_summaries = pf2_sales_ready_demo_summaries()
+                if demo_summaries:
+                    with ui.element("div").classes("pf2-panel q-mt-md"):
+                        _pf2_section_title("会社ページの公開デモ", "3つの架空デモから始める", "選ぶと会社ページの入力画面へ移動します。あとで公開用ファイルまで作れます。")
+                        with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                            for demo in demo_summaries:
+                                pid = pf2_text(demo.get("project_id"))
+                                with ui.element("div").classes("pf2-metric"):
+                                    ui.label(pf2_text(demo.get("company_name"))).classes("pf2-job-title")
+                                    ui.label(pf2_text(demo.get("design_name"))).classes("pf2-pill pf2-pill-export_ready q-mt-sm")
+                                    ui.label(pf2_text(demo.get("homepage_goal"))).classes("pf2-job-meta q-mt-sm")
+                                    ui.label(f"求人: {pf2_text(demo.get('job_title'))}").classes("pf2-job-meta q-mt-sm")
+                                    ui.button("この会社ページを作る", icon="language", on_click=lambda project_id=pid: _open_sales_ready_homepage_demo(project_id)).props("color=primary unelevated no-caps dense").classes("q-mt-sm")
+                    with ui.element("div").classes("pf2-panel q-mt-md"):
+                        _pf2_section_title("求人ページの公開デモ", "3つの架空求人から始める", "選ぶと求人入力画面へ移動します。公開前チェック済みなので、公開用ファイルまで確認できます。")
+                        with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                            for demo in demo_summaries:
+                                pid = pf2_text(demo.get("project_id"))
+                                with ui.element("div").classes("pf2-metric"):
+                                    ui.label(pf2_text(demo.get("job_title"))).classes("pf2-job-title")
+                                    ui.label(pf2_text(demo.get("company_name"))).classes("pf2-job-meta q-mt-sm")
+                                    ui.label("公開前チェック済み").classes("pf2-pill pf2-pill-export_ready q-mt-sm")
+                                    ui.label("求人ページ、検索向け情報、外部求人サービス向け情報をまとめて作れます。").classes("pf2-job-meta q-mt-sm")
+                                    ui.button("この求人ページを作る", icon="work", on_click=lambda project_id=pid: _open_sales_ready_job_demo(project_id)).props("color=primary unelevated no-caps dense").classes("q-mt-sm")
             else:
                 with ui.element("div").classes("pf2-grid q-mt-md"):
                     with ui.element("div").classes("pf2-panel"):
@@ -30537,7 +30900,7 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
             projects = pf2_local_list_projects()
             state_counts = {key: 0 for key in PF2_JOB_STATE_LABELS}
             for item in projects:
-                item_job = pf2_job_from_project(item, pf2_job_id_for_project(item))
+                item_job = pf2_job_from_project(item, pf2_active_job_id_for_project(item))
                 state_counts[item_job.get("main_state", PF2_JOB_STATE_NOT_STARTED)] = state_counts.get(item_job.get("main_state", PF2_JOB_STATE_NOT_STARTED), 0) + 1
             with ui.element("div").classes("pf2-state-grid q-mt-md"):
                 for state_key, label in PF2_JOB_STATE_LABELS.items():
@@ -30574,7 +30937,7 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
                     for item in projects:
                         pid = pf2_text(item.get("project_id"))
                         is_active = pid == active_pid
-                        row_job = pf2_job_from_project(item, pf2_job_id_for_project(item))
+                        row_job = pf2_job_from_project(item, pf2_active_job_id_for_project(item))
                         with ui.element("div").classes("pf2-job-row"):
                             with ui.element("div"):
                                 ui.label(pf2_text(item.get("project_name")) or pf2_text(row_job.get("title")) or "名称未設定").classes("pf2-job-title")
