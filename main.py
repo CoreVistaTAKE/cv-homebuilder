@@ -1033,6 +1033,194 @@ def pf2_any_ai_provider_ready(settings: Optional[dict] = None) -> bool:
     return pf2_ai_provider_ready(pf2_available_ai_provider(settings))
 
 
+PF2_API_USAGE_POINTS = [
+    {
+        "id": "job_seed",
+        "user_label": "求人ページの下書き",
+        "ui_entry": "求人を作る > 質問に答えて求人の下書きを作る",
+        "purpose": "仕事内容、職場の魅力、1日の流れ、求める人物像、応募方法のたたき台を作る",
+        "external_api": True,
+        "api_group": "text_assist",
+        "fallback": "pf2_local_job_seed",
+        "safe_without_key": True,
+        "allowed_fields": ["title", "job_description", "appeal_text", "day_flow", "ideal_candidate", "application_method"],
+        "forbidden_fields": ["salary_note", "working_hours", "holidays", "employment_type", "workplace", "contact_email", "contact_phone"],
+        "post_generation_check": "pf2_scan_ai_draft",
+        "audit_action": "pf2_api_job_seed_applied",
+    },
+    {
+        "id": "homepage_seed",
+        "user_label": "会社ページの下書き",
+        "ui_entry": "会社ページを作る > 質問に答えて会社ページの下書きを作る",
+        "purpose": "トップ、紹介、事業内容、求人ページへの導線、問い合わせ文のたたき台を作る",
+        "external_api": True,
+        "api_group": "text_assist",
+        "fallback": "pf2_local_homepage_seed",
+        "safe_without_key": True,
+        "allowed_fields": [
+            "catch_copy", "hero_sub_catch", "about_title", "about_body", "about_points",
+            "services_title", "services_body", "services_items", "recruitment_link_label",
+            "recruitment_lead", "contact_button_text", "access_notes",
+        ],
+        "forbidden_fields": ["salary_note", "working_hours", "holidays", "contact_email", "contact_phone"],
+        "post_generation_check": "pf2_scan_ai_draft",
+        "audit_action": "pf2_api_homepage_seed_applied",
+    },
+    {
+        "id": "field_assist",
+        "user_label": "各入力欄の文章補助",
+        "ui_entry": "求人・会社ページの各入力欄 > 質問で作る / 読みやすく整える / 地域らしさを足す",
+        "purpose": "決められた1つの入力欄だけに文章を反映する",
+        "external_api": True,
+        "api_group": "text_assist",
+        "fallback": "pf2_local_field_assist_value",
+        "safe_without_key": True,
+        "allowed_fields": "PF2_ASSIST_FIELD_RULES",
+        "forbidden_fields": ["labor_condition_fields", "contact_fields_unless_user_entered"],
+        "pre_generation_check": "pf2_scan_pii_text",
+        "post_generation_check": "pf2_scan_ai_draft",
+        "audit_action": "pf2_field_assist_applied",
+    },
+    {
+        "id": "google_indexing",
+        "user_label": "公開後の検索エンジン通知",
+        "ui_entry": "公開用ファイル作成後 > 任意のURL更新通知",
+        "purpose": "公開済みURLの更新通知を送る。掲載や検索表示は保証しない",
+        "external_api": True,
+        "api_group": "indexing_notification",
+        "fallback": "skip_without_error",
+        "safe_without_key": True,
+        "allowed_fields": ["public_site_url", "recruitment_page_url"],
+        "forbidden_fields": ["applicant_data", "private_notes"],
+        "audit_action": "project_google_indexing",
+    },
+    {
+        "id": "image_upload",
+        "user_label": "画像アップロード",
+        "ui_entry": "会社ページを作る / 求人を作る > 画像を選ぶ",
+        "purpose": "ロゴ、メイン画像、会社紹介画像、事業内容画像、求人ページ画像を公開用ファイルに入れる",
+        "external_api": False,
+        "api_group": "local_file_processing",
+        "fallback": "not_needed",
+        "safe_without_key": True,
+        "allowed_fields": ["logo", "favicon", "hero", "about", "services", "recruitment"],
+        "forbidden_fields": ["external_generation"],
+        "audit_action": "pf2_homepage_image_uploaded",
+    },
+    {
+        "id": "media_file_generation",
+        "user_label": "媒体向けファイル作成",
+        "ui_entry": "公開用ファイル > 作成されるファイル",
+        "purpose": "検索向け求人情報、外部求人サービス向けXML、sitemap、robots、ZIPをローカル生成する",
+        "external_api": False,
+        "api_group": "local_media_generation",
+        "fallback": "not_needed",
+        "safe_without_key": True,
+        "allowed_fields": ["jobposting_jsonld", "indeed_xml", "sitemap", "robots", "zip_pack"],
+        "forbidden_fields": ["external_account_operation", "applicant_data"],
+        "audit_action": "pf2_local_export_generated",
+    },
+]
+
+
+def pf2_api_usage_contract() -> list[dict]:
+    """Return the fixed internal contract for every API or API-like touchpoint."""
+    return [dict(item) for item in PF2_API_USAGE_POINTS]
+
+
+def pf2_api_secret_presence() -> dict[str, bool]:
+    """Report secret presence only; never expose secret values."""
+    return {
+        "text_assist": any(bool(os.getenv(name)) for name in ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]),
+        "google_indexing_json": bool(os.getenv(CVHB_GOOGLE_SERVICE_ACCOUNT_JSON_ENV)),
+        "google_indexing_file": any(Path(path).is_file() for path in _google_service_account_candidate_paths({}) if path),
+    }
+
+
+def pf2_google_indexing_ready(publish: Optional[dict] = None) -> bool:
+    if AuthorizedSession is None or google_service_account is None:
+        return False
+    info, _source, _error = _load_google_service_account_info(publish)
+    return bool(info)
+
+
+def pf2_api_usage_diagnostics(settings: Optional[dict] = None, publish: Optional[dict] = None) -> dict:
+    settings = settings if isinstance(settings, dict) else {}
+    publish = publish if isinstance(publish, dict) else {}
+    text_ready = pf2_any_ai_provider_ready(settings)
+    google_enabled = _google_indexing_enabled(publish)
+    google_ready = pf2_google_indexing_ready(publish)
+    secret_presence = pf2_api_secret_presence()
+    rows: list[dict] = []
+    for item in PF2_API_USAGE_POINTS:
+        group = pf2_text(item.get("api_group"))
+        external = bool(item.get("external_api"))
+        if group == "text_assist":
+            ready = text_ready
+            state = "ready" if ready else "local_fallback"
+            missing_setup = [] if ready else ["入力補助APIキー"]
+        elif group == "indexing_notification":
+            ready = bool(google_enabled and google_ready)
+            state = "ready" if ready else "skipped"
+            if not google_enabled:
+                missing_setup = ["Google通知がOFF"]
+            elif not google_ready:
+                missing_setup = ["Google通知用の認証設定"]
+            else:
+                missing_setup = []
+        else:
+            ready = True
+            state = "local"
+            missing_setup = []
+        rows.append({
+            "id": pf2_text(item.get("id")),
+            "user_label": pf2_text(item.get("user_label")),
+            "ui_entry": pf2_text(item.get("ui_entry")),
+            "purpose": pf2_text(item.get("purpose")),
+            "external_api": external,
+            "ready": ready,
+            "state": state,
+            "safe_without_key": bool(item.get("safe_without_key")),
+            "fallback": pf2_text(item.get("fallback")),
+            "missing_setup": missing_setup,
+            "audit_action": pf2_text(item.get("audit_action")),
+        })
+    return {
+        "rows": rows,
+        "all_safe_without_key": all(bool(row.get("safe_without_key")) for row in rows),
+        "external_api_count": sum(1 for row in rows if row.get("external_api")),
+        "ready_external_api_count": sum(1 for row in rows if row.get("external_api") and row.get("ready")),
+        "local_generation_count": sum(1 for row in rows if not row.get("external_api")),
+        "secret_presence": secret_presence,
+        "provider_names_hidden_in_ui": True,
+    }
+
+
+def pf2_api_usage_public_rows(settings: Optional[dict] = None, publish: Optional[dict] = None) -> list[dict[str, str]]:
+    """User-facing API readiness rows without provider/model/secret names."""
+    rows: list[dict[str, str]] = []
+    for row in pf2_api_usage_diagnostics(settings, publish).get("rows", []):
+        external = bool(row.get("external_api"))
+        if not external:
+            status = "外部連携なし"
+            fallback = "このパソコン内で作成します"
+        elif row.get("ready"):
+            status = "利用できます"
+            fallback = "安全検査後に入力欄へ反映します"
+        else:
+            status = "基本の下書きを使います"
+            fallback = "未設定でも作成を止めません"
+        rows.append({
+            "label": pf2_text(row.get("user_label")),
+            "where": pf2_text(row.get("ui_entry")),
+            "purpose": pf2_text(row.get("purpose")),
+            "status": status,
+            "fallback": fallback,
+            "safety": "秘密情報は画面に表示しません。掲載・検索表示・応募増加は保証しません。",
+        })
+    return rows
+
+
 def pf2_call_ai_text(provider: str, prompt: str, *, settings: Optional[dict] = None, max_tokens: int = 1400) -> dict:
     provider = pf2_text(provider).lower() or "claude"
     settings = settings if isinstance(settings, dict) else {}
@@ -31693,6 +31881,18 @@ def render_pageflowai2_live_mvp(active_view: str = "home") -> None:
                 ui.label(f"入力補助の記録保存期間: 通常{PF2_AI_LOG_RETENTION_DAYS}日、公開準備済の求人関連記録は{PF2_AI_PUBLIC_LOG_RETENTION_DAYS}日を上限にします。")
                 ui.label("入力補助に使う秘密情報は、この画面に表示しません。")
                 ui.label("媒体への掲載・審査・検索結果表示は、各媒体側の判断です。PageFlowAI2は求人ページと公開用ファイルの作成までを担当します。")
+            with ui.element("div").classes("pf2-panel q-mt-md"):
+                ui.label("入力補助と外部連携の使いどころ").classes("pf2-panel-title")
+                ui.label("どこで何が動くかを先に確認できます。未設定でも作成作業は止まりません。").classes("pf2-panel-note")
+                with ui.element("div").classes("pf2-dashboard-grid q-mt-md"):
+                    for api_row in pf2_api_usage_public_rows(settings, _get_project_publish_settings(project)):
+                        with ui.element("div").classes("pf2-metric"):
+                            ui.label(api_row["label"]).classes("pf2-job-title")
+                            ui.label(api_row["status"]).classes("pf2-pill pf2-pill-export_ready q-mt-sm")
+                            ui.label(api_row["where"]).classes("pf2-job-meta q-mt-sm")
+                            ui.label(api_row["purpose"]).classes("pf2-job-meta q-mt-xs")
+                            ui.label(api_row["fallback"]).classes("pf2-mini-help q-mt-sm")
+                            ui.label(api_row["safety"]).classes("pf2-mini-help q-mt-xs")
 
     live_panel()
 
