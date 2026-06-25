@@ -29154,6 +29154,9 @@ def inject_pageflowai2_styles() -> None:
     font-weight: 650;
     text-decoration: none;
     width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
   }
   .pf2-nav-item:hover {
     background: #f2f7f5;
@@ -29390,6 +29393,7 @@ def inject_pageflowai2_styles() -> None:
     scrollbar-gutter: stable;
     scrollbar-width: auto;
     overscroll-behavior: contain;
+    overflow-anchor: none;
   }
   .pf2-scroll-column::-webkit-scrollbar {
     width: 12px;
@@ -29487,8 +29491,9 @@ def inject_pageflowai2_styles() -> None:
   }
   .pf2-editor-content {
     min-width: 0;
-    min-height: max(1040px, calc(100dvh - 64px));
+    min-height: 0;
     align-self: start;
+    overflow-anchor: none;
   }
   .pf2-editor-content > .pf2-job-panel:first-child,
   .pf2-editor-content > .pf2-homepage-group:first-child,
@@ -29957,24 +29962,37 @@ def inject_pageflowai2_styles() -> None:
     line-height: 1;
   }
   .pf2-image-upload-panel {
-    padding: 14px;
+    padding: 12px;
   }
   .pf2-image-upload-panel .pf2-dashboard-grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(5, minmax(96px, 1fr));
+    gap: 8px;
   }
   .pf2-image-upload-panel .pf2-metric {
-    min-height: 82px;
-    padding: 10px;
+    min-height: 66px;
+    padding: 8px;
+  }
+  .pf2-image-upload-panel .pf2-job-title {
+    font-size: 12px;
+    line-height: 1.35;
   }
   .pf2-image-upload-panel .pf2-clean-upload .q-uploader,
   .pf2-image-upload-panel .pf2-clean-upload .q-uploader__header {
-    min-height: 38px;
+    height: 34px !important;
+    min-height: 34px !important;
+    max-height: 34px !important;
+  }
+  .pf2-image-upload-panel .pf2-clean-upload .q-uploader__list {
+    display: none !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
   }
   .pf2-image-upload-panel .pf2-clean-upload .q-uploader__header::before {
-    min-height: 38px;
-    padding-left: 10px;
-    font-size: 12px;
+    min-height: 34px;
+    padding-left: 8px;
+    font-size: 11px;
   }
   .pf2-phone-preview::before {
     content: "";
@@ -30218,6 +30236,8 @@ def inject_pageflowai2_styles() -> None:
       }
     });
   }
+  window.__pf2RememberCentralScroll = rememberCentralScroll;
+  window.__pf2RestoreCentralScroll = restoreCentralScroll;
   function restoreCentralScroll() {
     document.querySelectorAll(scrollViewsSelector).forEach((view) => {
       if (!isVisiblePf2View(view)) return;
@@ -30292,6 +30312,7 @@ def inject_pageflowai2_styles() -> None:
   function attach() {
     wrapScrollableColumns();
     normalizeJobEditorPanels();
+    restoreCentralScroll();
     document.querySelectorAll('.pf2-phone-stage').forEach((stage) => observer.observe(stage));
     updatePhoneScale();
     scheduleCentralScrollRestore();
