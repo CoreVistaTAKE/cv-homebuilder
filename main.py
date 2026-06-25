@@ -2049,6 +2049,172 @@ def pf2_sales_ready_demo_summaries() -> list[dict[str, str]]:
     return summaries
 
 
+PF2_PUBLIC_ZIP_REQUIRED_SITE_PATHS = [
+    "index.html",
+    "about.html",
+    "services.html",
+    "recruit.html",
+    "contact.html",
+    "privacy.html",
+    "thanks.html",
+    "404.html",
+    "_redirects",
+    "_headers",
+    "site.webmanifest",
+    "humans.txt",
+    "PUBLICATION_CHECKLIST.txt",
+    "service-1.html",
+    "service-2.html",
+    "service-3.html",
+    "news/index.html",
+    "assets/site.css",
+    "assets/site.js",
+    "assets/site.version.json",
+    "assets/site.design.json",
+    RECRUITMENT_PAGE_PATH,
+    RECRUITMENT_JOBPOSTING_JSON_PATH,
+    RECRUITMENT_DISTRIBUTION_JSON_PATH,
+    RECRUITMENT_INDEED_FEED_PATH,
+    SITE_SITEMAP_PATH,
+    SITE_ROBOTS_PATH,
+]
+
+
+def pf2_public_zip_site_files(zip_bytes: bytes) -> dict[str, bytes]:
+    """Return distributable site files from an exported ZIP, stripping site/."""
+    site_files: dict[str, bytes] = {}
+    for name, raw in zip_bytes_to_site_files(zip_bytes).items():
+        normalized = str(name or "").replace("\\", "/").lstrip("/")
+        if not normalized.startswith("site/"):
+            continue
+        rel = normalized[len("site/"):]
+        if rel and not rel.endswith("/"):
+            site_files[rel] = raw
+    return site_files
+
+
+def pf2_validate_public_zip_bundle(zip_bytes: bytes, project: dict, *, export_type: str = "zip_pack") -> dict:
+    """Validate the actual ZIP bundle customers receive."""
+    p = normalize_project(project if isinstance(project, dict) else {})
+    jid = pf2_active_job_id_for_project(p)
+    job = pf2_job_from_project(p, jid)
+    data = p.get("data") if isinstance(p.get("data"), dict) else {}
+    step2 = data.get("step2") if isinstance(data.get("step2"), dict) else {}
+    company_name = pf2_text(step2.get("company_name")) or pf2_text(p.get("project_name"))
+    job_title = pf2_text(job.get("title")) or pf2_text(job.get("job_title"))
+    raw_files = zip_bytes_to_site_files(zip_bytes)
+    raw_names = sorted(raw_files.keys())
+    site_files = pf2_public_zip_site_files(zip_bytes)
+    unexpected_roots = [name for name in raw_names if not name.startswith("site/")]
+    missing = [path for path in PF2_PUBLIC_ZIP_REQUIRED_SITE_PATHS if path not in site_files]
+
+    def _decode(path: str) -> str:
+        raw = site_files.get(path) or b""
+        try:
+            return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw or "")
+        except Exception:
+            return ""
+
+    index_html = _decode("index.html")
+    recruitment_html = _decode(RECRUITMENT_PAGE_PATH)
+    jobposting_raw = _decode(RECRUITMENT_JOBPOSTING_JSON_PATH)
+    distribution_raw = _decode(RECRUITMENT_DISTRIBUTION_JSON_PATH)
+    indeed_xml = _decode(RECRUITMENT_INDEED_FEED_PATH)
+    sitemap_xml = _decode(SITE_SITEMAP_PATH)
+    robots_txt = _decode(SITE_ROBOTS_PATH)
+    site_css = _decode("assets/site.css")
+    site_js = _decode("assets/site.js")
+    visible_text = "\n".join(
+        _decode(path)
+        for path in site_files
+        if path.endswith((".html", ".json", ".xml", ".txt"))
+    )
+    banned_found = [term for term in PF2_E2E_BANNED_TERMS if term in visible_text]
+    try:
+        jobposting = json.loads(jobposting_raw) if jobposting_raw else {}
+    except Exception:
+        jobposting = {}
+    try:
+        distribution = json.loads(distribution_raw) if distribution_raw else {}
+    except Exception:
+        distribution = {}
+    hiring_org = jobposting.get("hiringOrganization") if isinstance(jobposting, dict) else {}
+    hiring_org = hiring_org if isinstance(hiring_org, dict) else {}
+    public_urls = distribution.get("public_urls") if isinstance(distribution, dict) else {}
+    public_urls = public_urls if isinstance(public_urls, dict) else {}
+    media_check = pf2_check_media_alignment(job, jobposting=jobposting, indeed_xml=indeed_xml)
+    content_checks = {
+        "zip_has_only_site_root": not unexpected_roots,
+        "future_craft_css_present": "body.fc-site" in site_css and ".fc-hero" in site_css,
+        "future_craft_html_present": 'class="fc-site"' in index_html and 'data-archetype=' in index_html,
+        "no_legacy_pageflow_chrome": all(token not in visible_text for token in ["PageFlowAI", "cvhb-", "pv-"]),
+        "company_name_in_index": bool(company_name and company_name in index_html),
+        "company_name_in_recruitment": bool(company_name and company_name in recruitment_html),
+        "job_title_in_recruitment": bool(job_title and job_title in recruitment_html),
+        "jobposting_json_valid": isinstance(jobposting, dict) and bool(jobposting),
+        "jobposting_title_matches": bool(job_title and pf2_text(jobposting.get("title")) == job_title),
+        "jobposting_company_matches": bool(company_name and pf2_text(hiring_org.get("name")) == company_name),
+        "distribution_json_valid": isinstance(distribution, dict) and bool(distribution),
+        "distribution_has_public_urls": bool(public_urls.get("recruitment_page") or public_urls.get("home")),
+        "indeed_xml_contains_job_title": bool(job_title and job_title in indeed_xml),
+        "indeed_xml_contains_company": bool(company_name and company_name in indeed_xml),
+        "sitemap_references_home": "index.html" in sitemap_xml or "<loc>" in sitemap_xml,
+        "sitemap_references_recruitment": RECRUITMENT_PAGE_PATH in sitemap_xml or "recruitment/" in sitemap_xml,
+        "robots_references_sitemap": "Sitemap:" in robots_txt,
+        "site_css_not_empty": len(site_css.strip()) > 1000,
+        "site_js_not_empty": len(site_js.strip()) > 300,
+        "media_alignment_passed": not bool(media_check.get("blocks")),
+        "no_banned_terms": not bool(banned_found),
+    }
+    critical_failed = [f"missing:{path}" for path in missing]
+    critical_failed.extend([key for key, value in content_checks.items() if not value])
+    return {
+        "ok": not critical_failed,
+        "export_type": pf2_text(export_type) or "zip_pack",
+        "project_id": pf2_text(p.get("project_id")),
+        "job_id": jid,
+        "company_name": company_name,
+        "job_title": job_title,
+        "zip_member_count": len(raw_names),
+        "site_file_count": len(site_files),
+        "required_count": len(PF2_PUBLIC_ZIP_REQUIRED_SITE_PATHS),
+        "missing": missing,
+        "unexpected_roots": unexpected_roots,
+        "content_checks": content_checks,
+        "banned_found": banned_found,
+        "media_blocks": media_check.get("blocks", []),
+        "critical_failed": critical_failed,
+    }
+
+
+def pf2_sales_ready_zip_diagnostics() -> dict:
+    """Export all sales-ready demos and validate the final ZIP contents."""
+    rows: list[dict] = []
+    for project in pf2_sales_ready_demo_projects():
+        jid = pf2_active_job_id_for_project(project)
+        homepage_export = pf2_local_export_homepage_project(project)
+        homepage_validation = pf2_validate_public_zip_bundle(homepage_export.get("zip_bytes", b""), homepage_export.get("project", project), export_type="homepage_zip_pack")
+        job_export = pf2_local_export_project(project, jid)
+        job_validation = pf2_validate_public_zip_bundle(job_export.get("zip_bytes", b""), job_export.get("project", project), export_type="zip_pack")
+        rows.append({
+            "project_id": pf2_text(project.get("project_id")),
+            "job_id": jid,
+            "homepage_ok": bool(homepage_export.get("ok")) and bool(homepage_validation.get("ok")),
+            "job_ok": bool(job_export.get("ok")) and bool(job_validation.get("ok")),
+            "homepage_file_count": homepage_validation.get("site_file_count"),
+            "job_file_count": job_validation.get("site_file_count"),
+            "homepage_missing": homepage_validation.get("missing", []),
+            "job_missing": job_validation.get("missing", []),
+            "homepage_failed": homepage_validation.get("critical_failed", []),
+            "job_failed": job_validation.get("critical_failed", []),
+        })
+    return {
+        "project_count": len(rows),
+        "rows": rows,
+        "all_zip_bundles_valid": all(row.get("homepage_ok") and row.get("job_ok") for row in rows),
+    }
+
+
 def pf2_local_data_dir() -> Path:
     configured = pf2_text(os.getenv("PF2_LOCAL_DATA_DIR"))
     if configured:
@@ -19168,10 +19334,59 @@ def build_pageflowai2_site_files(project: dict) -> dict[str, bytes]:
     </form></div></section></main>'''
     privacy_body = '<main id="main"><section class="fc-section"><div class="fc-wrap"><p class="fc-kicker">PRIVACY</p><h1>プライバシーポリシー</h1><div class="fc-panel"><p>お問い合わせや応募相談で受け取った情報は、連絡と確認の目的で取り扱います。公開前に内容を確認してください。</p></div></div></section></main>'
     thanks_body = '<main id="main"><section class="fc-section"><div class="fc-wrap"><p class="fc-kicker">THANKS</p><h1>送信を受け付けました</h1><p class="fc-lead">内容を確認し、必要に応じてご連絡します。</p><div class="fc-actions"><a class="fc-btn primary" href="index.html">トップへ戻る</a></div></div></section></main>'
+    news_body = f'''<main id="main"><section class="fc-section"><div class="fc-wrap"><p class="fc-kicker">NEWS</p><h1>お知らせ</h1><div class="fc-grid">
+      <article class="fc-card"><span class="fc-tag">INFO</span><h3>{esc(company_name)}の情報を確認できます</h3><p>会社紹介、事業内容、求人ページへの案内をまとめています。</p></article>
+      <article class="fc-card"><span class="fc-tag">RECRUIT</span><h3>{esc(recruitment_label)}</h3><p>{esc(recruitment_lead)}</p><p><a href="../recruit.html">求人ページを見る</a></p></article>
+    </div></div></section></main>'''
+    site_js = """
+(function(){
+  document.documentElement.classList.add('fc-js');
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('a[href^="#"]').forEach(function(anchor){
+    anchor.addEventListener('click', function(event){
+      const id = anchor.getAttribute('href');
+      if(!id || id === '#') return;
+      const target = document.querySelector(id);
+      if(!target) return;
+      event.preventDefault();
+      target.scrollIntoView({behavior: reduce ? 'auto' : 'smooth', block: 'start'});
+    });
+  });
+  document.querySelectorAll('.fc-card[href]').forEach(function(card){
+    card.setAttribute('role', 'link');
+    card.setAttribute('tabindex', '0');
+    card.addEventListener('keydown', function(event){
+      if(event.key === 'Enter' || event.key === ' '){
+        event.preventDefault();
+        location.href = card.getAttribute('href');
+      }
+    });
+  });
+  document.querySelectorAll('img').forEach(function(img){
+    img.addEventListener('error', function(){
+      img.closest('.fc-visual')?.classList.add('fc-visual-missing');
+    }, {once:true});
+  });
+})();
+""".strip()
+    site_version = {
+        "product": "public-site-bundle",
+        "generator": "public-bundle-generator",
+        "bundle_schema": "pf2-public-bundle-v1",
+        "generated_at": now_jst_iso(),
+    }
+    site_design = {
+        "archetype": archetype,
+        "mobile_first": True,
+        "source": "future-craft-portable-prototype",
+        "pages": ["index.html", "about.html", "services.html", "recruit.html", RECRUITMENT_PAGE_PATH],
+    }
 
     files: dict[str, bytes] = {
         "assets/site.css": _pf2_future_craft_css().encode("utf-8"),
-        "assets/site.js": b"document.documentElement.classList.add('fc-js');",
+        "assets/site.js": site_js.encode("utf-8"),
+        "assets/site.version.json": json.dumps(site_version, ensure_ascii=False, indent=2).encode("utf-8"),
+        "assets/site.design.json": json.dumps(site_design, ensure_ascii=False, indent=2).encode("utf-8"),
         "index.html": shell(f"{company_name}", home_body, description=hero_lead).encode("utf-8"),
         "about.html": shell(f"{about_title}｜{company_name}", about_body_html, description=about_body).encode("utf-8"),
         "services.html": shell(f"{services_title}｜{company_name}", services_body_html, description=services_body).encode("utf-8"),
@@ -19180,6 +19395,7 @@ def build_pageflowai2_site_files(project: dict) -> dict[str, bytes]:
         "contact.html": shell(f"{contact_button}｜{company_name}", contact_body, description=access_notes).encode("utf-8"),
         "privacy.html": shell(f"プライバシーポリシー｜{company_name}", privacy_body, description="プライバシーポリシー").encode("utf-8"),
         "thanks.html": shell(f"送信完了｜{company_name}", thanks_body, description="送信完了").encode("utf-8"),
+        "news/index.html": shell(f"お知らせ｜{company_name}", news_body, description="お知らせ", prefix="../").encode("utf-8"),
         "404.html": shell(f"ページが見つかりません｜{company_name}", '<main id="main"><section class="fc-section"><div class="fc-wrap"><h1>ページが見つかりません</h1><p class="fc-lead">トップページから確認してください。</p><div class="fc-actions"><a class="fc-btn primary" href="index.html">トップへ戻る</a></div></div></section></main>').encode("utf-8"),
         "_redirects": "/thanks /thanks.html 200\n/* /404.html 404\n".encode("utf-8"),
         "_headers": "/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n".encode("utf-8"),
